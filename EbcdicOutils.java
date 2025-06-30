@@ -140,23 +140,47 @@ public class EbcdicOutils {
         byte PIPE = (byte) 0x79;
         byte BROKEN_BAR = (byte) 0x8C;
 
-        for (int i = 0; i < ebcdicBytes.length; i++) {
-            byte b = ebcdicBytes[i];
-            if (b == SQUARE_BRACKET) ebcdicBytes[i] = QUESTION_MARK;
-            else if (b == CIRCUMFLEX || b == PIPE) ebcdicBytes[i] = QUESTION_MARK;
-            else if (b == BROKEN_BAR) ebcdicBytes[i] = PIPE;
-            else if (b == WEIRD1) ebcdicBytes[i] = CIRCUMFLEX;
+        // Remplacement sélectif comme dans le C#
+        if (contains(ebcdicBytes, SQUARE_BRACKET)) {
+            ebcdicBytes = replaceByte(ebcdicBytes, SQUARE_BRACKET, QUESTION_MARK);
+        }
+        if (contains(ebcdicBytes, CIRCUMFLEX) || contains(ebcdicBytes, PIPE)) {
+            ebcdicBytes = replaceByte(ebcdicBytes, CIRCUMFLEX, QUESTION_MARK);
+            ebcdicBytes = replaceByte(ebcdicBytes, PIPE, QUESTION_MARK);
+        }
+        if (contains(ebcdicBytes, BROKEN_BAR)) {
+            ebcdicBytes = replaceByte(ebcdicBytes, BROKEN_BAR, PIPE);
+        }
+        if (contains(ebcdicBytes, WEIRD1)) {
+            ebcdicBytes = replaceByte(ebcdicBytes, WEIRD1, CIRCUMFLEX);
         }
 
         Charset ebcdicCharset = Charset.forName("Cp037");
         String text = new String(ebcdicBytes, ebcdicCharset);
 
         if (printableOnly) {
-            text = text.replaceAll("[\\u0000-\\u001F\\u007F]", "^");
+            // Seuls les caractères imprimables ASCII
+            text = text.replaceAll("[^\\x20-\\x7E]", "?");
         }
 
         return text;
     }
+
+    private static boolean contains(byte[] array, byte target) {
+        for (byte b : array) {
+            if (b == target) return true;
+        }
+        return false;
+    }
+
+    private static byte[] replaceByte(byte[] array, byte from, byte to) {
+        byte[] result = Arrays.copyOf(array, array.length);
+        for (int i = 0; i < result.length; i++) {
+            if (result[i] == from) result[i] = to;
+        }
+        return result;
+    }
+
 
     public static String conversionEBCDICToAscii2(byte[] ebcdicBytes, boolean printableOnly) {
         String result = conversionEBCDICToAscii(ebcdicBytes, printableOnly);
