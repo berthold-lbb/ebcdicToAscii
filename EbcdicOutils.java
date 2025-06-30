@@ -181,6 +181,26 @@ public class EbcdicOutils {
         return result;
     }
 
+    public static String conversionEBCDICToAscii(byte[] ebcdicBytes, boolean printableOnly) {
+        if (ebcdicBytes == null) return "";
+
+        Charset ebcdicCharset = Charset.forName("Cp037");
+        String text = new String(ebcdicBytes, ebcdicCharset);
+
+        // Remplacements d'après la logique C#
+        text = text.replace('[', '?');       // SQUARE_BRACKET
+        text = text.replace('^', '?');       // CIRCUMFLEX
+        text = text.replace('|', '?');       // PIPE
+        text = text.replace('¬', '|');       // BROKEN_BAR
+        text = text.replace('\u0095', '^');  // WEIRD1
+
+        if (printableOnly) {
+            text = text.replaceAll("[^\\x20-\\x7E]", "?");
+        }
+
+        return text;
+    }
+
 
     public static String conversionEBCDICToAscii2(byte[] ebcdicBytes, boolean printableOnly) {
         String result = conversionEBCDICToAscii(ebcdicBytes, printableOnly);
