@@ -174,7 +174,6 @@ public class EbcdicOutils {
                     num = 0;
                 }
 
-                // ✅ Mapping corrigé selon ton screenshot original en C#
                 StringBuilder textBuilder = new StringBuilder();
                 textBuilder.append(conversionEBCDICToAscii(array2, true));
                 textBuilder.append(conversionEBCDICToAscii(array3, false));
@@ -222,6 +221,7 @@ public class EbcdicOutils {
 
         return true;
     }
+
 
     public static void verifierChamp(int tailleCopiee, int tailleAttendue, InputStream is) throws IOException {
         if (tailleCopiee < tailleAttendue && is.available() > 0) {
