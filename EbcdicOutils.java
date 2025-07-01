@@ -95,7 +95,7 @@ public class EbcdicOutils {
                     verifierChamp(deplacerByteArray(array, offset + 23, array15), array15.length, bis);
                     verifierChamp(deplacerByteArray(array, offset + 26, array16), array16.length, bis);
 
-                    text += padLeft(conversionPackedToAscii(array10, 0), 1, paddingChar);
+                    text += padLeft(conversionPackedToAscii(array10, 0), 3, paddingChar);
                     text += padLeft(conversionPackedToAscii(array11, 0), 15, paddingChar);
                     text += conversionEBCDICToAscii(array12, false);
                     text += conversionEBCDICToAscii(array13, false);
@@ -121,6 +121,105 @@ public class EbcdicOutils {
             e.printStackTrace();
             return false;
         }
+        return true;
+    }
+
+    public static boolean plcConvert2(String inputFile, String outputFile) {
+        byte[] array = new byte[20000];
+        byte[] array2 = new byte[233];
+        byte[] array3 = new byte[9];
+        byte[] array4 = new byte[1156];
+        byte[] array5 = new byte[3];
+        byte[] array6 = new byte[3];
+        byte[] array7 = new byte[3];
+        byte[] array8 = new byte[3];
+        byte[] array9 = new byte[2];
+        byte[] array10 = new byte[3];
+        byte[] array11 = new byte[3];
+        byte[] array12 = new byte[100];
+        byte[] array13 = new byte[100];
+        byte[] array14 = new byte[3];
+        byte[] array15 = new byte[3];
+        byte[] array16 = new byte[8];
+
+        char paddingChar = '0';
+
+        try (FileInputStream fis = new FileInputStream(inputFile);
+            BufferedInputStream bis = new BufferedInputStream(fis);
+            BufferedWriter bw = new BufferedWriter(new FileWriter(outputFile))) {
+
+            int num2 = lireProchaineLigne(bis, array, (byte)10, 10);
+            String text = conversionEBCDICToAscii(array, true).trim();
+            bw.write(text);
+            bw.newLine();
+
+            while (bis.available() >= 1390) {
+                Arrays.fill(array, (byte) 0);
+
+                num2 = lireProchaineLigne(bis, array, (byte)10, 1390);
+
+                deplacerByteArray(array, 0, array2);
+                deplacerByteArray(array, 233, array3);
+                deplacerByteArray(array, 242, array4);
+                deplacerByteArray(array, 1398, array5);
+                deplacerByteArray(array, 1401, array6);
+                deplacerByteArray(array, 1404, array7);
+                deplacerByteArray(array, 1407, array8);
+                deplacerByteArray(array, 1410, array9);
+
+                int num = 0;
+                try {
+                    num = Integer.parseInt(conversionPackedToAscii(array9, 0));
+                } catch (Exception e) {
+                    num = 0;
+                }
+
+                // ✅ Mapping corrigé selon ton screenshot original en C#
+                StringBuilder textBuilder = new StringBuilder();
+                textBuilder.append(conversionEBCDICToAscii(array2, true));
+                textBuilder.append(conversionEBCDICToAscii(array3, false));
+                textBuilder.append(conversionEBCDICToAscii(array4, true));
+                textBuilder.append(padLeft(conversionPackedToAscii(array5, 0), 5, paddingChar));
+                textBuilder.append(padLeft(conversionPackedToAscii(array6, 0), 5, paddingChar));
+                textBuilder.append(padLeft(conversionPackedToAscii(array7, 0), 5, paddingChar));
+                textBuilder.append(padLeft(conversionPackedToAscii(array8, 0), 5, paddingChar));
+                textBuilder.append(conversionEBCDICToAscii(array9, true));
+                textBuilder.append(padLeft(conversionPackedToAscii(array9, 0), 2, paddingChar));
+
+                for (int i = 0; i < num; i++) {
+                    int offset = 1448 + i * 44;
+                    deplacerByteArray(array, offset, array10);
+                    deplacerByteArray(array, offset + 2, array11);
+                    deplacerByteArray(array, offset + 4, array12);
+                    deplacerByteArray(array, offset + 14, array13);
+                    deplacerByteArray(array, offset + 24, array14);
+                    deplacerByteArray(array, offset + 27, array15);
+                    deplacerByteArray(array, offset + 30, array16);
+
+                    textBuilder.append(padLeft(conversionPackedToAscii(array10, 0), 3, paddingChar));
+                    textBuilder.append(padLeft(conversionPackedToAscii(array11, 0), 15, paddingChar));
+                    textBuilder.append(conversionEBCDICToAscii(array12, false));
+                    textBuilder.append(conversionEBCDICToAscii(array13, false));
+                    textBuilder.append(conversionEBCDICToAscii(array14, false));
+                    textBuilder.append(conversionEBCDICToAscii(array15, false));
+                    textBuilder.append(padLeft(conversionPackedToAscii(array16, 0), 15, paddingChar));
+                }
+
+                bw.write(textBuilder.toString());
+                bw.newLine();
+            }
+
+            Arrays.fill(array, (byte) 0);
+            num2 = lireProchaineLigne(bis, array, (byte)10, 10);
+            text = conversionEBCDICToAscii(array, true).trim();
+            bw.write(text);
+            bw.newLine();
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+
         return true;
     }
 
