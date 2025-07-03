@@ -114,10 +114,13 @@ public class BatchFluxPremierJourChargementConfiguration {
      * Step de conversion EBCDIC -> ASCII
      */
     @Bean
-    public Step stepConversionEbcdic(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
-        return new StepBuilder("stepConversionEbcdic", jobRepository)
-                .tasklet(conversionEbcdicTasklet(null, null), transactionManager)
-                .build();
+    public Step stepCleanupFluxPremierJour(
+        JobRepository jobRepository,
+        PlatformTransactionManager transactionManager) {
+
+        return new StepBuilder("stepCleanupFluxPremierJour", jobRepository)
+            .tasklet(cleanupFichierConvertiTasklet(null), transactionManager)
+            .build();
     }
 
     @Bean
@@ -176,4 +179,47 @@ public class BatchFluxPremierJourChargementConfiguration {
                 .tasklet(cleanupFichierConvertiTasklet(null), transactionManager)
                 .build();
     }
+}
+
+
+
+@Bean
+@StepScope
+public Tasklet conversionEbcdicTasklet(
+    @Value("#{jobParameters['job.fichier.nom.lecture']}") String nomFichier,
+    MFTClient mftClient) {
+
+    return (contribution, chunkContext) -> {
+
+        // 1. Télécharger le fichier depuis le MFT
+        InputStream inputStream = new MftFileResourceBuilder()
+            .mftClient(mftClient)
+            .nomConfiguration("flux_premier_jour_lecture")
+            .nomFichier(nomFichier)
+            .build()
+            .getInputStream();
+
+        // 2. Créer un fichier temporaire .ebc pour la conversion
+        Path fichierTempEBCDIC = Files.createTempFile("source_", ".ebc");
+        Files.copy(inputStream, fichierTempEBCDIC, StandardCopyOption.REPLACE_EXISTING);
+
+        // 3. Créer un fichier temporaire .txt pour la sortie ASCII
+        Path fichierTempASCII = Files.createTempFile("converted_", ".txt");
+
+        // 4. Lancer la conversion
+        boolean success = EbcdicOutils.plcConvert(
+            fichierTempEBCDIC.toAbsolutePath().toString(),
+            fichierTempASCII.toAbsolutePath().toString());
+
+        if (!success) {
+            throw new IllegalStateException("Échec conversion EBCDIC → ASCII");
+        }
+
+        // 5. Stocker le fichier converti dans le contexte
+        chunkContext.getStepContext().getStepExecution()
+            .getJobExecution().getExecutionContext()
+            .putString("fichierConverti", fichierTempASCII.toAbsolutePath().toString());
+
+        return RepeatStatus.FINISHED;
+    };
 }
