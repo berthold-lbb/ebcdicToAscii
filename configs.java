@@ -60,3 +60,95 @@ public class BatchConfiguration {
             .build();
     }
 }
+
+
+
+@Configuration
+public class BatchFluxPremierJourChargementConfiguration {
+    public static final String JOB_NAME = "jobFluxPremierJourChargement";
+
+    @Value("${chunk.size:5}")
+    private int chunkSize;
+
+    @Bean
+    public Job jobFluxPremierJourChargement(
+            JobRepository jobRepository,
+            @Qualifier("stepConversionEbcdic") Step stepConversionEbcdic,
+            @Qualifier("stepChargementFluxPremierJour") Step stepChargementFluxPremierJour,
+            @Qualifier("stepCleanupFichierConverti") Step stepCleanupFichierConverti,
+            LogJobListener logJobListener) {
+        return new JobBuilder(JOB_NAME, jobRepository)
+                .start(stepConversionEbcdic)
+                .next(stepChargementFluxPremierJour)
+                .next(stepCleanupFichierConverti)
+                .listener(logJobListener)
+                .build();
+    }
+
+    /**
+     * Step de conversion EBCDIC -> ASCII
+     */
+    @Bean
+    public Step stepConversionEbcdic(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+        return new StepBuilder("stepConversionEbcdic", jobRepository)
+                .tasklet(conversionEbcdicTasklet(null, null), transactionManager)
+                .build();
+    }
+
+    @Bean
+    @StepScope
+    public ConversionEbcdicTasklet conversionEbcdicTasklet(
+            @Value("#{jobParameters['job.fichier.nom.lecture']}") String nomFichierEbcdic,
+            @Value("#{jobExecutionContext['fichierConverti']}") String fichierConverti
+    ) {
+        return new ConversionEbcdicTasklet(nomFichierEbcdic, fichierConverti);
+    }
+
+    /**
+     * Step principal de lecture/traitement du fichier converti
+     */
+    @Bean
+    public Step stepChargementFluxPremierJour(
+            JobRepository jobRepository,
+            PlatformTransactionManager transactionManager,
+            @Qualifier("beanLectureFluxPremierJourChargement") FlatFileItemReader<RubanSicDto> reader,
+            // ... autres beans comme processor, writer, listener
+    ) {
+        return new StepBuilder("stepChargementFluxPremierJour", jobRepository)
+                .<RubanSicDto, RubanSicDto>chunk(chunkSize, transactionManager)
+                .reader(reader)
+                // .processor(processor)
+                // .writer(writer)
+                // .listener(listener)
+                .build();
+    }
+
+    /**
+     * Step de suppression du fichier converti
+     */
+    @Bean
+    @StepScope
+    public Tasklet cleanupFichierConvertiTasklet(
+            @Value("#{jobExecutionContext['fichierConverti']}") String fichierConverti
+    ) {
+        return (contribution, chunkContext) -> {
+            if (fichierConverti != null && !fichierConverti.isBlank()) {
+                try {
+                    Files.deleteIfExists(Path.of(fichierConverti));
+                    System.out.println("Fichier temporaire supprimé : " + fichierConverti);
+                } catch (Exception e) {
+                    System.err.println("Erreur lors de la suppression du fichier temporaire : " + fichierConverti);
+                    e.printStackTrace();
+                }
+            }
+            return RepeatStatus.FINISHED;
+        };
+    }
+
+    @Bean
+    public Step stepCleanupFichierConverti(JobRepository jobRepository, PlatformTransactionManager transactionManager) {
+        return new StepBuilder("stepCleanupFichierConverti", jobRepository)
+                .tasklet(cleanupFichierConvertiTasklet(null), transactionManager)
+                .build();
+    }
+}
