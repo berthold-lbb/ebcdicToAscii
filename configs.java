@@ -62,6 +62,31 @@ public class BatchConfiguration {
 }
 
 
+@Bean
+@StepScope
+public Tasklet conversionEbcdicTasklet(
+        @Value("#{jobParameters['job.fichier.nom.lecture']}") String fichierEBCDIC
+) {
+    return (StepContribution contribution, ChunkContext chunkContext) -> {
+        // 1. Créer un fichier temporaire pour la sortie ASCII
+        Path tempFile = Files.createTempFile("converted_", ".txt");
+        String fichierConverti = tempFile.toAbsolutePath().toString();
+
+        // 2. Conversion EBCDIC → ASCII
+        boolean success = EbcdicOutils.plcConvert(fichierEBCDIC, fichierConverti);
+        if (!success) throw new IllegalStateException("Échec conversion EBCDIC → ASCII");
+
+        // 3. Stocke le chemin dans le contexte d’exécution du job
+        chunkContext.getStepContext().getStepExecution()
+            .getJobExecution().getExecutionContext()
+            .putString("fichierConverti", fichierConverti);
+
+        return RepeatStatus.FINISHED;
+    };
+}
+
+
+
 
 @Configuration
 public class BatchFluxPremierJourChargementConfiguration {
