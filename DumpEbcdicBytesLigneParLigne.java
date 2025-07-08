@@ -41,4 +41,54 @@ public class DumpEbcdicBytesLigneParLigne {
             e.printStackTrace();
         }
     }
+
+    @MockBean
+private MFTClient mftClient;
+
+@MockBean
+private MftFileResourceBuilder mftFileResourceBuilder;
+
+@MockBean
+private MftFileResource mftFileResource;
+
+// ...
+
+@Test
+void testJob_withMockedResourceStream() throws Exception {
+    // Prépare le flux simulé (faux contenu EBCDIC)
+    byte[] fakeBytes = new byte[] { (byte) 0xC1, (byte) 0xC2, (byte) 0xC3 };
+    ByteArrayInputStream fakeStream = new ByteArrayInputStream(fakeBytes);
+
+    // Arrange les mocks de la chaîne
+    Mockito.when(mftFileResourceBuilder
+        .mftClient(Mockito.any()))
+        .thenReturn(mftFileResourceBuilder); // chainage
+
+    Mockito.when(mftFileResourceBuilder
+        .nomConfiguration(Mockito.anyString()))
+        .thenReturn(mftFileResourceBuilder);
+
+    Mockito.when(mftFileResourceBuilder
+        .nomFichier(Mockito.anyString()))
+        .thenReturn(mftFileResourceBuilder);
+
+    Mockito.when(mftFileResourceBuilder
+        .build())
+        .thenReturn(mftFileResource);
+
+    Mockito.when(mftFileResource
+        .getInputStream())
+        .thenReturn(fakeStream);
+
+    // Puis tu lances le job comme dans tes tests précédents !
+    this.jobLauncherTestUtils.setJob(this.job);
+    JobParameters params = new JobParametersBuilder()
+            .addString("job.fichier.nom.lecture", "dummy.txt")
+            .toJobParameters();
+    JobExecution execution = this.jobLauncherTestUtils.launchJob(params);
+
+    Assertions.assertNotNull(execution);
+    Assertions.assertEquals(BatchStatus.COMPLETED, execution.getStatus());
+}
+
 }
