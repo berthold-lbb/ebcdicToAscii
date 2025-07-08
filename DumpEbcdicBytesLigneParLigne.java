@@ -91,4 +91,66 @@ void testJob_withMockedResourceStream() throws Exception {
     Assertions.assertEquals(BatchStatus.COMPLETED, execution.getStatus());
 }
 
+ @Test
+    void testCleanupFichierConvertiTasklet_suppressionOK() throws Exception {
+        // Création d'un fichier temporaire à supprimer
+        Path tempFile = Files.createTempFile("test_cleanup_", ".txt");
+        String fichierConverti = tempFile.toAbsolutePath().toString();
+
+        var tasklet = new BatchFluxPremierJourChargementConfiguration()
+            .cleanupFichierConvertiTasklet(fichierConverti);
+
+        // chunkContext peut être null pour ce test
+        var status = tasklet.execute(null, null);
+
+        assertFalse(Files.exists(tempFile), "Le fichier doit être supprimé");
+        assertEquals(RepeatStatus.FINISHED, status);
+    }
+
+    @Test
+void testCleanupFichierConvertiTasklet_fichierAbsent() throws Exception {
+    String fichierConverti = "/tmp/fichier_qui_nexiste_pas.txt";
+    var tasklet = new BatchFluxPremierJourChargementConfiguration()
+        .cleanupFichierConvertiTasklet(fichierConverti);
+
+    var status = tasklet.execute(null, null);
+    assertEquals(RepeatStatus.FINISHED, status);
+}
+
+@Test
+void testCleanupFichierConvertiTasklet_paramVide() throws Exception {
+    String fichierConverti = "";
+    var tasklet = new BatchFluxPremierJourChargementConfiguration()
+        .cleanupFichierConvertiTasklet(fichierConverti);
+
+    var status = tasklet.execute(null, null);
+    assertEquals(RepeatStatus.FINISHED, status);
+}
+
+@Test
+    void testLectureFluxPremierJourChargement_withMockedLineMapper() throws Exception {
+        // Arrange : fichier ASCII temporaire
+        Path fichier = Files.createTempFile("test_", ".txt");
+        Files.writeString(fichier, "ligneTest1\nligneTest2\n");
+        
+        // Mock du lineMapper
+        RubanSicModelLineMapper lineMapper = mock(RubanSicModelLineMapper.class);
+        RubanSicDto dto1 = new RubanSicDto();
+        when(lineMapper.mapLine(anyString(), anyInt())).thenReturn(dto1);
+        
+        // Ici, tu instancies ta config ou appelles la méthode statique/bean
+        BatchFluxPremierJourChargementConfiguration config = new BatchFluxPremierJourChargementConfiguration();
+        FlatFileItemReader<RubanSicDto> reader = config.lectureFluxPremierJourChargement(
+                fichier.toString(),
+                mock(MFTClient.class),
+                lineMapper
+        );
+        
+        // Act & Assert
+        reader.open(new ExecutionContext());
+        assertSame(dto1, reader.read());
+        assertSame(dto1, reader.read()); // Toujours le mock ici
+        reader.close();
+    }
+
 }
