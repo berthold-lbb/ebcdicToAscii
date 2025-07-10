@@ -21,42 +21,51 @@ import org.springframework.batch.item.ItemReader;
 import java.io.*;
 
 public class EbcdicRubanSicDtoReader implements ItemReader<RubanSicDto> {
-    private final BufferedInputStream bis;
-    private boolean headerSkipped = false;
-    private boolean footerReached = false;
+    private final DataInputStream binaryReader;
+    private boolean enteteLue = false;
+    private boolean piedDePageLue = false;
+    // stocke temporairement les DTO à retourner ligne à ligne
+    private Queue<RubanSicDto> buffer = new LinkedList<>();
 
-    public EbcdicRubanSicDtoReader(InputStream inputStream) {
-        this.bis = new BufferedInputStream(inputStream);
+    public EbcdicRubanSicDtoReader(InputStream is) {
+        this.binaryReader = new DataInputStream(new BufferedInputStream(is));
     }
 
     @Override
     public RubanSicDto read() throws Exception {
-        // 1. Skip entête
-        if (!headerSkipped) {
-            byte[] header = new byte[10];
-            int readHeader = bis.read(header);
-            headerSkipped = true;
-            // Si tu veux traiter l'en-tête, tu peux ici
-            if (readHeader < 10) return null;
+        if (!enteteLue) {
+            // ----------- LIRE ENTETE -----------
+            byte[] enteteBytes = new byte[10];
+            lireProchaineLigne(binaryReader, enteteBytes, (byte)10, 10);
+            String header = conversionEBCDIC2Ascii(enteteBytes, true);
+            RubanSicDto dto = RubanSicModelLineMapper.mapLine(header.trim());
+            enteteLue = true;
+            return dto; // Retourne l’entête d’abord
         }
 
-        // 2. Corps : lecture par bloc
-        byte[] buffer = new byte[1390];
-        int read = bis.read(buffer);
-        if (read == -1 || read < 1390) {
-            // 3. Lire et ignorer le pied de page (optionnel)
-            if (!footerReached) {
-                byte[] footer = new byte[10];
-                bis.read(footer);
-                footerReached = true;
-            }
-            return null; // EOF
+        // ---------- LIRE CORPS -----------
+        if (binaryReader.available() >= 1390) {
+            byte[] ligneBytes = new byte[1390];
+            lireProchaineLigne(binaryReader, ligneBytes, (byte)10, 1390);
+            // Ici tu fais ta logique de découpe champ à champ comme dans ton code
+            // ... (découpe chaque champ, conversion packed, etc.)
+            String corpsDecodé = ...; // Construit à partir des champs décodés
+            RubanSicDto dto = RubanSicModelLineMapper.mapLine(corpsDecodé);
+            return dto;
         }
 
-        // 4. Conversion custom EBCDIC → ASCII via ta logique
-        String ligneDecodee = PlcConvertUtil.plcconvert(buffer);
-        // 5. Mapping vers DTO
-        RubanSicDto dto = RubanSicMapper.map(ligneDecodee);
-        return dto;
+        // ----------- LIRE PIED DE PAGE (si pas encore fait) -----------
+        if (!piedDePageLue && binaryReader.available() > 0) {
+            byte[] piedBytes = new byte[10];
+            lireProchaineLigne(binaryReader, piedBytes, (byte)10, 10);
+            String footer = conversionEBCDIC2Ascii(piedBytes, true);
+            RubanSicDto dto = RubanSicModelLineMapper.mapLine(footer.trim());
+            piedDePageLue = true;
+            return dto;
+        }
+
+        // ----------- FIN DU FICHIER -----------
+        return null;
     }
 }
+
