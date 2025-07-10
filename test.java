@@ -69,3 +69,26 @@ public class EbcdicRubanSicDtoReader implements ItemReader<RubanSicDto> {
     }
 }
 
+
+
+public static int lireProchaineLigne(DataInputStream br, byte[] bDstArray, byte bChar, int intExpectedMinimumLength) throws IOException {
+    int num = 0;
+    int b2;
+    while (num < intExpectedMinimumLength) {
+        b2 = br.read();
+        if (b2 == -1) {
+            // Fin de fichier
+            break;
+        }
+        if ((byte) b2 == bChar) {
+            // Caractère de fin de ligne atteint (optionnel, selon ton format)
+            break;
+        }
+        bDstArray[num++] = (byte) b2;
+    }
+    // Si tu veux remplir le reste du buffer par des zéros si fin de flux prématurée :
+    while (num < intExpectedMinimumLength) {
+        bDstArray[num++] = 0;
+    }
+    return num;
+}
