@@ -92,3 +92,69 @@ public static int lireProchaineLigne(DataInputStream br, byte[] bDstArray, byte 
     }
     return num;
 }
+
+
+
+
+
+
+@Override
+public RubanSicDto read() throws Exception {
+    // Lire l'en-tête (une seule fois)
+    if (!enteteLue) {
+        byte[] headerBytes = new byte[10];
+        int lus = lireProchaineLigne(binaryReader, headerBytes, (byte) 10, 10);
+        if (lus < 1) return null; // Fin du fichier prématurée
+        String header = conversionEBCDIC2Ascii(headerBytes, true);
+        enteteLue = true;
+        return rubanSicModelLineMapper.mapLine(header.trim());
+    }
+
+    // Lire le corps du fichier (enregistrements de 1390 bytes)
+    byte[] corpsBytes = new byte[1390];
+    int lus = lireProchaineLigne(binaryReader, corpsBytes, (byte) 10, 1390);
+    if (lus < 1) {
+        // Fin de fichier (plus rien à lire)
+        return null;
+    } else if (lus < 1390) {
+        // Ici, tu peux décider que c'est le pied de page ou ignorer
+        piedDePageLue = true;
+        String footer = conversionEBCDIC2Ascii(Arrays.copyOf(corpsBytes, lus), true);
+        return rubanSicModelLineMapper.mapLine(footer.trim());
+    }
+
+    // ----- Logique de découpage champ à champ (comme dans ton batch d'origine) -----
+    // Les tableaux pour chaque champ
+    byte[] array2 = Arrays.copyOfRange(corpsBytes, 0, 233);
+    byte[] array3 = Arrays.copyOfRange(corpsBytes, 233, 242);
+    byte[] array4 = Arrays.copyOfRange(corpsBytes, 242, 1398);
+    byte[] array5 = Arrays.copyOfRange(corpsBytes, 1398, 1401);
+    byte[] array6 = Arrays.copyOfRange(corpsBytes, 1401, 1404);
+    byte[] array7 = Arrays.copyOfRange(corpsBytes, 1404, 1407);
+    byte[] array8 = Arrays.copyOfRange(corpsBytes, 1407, 1410);
+    byte[] array9 = Arrays.copyOfRange(corpsBytes, 1410, 1412);
+    // ...etc pour les autres champs...
+
+    int num = 0;
+    try {
+        num = Integer.parseInt(conversionPackedToAscii(array9, 0));
+    } catch (Exception e) {
+        num = 0;
+    }
+
+    char paddingChar = '0';
+    StringBuilder sb = new StringBuilder();
+    sb.append(conversionEBCDIC2Ascii(array2, true));
+    sb.append(padLeft(conversionPackedToAscii(array7, 0), 5, paddingChar));
+    sb.append(padLeft(conversionPackedToAscii(array8, 0), 2, paddingChar));
+    sb.append(conversionEBCDIC2Ascii(array3, false));
+    sb.append(conversionEBCDIC2Ascii(array4, true));
+    sb.append(padLeft(conversionPackedToAscii(array5, 0), 5, paddingChar));
+    sb.append(padLeft(conversionPackedToAscii(array6, 0), 5, paddingChar));
+    // ... Ajoute les autres champs nécessaires selon ta logique
+
+    // Pour les champs répétés, adapte ici si besoin (selon ta structure d'origine)
+
+    // Mapping final de la ligne décodée
+    return rubanSicModelLineMapper.mapLine(sb.toString());
+}
