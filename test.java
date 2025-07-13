@@ -158,3 +158,90 @@ public RubanSicDto read() throws Exception {
     // Mapping final de la ligne décodée
     return rubanSicModelLineMapper.mapLine(sb.toString());
 }
+
+
+
+public class EbcdicRawReader implements ItemReader<byte[]>, ItemStream {
+
+    private DataInputStream dis;
+    private boolean headerRead = false;
+    private boolean footerRead = false;
+
+    public EbcdicRawReader(File file) throws IOException {
+        dis = new DataInputStream(new BufferedInputStream(new FileInputStream(file)));
+    }
+
+    @Override
+    public byte[] read() throws Exception {
+        if (!headerRead) {
+            byte[] header = new byte[10];
+            int lus = dis.read(header);
+            if (lus < 10) return null; // erreur ou EOF
+            headerRead = true;
+            return header;
+        }
+
+        byte[] corps = new byte[1390];
+        int lus = dis.read(corps);
+        
+        if (lus == 1390) {
+            return corps;
+        } else if (!footerRead && lus > 0) {
+            // probablement pied de page
+            footerRead = true;
+            return Arrays.copyOf(corps, lus);
+        }
+        
+        return null; // fin du fichier
+    }
+
+    @Override public void open(ExecutionContext ctx) {}
+    @Override public void update(ExecutionContext ctx) {}
+    @Override public void close() throws IOException { dis.close(); }
+}
+
+
+
+public class EbcdicProcessor implements ItemProcessor<byte[], RubanSicDto> {
+
+    private boolean headerProcessed = false;
+    private boolean footerProcessed = false;
+
+    @Override
+    public RubanSicDto process(byte[] bloc) throws Exception {
+        String ligne;
+        
+        if (!headerProcessed) {
+            ligne = conversionEBCDICToAscii(bloc, true);
+            headerProcessed = true;
+        } else if (bloc.length == 1390) {
+            ligne = plcConvertCorps(bloc);  // Ta logique complexe actuelle
+        } else if (!footerProcessed) {
+            ligne = conversionEBCDICToAscii(bloc, true);
+            footerProcessed = true;
+        } else {
+            return null;
+        }
+
+        return RubanSicModelLineMapper.mapLine(ligne);
+    }
+
+    private String plcConvertCorps(byte[] corps) {
+        // Ton code actuel de plcConvert adapté sur corps (1390 octets)
+        // retourne la ligne ASCII correspondante
+        return "..."; // à compléter avec ta logique actuelle
+    }
+}
+
+
+@Bean
+public Step ebcdicStep(JobRepository jobRepository, PlatformTransactionManager tm,
+                       EbcdicRawReader reader, EbcdicProcessor processor,
+                       JdbcBatchItemWriter<RubanSicDto> writer) {
+    return new StepBuilder("ebcdicStep", jobRepository)
+        .<byte[], RubanSicDto>chunk(1000, tm)
+        .reader(reader)
+        .processor(processor)
+        .writer(writer)
+        .build();
+}
