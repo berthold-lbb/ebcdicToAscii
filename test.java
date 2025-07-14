@@ -379,3 +379,105 @@ public class EbcdicProcessor implements ItemProcessor<byte[], RubanSicDto> {
 
     // Tes méthodes conversionEBCDICToAscii et conversionPackedToAscii restent inchangées
 }
+
+
+
+
+
+@Component
+public class PlcConverterService {
+
+    public List<String> convertirFichierComplet(File file) throws Exception {
+        List<String> lignesConverties = new ArrayList<>();
+
+        try (BufferedInputStream bis = new BufferedInputStream(new FileInputStream(file))) {
+            byte[] buffer = new byte[20000]; // buffer général
+            char paddingChar = '0';
+
+            // Lire en-tête
+            int lus = lireProchaineLigne(bis, buffer, (byte)10, 10);
+            if (lus == 10) {
+                lignesConverties.add(conversionEBCDICToAscii(Arrays.copyOf(buffer, 10), true).trim());
+            }
+
+            // Lire corps
+            while (bis.available() >= 1390) {
+                lus = lireProchaineLigne(bis, buffer, (byte)10, 1390);
+                if (lus < 1390) break;
+
+                // Ta logique actuelle complète ici :
+                String ligne = appliquerLogiqueConversionCorps(buffer, paddingChar);
+                lignesConverties.add(ligne);
+            }
+
+            // Lire pied de page
+            lus = lireProchaineLigne(bis, buffer, (byte)10, 10);
+            if (lus == 10) {
+                lignesConverties.add(conversionEBCDICToAscii(Arrays.copyOf(buffer, 10), true).trim());
+            }
+        }
+
+        return lignesConverties;
+    }
+
+    private String appliquerLogiqueConversionCorps(byte[] array, char paddingChar) throws Exception {
+        byte[] array2 = new byte[233];
+        byte[] array3 = new byte[9];
+        byte[] array4 = new byte[1156];
+        byte[] array5 = new byte[3];
+        byte[] array6 = new byte[3];
+        byte[] array7 = new byte[3];
+        byte[] array8 = new byte[3];
+        byte[] array9 = new byte[2];
+        byte[] array16 = new byte[8];
+
+        verifierChamp(deplacerByteArray(array, 0, array2), array2.length);
+        verifierChamp(deplacerByteArray(array, 233, array3), array3.length);
+        verifierChamp(deplacerByteArray(array, 242, array4), array4.length);
+        verifierChamp(deplacerByteArray(array, 1398, array5), array5.length);
+        verifierChamp(deplacerByteArray(array, 1401, array6), array6.length);
+        verifierChamp(deplacerByteArray(array, 1404, array7), array7.length);
+        verifierChamp(deplacerByteArray(array, 1407, array8), array8.length);
+        verifierChamp(deplacerByteArray(array, 1410, array9), array9.length);
+
+        String text = conversionEBCDICToAscii(array2, true)
+            + padLeft(conversionPackedToAscii(array7, 0), 5, paddingChar)
+            + padLeft(conversionPackedToAscii(array8, 0), 2, paddingChar)
+            + conversionEBCDICToAscii(array3, false)
+            + conversionEBCDICToAscii(array4, true)
+            + padLeft(conversionPackedToAscii(array5, 0), 5, paddingChar)
+            + padLeft(conversionPackedToAscii(array6, 0), 5, paddingChar)
+            + conversionEBCDICToAscii(array16, true);
+
+        // Tu peux aussi ajouter ta boucle interne ici si besoin (enfants)
+
+        return text;
+    }
+
+    private int lireProchaineLigne(InputStream br, byte[] bDstArray, byte bChar, int len) throws IOException {
+        int num = 0, b2;
+        while (num < len && (b2 = br.read()) != -1 && (byte)b2 != bChar) {
+            bDstArray[num++] = (byte)b2;
+        }
+        return num;
+    }
+
+    private int deplacerByteArray(byte[] src, int offset, byte[] dst) {
+        int length = Math.min(dst.length, src.length - offset);
+        System.arraycopy(src, offset, dst, 0, length);
+        return length;
+    }
+
+    private void verifierChamp(int tailleCopiee, int tailleAttendue) throws Exception {
+        if (tailleCopiee < tailleAttendue) {
+            throw new Exception("Erreur taille champ attendue : " + tailleAttendue + ", obtenue : " + tailleCopiee);
+        }
+    }
+
+    private String padLeft(String input, int length, char padChar) {
+        return String.format("%" + length + "s", input).replace(' ', padChar);
+    }
+
+    // Tes méthodes conversionEBCDICToAscii et conversionPackedToAscii restent inchangées
+}
+
