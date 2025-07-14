@@ -481,3 +481,37 @@ public class PlcConverterService {
     // Tes méthodes conversionEBCDICToAscii et conversionPackedToAscii restent inchangées
 }
 
+
+@Component
+@StepScope
+public class EbcdicFullFileReader implements ItemReader<RubanSicDto>, ItemStream {
+
+    private final PlcConverterService converter;
+    private final RubanSicModelLineMapper mapper;
+    private Iterator<String> iterator;
+    private final File file;
+
+    @Autowired
+    public EbcdicFullFileReader(
+        @Value("#{jobParameters['inputFile']}") String inputFile,
+        PlcConverterService converter,
+        RubanSicModelLineMapper mapper
+    ) {
+        this.converter = converter;
+        this.mapper = mapper;
+        this.file = new File(inputFile);
+    }
+
+    @Override
+    public RubanSicDto read() throws Exception {
+        if (iterator == null) {
+            List<String> lignes = converter.convertirFichierComplet(file);
+            iterator = lignes.iterator();
+        }
+        return iterator.hasNext() ? mapper.mapLine(iterator.next()) : null;
+    }
+
+    @Override public void open(ExecutionContext ctx) { }
+    @Override public void update(ExecutionContext ctx) { }
+    @Override public void close() { }
+}
