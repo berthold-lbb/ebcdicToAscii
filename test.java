@@ -245,3 +245,137 @@ public Step ebcdicStep(JobRepository jobRepository, PlatformTransactionManager t
         .writer(writer)
         .build();
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+@Component
+public class EbcdicProcessor implements ItemProcessor<byte[], RubanSicDto> {
+
+    private final RubanSicModelLineMapper lineMapper;
+    private boolean headerProcessed = false;
+    private boolean footerProcessed = false;
+    private final char paddingChar = '0';
+
+    public EbcdicProcessor(RubanSicModelLineMapper lineMapper) {
+        this.lineMapper = lineMapper;
+    }
+
+    @Override
+    public RubanSicDto process(byte[] bloc) throws Exception {
+        String ligne;
+
+        if (!headerProcessed && bloc.length == 10) {
+            ligne = conversionEBCDICToAscii(bloc, true);
+            headerProcessed = true;
+        } else if (bloc.length == 1390) {
+            ligne = plcConvertCorps(bloc); // Ta logique complexe
+        } else if (!footerProcessed && bloc.length == 10) {
+            ligne = conversionEBCDICToAscii(bloc, true);  // Pied de page
+            footerProcessed = true;
+        } else {
+            return null;  // cas non prévu
+        }
+
+        return lineMapper.mapLine(ligne);
+    }
+
+    private String plcConvertCorps(byte[] bloc) throws Exception {
+        // Remplacer 'array' par 'bloc' directement car bloc.length == 1390
+        byte[] array2 = new byte[233];
+        byte[] array3 = new byte[9];
+        byte[] array4 = new byte[1156];
+        byte[] array5 = new byte[3];
+        byte[] array6 = new byte[3];
+        byte[] array7 = new byte[3];
+        byte[] array8 = new byte[3];
+        byte[] array9 = new byte[2];
+        byte[] array10 = new byte[3];
+        byte[] array11 = new byte[3];
+        byte[] array12 = new byte[100];
+        byte[] array13 = new byte[100];
+        byte[] array14 = new byte[3];
+        byte[] array15 = new byte[3];
+        byte[] array16 = new byte[8];
+
+        // Découpage initial
+        verifierChamp(deplacerByteArray(bloc, 0, array2), array2.length);
+        verifierChamp(deplacerByteArray(bloc, 233, array3), array3.length);
+        verifierChamp(deplacerByteArray(bloc, 242, array4), array4.length);
+        verifierChamp(deplacerByteArray(bloc, 1398, array5), array5.length);
+        verifierChamp(deplacerByteArray(bloc, 1401, array6), array6.length);
+        verifierChamp(deplacerByteArray(bloc, 1404, array7), array7.length);
+        verifierChamp(deplacerByteArray(bloc, 1407, array8), array8.length);
+        verifierChamp(deplacerByteArray(bloc, 1410, array9), array9.length);
+
+        int num = Integer.parseInt(conversionPackedToAscii(array9, 0));
+
+        // Construction texte décodé
+        StringBuilder text = new StringBuilder();
+        text.append(conversionEBCDICToAscii(array2, true))
+            .append(padLeft(conversionPackedToAscii(array7, 0), 5, paddingChar))
+            .append(padLeft(conversionPackedToAscii(array8, 0), 2, paddingChar))
+            .append(conversionEBCDICToAscii(array3, false))
+            .append(conversionEBCDICToAscii(array4, true))
+            .append(padLeft(conversionPackedToAscii(array5, 0), 5, paddingChar))
+            .append(padLeft(conversionPackedToAscii(array6, 0), 5, paddingChar))
+            .append(conversionEBCDICToAscii(array16, true));
+
+        // Traitement des sous-champs
+        for (int i = 0; i < num; i++) {
+            int offset = 1448 + i * 4;
+            verifierChamp(deplacerByteArray(bloc, offset, array10), array10.length);
+            verifierChamp(deplacerByteArray(bloc, offset + 2, array11), array11.length);
+            verifierChamp(deplacerByteArray(bloc, offset, array12), array12.length);
+            verifierChamp(deplacerByteArray(bloc, offset + 10, array13), array13.length);
+            verifierChamp(deplacerByteArray(bloc, offset + 20, array14), array14.length);
+            verifierChamp(deplacerByteArray(bloc, offset + 23, array15), array15.length);
+            verifierChamp(deplacerByteArray(bloc, offset + 26, array16), array16.length);
+
+            text.append(padLeft(conversionPackedToAscii(array10, 0), 1, paddingChar))
+                .append(padLeft(conversionPackedToAscii(array11, 0), 15, paddingChar))
+                .append(conversionEBCDICToAscii(array12, false))
+                .append(conversionEBCDICToAscii(array13, false))
+                .append(conversionEBCDICToAscii(array14, false))
+                .append(conversionEBCDICToAscii(array15, false))
+                .append(padLeft(conversionPackedToAscii(array16, 0), 15, paddingChar));
+        }
+
+        return text.toString();
+    }
+
+    // ---- Méthodes utilitaires nécessaires ----
+    
+    private int deplacerByteArray(byte[] source, int offset, byte[] destination) {
+        int length = Math.min(destination.length, source.length - offset);
+        System.arraycopy(source, offset, destination, 0, length);
+        return length;
+    }
+
+    private void verifierChamp(int tailleCopiee, int tailleAttendue) throws Exception {
+        if (tailleCopiee < tailleAttendue) {
+            throw new Exception("Erreur taille champ attendue : " + tailleAttendue + ", obtenue : " + tailleCopiee);
+        }
+    }
+
+    private String padLeft(String input, int length, char padChar) {
+        return String.format("%" + length + "s", input).replace(' ', padChar);
+    }
+
+    // Tes méthodes conversionEBCDICToAscii et conversionPackedToAscii restent inchangées
+}
