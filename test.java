@@ -593,3 +593,39 @@ class PlcConverterServiceTest {
     }
 }
 
+
+
+
+
+@StepScope
+@Bean("beanLectureFluxPremierJourChargementSddc")
+@Profile("sddc")
+public EbcdicRubanSicDtoReader lectureFluxPremierJourChargementSddc(
+        RubanSicModelLineMapper lineMapper,
+        PlcConverterService plcConverterService,
+        @Value("#{jobParameters['job.fichier.nom.lecture']}") String nomFichier) throws IOException {
+
+    validateNomFichier(nomFichier);
+
+    Path filePath = getSecurePath(nomFichier); // appel sécurisé
+    log.info("Lecture du fichier EBCDIC : {}", filePath);
+
+    return new EbcdicRubanSicDtoReader(filePath.toFile(), plcConverterService, lineMapper);
+}
+
+// Méthode sécurisée ajoutée :
+private static final Path BASE_DIR = Paths.get(fileDirectory).toAbsolutePath().normalize();
+
+private Path getSecurePath(String nomFichier) throws IOException {
+    Path resolvedPath = BASE_DIR.resolve(nomFichier).normalize();
+
+    if (!resolvedPath.startsWith(BASE_DIR)) {
+        throw new SecurityException("Tentative d'accès non autorisé détectée : " + resolvedPath);
+    }
+
+    if (!Files.exists(resolvedPath)) {
+        throw new FileNotFoundException("Le fichier spécifié n'existe pas : " + resolvedPath);
+    }
+
+    return resolvedPath;
+}
