@@ -515,3 +515,32 @@ public class EbcdicFullFileReader implements ItemReader<RubanSicDto>, ItemStream
     @Override public void update(ExecutionContext ctx) { }
     @Override public void close() { }
 }
+
+
+
+@ExtendWith(MockitoExtension.class)
+class PlcConverterServiceTest {
+
+    @InjectMocks
+    private PlcConverterService plcConverterService;
+
+    @Test
+    void testConvertirFichierComplet() throws Exception {
+        // Simuler un fichier EBCDIC en mémoire avec Header, Corps et Footer (1390 bytes chacun)
+        byte[] contenuSimule = new byte[1390 * 3];
+        for (int i = 0; i < 1390; i++) contenuSimule[i] = (byte) 0xC1;                 // Header fictif
+        for (int i = 1390; i < 1390 * 2; i++) contenuSimule[i] = (byte) 0xC2;         // Corps fictif
+        for (int i = 1390 * 2; i < 1390 * 3; i++) contenuSimule[i] = (byte) 0xC3;     // Footer fictif
+
+        try (DataInputStream dis = new DataInputStream(new ByteArrayInputStream(contenuSimule))) {
+            // Appel direct à la méthode interne à tester
+            List<String> resultat = plcConverterService.convertirDepuisStream(dis);
+
+            assertNotNull(resultat);
+            assertEquals(3, resultat.size());
+
+            // Afficher pour contrôle
+            resultat.forEach(System.out::println);
+        }
+    }
+}
