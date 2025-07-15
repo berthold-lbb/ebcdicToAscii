@@ -518,6 +518,46 @@ public class EbcdicFullFileReader implements ItemReader<RubanSicDto>, ItemStream
 
 
 
+@StepScope
+@Bean("beanLectureFluxPremierJourChargement")
+@Profile("sddc")
+public EbcidicRubanSicDtoReader lectureFluxPremierJourChargementLocal(
+        RubanSicModelLineMapper lineMapper,
+        PlcConverterService plcConverterService,
+        @Value("#{jobParameters['job.fichier.nom.lecture']}") String nomFichier
+) throws IOException {
+
+    validateNomFichier(nomFichier);
+
+    Path path = Paths.get(fileDirectory, nomFichier).normalize();
+
+    // Optionnel mais conseillé : vérifier que le fichier reste dans le répertoire autorisé
+    Path parentPath = Paths.get(fileDirectory).toAbsolutePath().normalize();
+    if (!path.toAbsolutePath().startsWith(parentPath)) {
+        throw new SecurityException("Tentative d'accès en dehors du répertoire autorisé : " + path);
+    }
+
+    if (!Files.exists(path)) {
+        throw new FileNotFoundException("Le fichier d'entrée n'a pas été trouvé : " + path);
+    }
+
+    return new EbcidicRubanSicDtoReader(path.toFile(), plcConverterService, lineMapper);
+}
+
+
+private void validateNomFichier(String nomFichier) {
+    if (nomFichier == null || nomFichier.isBlank()) {
+        throw new IllegalArgumentException("Le nom du fichier est vide");
+    }
+
+    if (nomFichier.contains("..") || nomFichier.contains("/") || nomFichier.contains("\\") || nomFichier.contains("%") || nomFichier.startsWith(".")) {
+        throw new IllegalArgumentException("Nom de fichier invalide : " + nomFichier);
+    }
+}
+
+
+
+
 @ExtendWith(MockitoExtension.class)
 class PlcConverterServiceTest {
 
