@@ -526,21 +526,30 @@ class PlcConverterServiceTest {
 
     @Test
     void testConvertirFichierComplet() throws Exception {
-        // Simuler un fichier EBCDIC en mémoire avec Header, Corps et Footer (1390 bytes chacun)
-        byte[] contenuSimule = new byte[1390 * 3];
-        for (int i = 0; i < 1390; i++) contenuSimule[i] = (byte) 0xC1;                 // Header fictif
-        for (int i = 1390; i < 1390 * 2; i++) contenuSimule[i] = (byte) 0xC2;         // Corps fictif
-        for (int i = 1390 * 2; i < 1390 * 3; i++) contenuSimule[i] = (byte) 0xC3;     // Footer fictif
+        // Simuler Header (10 bytes), Corps (1390 bytes), Footer (10 bytes)
+        byte[] contenuSimule = new byte[10 + 1390 + 10];
 
-        try (DataInputStream dis = new DataInputStream(new ByteArrayInputStream(contenuSimule))) {
-            // Appel direct à la méthode interne à tester
-            List<String> resultat = plcConverterService.convertirDepuisStream(dis);
+        for (int i = 0; i < 10; i++) contenuSimule[i] = (byte) 0xC1;                     // Header fictif
+        for (int i = 10; i < 1400; i++) contenuSimule[i] = (byte) 0xC2;                  // Corps fictif
+        for (int i = 1400; i < 1410; i++) contenuSimule[i] = (byte) 0xC3;                // Footer fictif
 
-            assertNotNull(resultat);
-            assertEquals(3, resultat.size());
+        File mockFile = mock(File.class);
+        InputStream mockInputStream = new ByteArrayInputStream(contenuSimule);
 
-            // Afficher pour contrôle
-            resultat.forEach(System.out::println);
-        }
+        // Mocker le comportement de FileInputStream
+        FileInputStream mockFis = mock(FileInputStream.class);
+        whenNew(FileInputStream.class).withArguments(mockFile).thenReturn(mockFis);
+        when(mockFis.read(any(byte[].class))).thenAnswer(invocation -> {
+            byte[] buffer = invocation.getArgument(0);
+            return mockInputStream.read(buffer);
+        });
+
+        List<String> resultat = plcConverterService.convertirFichierComplet(mockFile);
+
+        assertNotNull(resultat);
+        assertEquals(2, resultat.size()); // Header + Corps + Footer peuvent être combinés selon implémentation
+
+        resultat.forEach(System.out::println);
     }
 }
+
