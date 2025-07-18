@@ -629,3 +629,20 @@ private Path getSecurePath(String nomFichier) throws IOException {
 
     return resolvedPath;
 }
+
+public static Path getSecurePath(String directory, String nomFichier) throws IOException {
+    // Liste blanche des répertoires parents autorisés
+    Set<String> allowedDirs = Set.of("/data/mft/consopmt/inbound", "/tmp/testbatch");
+    Path parentPath = Paths.get(directory).toAbsolutePath().normalize();
+    if (!allowedDirs.contains(parentPath.toString())) {
+        throw new SecurityException("Répertoire non autorisé : " + parentPath);
+    }
+    Path resolvedPath = parentPath.resolve(nomFichier).normalize();
+    if (!resolvedPath.startsWith(parentPath)) {
+        throw new SecurityException("Tentative d'accès non autorisé détectée : " + resolvedPath);
+    }
+    if (!Files.exists(resolvedPath)) {
+        throw new FileNotFoundException("Le fichier n'existe pas : " + resolvedPath);
+    }
+    return resolvedPath;
+}
