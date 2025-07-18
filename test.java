@@ -646,3 +646,101 @@ public static Path getSecurePath(String directory, String nomFichier) throws IOE
     }
     return resolvedPath;
 }
+
+
+
+
+
+
+
+@Configuration
+public class FichierBatchConfig {
+    // Simule une propriété Spring injectée (profil/dev/prod)
+    public static final Set<String> REPERTOIRES_AUTORISES = Set.of(
+        "/data/mft/consopmt/inbound",
+        "/data/mft/consopmt/backup"
+    );
+}
+
+
+public class FileSecurityUtils {
+
+    public static Path getSecurePath(String repertoireParent, String nomFichier) throws IOException {
+        Path baseDir = Paths.get(repertoireParent).toAbsolutePath().normalize();
+
+        // Vérification sur la whitelist (en String, normalisée)
+        boolean autorise = FichierBatchConfig.REPERTOIRES_AUTORISES
+            .stream()
+            .map(r -> Paths.get(r).toAbsolutePath().normalize())
+            .anyMatch(baseDir::equals);
+
+        if (!autorise) {
+            throw new SecurityException("Répertoire parent non autorisé : " + baseDir);
+        }
+
+        Path resolvedPath = baseDir.resolve(nomFichier).normalize();
+
+        if (!resolvedPath.startsWith(baseDir)) {
+            throw new SecurityException("Tentative d'accès non autorisé détectée : " + resolvedPath);
+        }
+
+        if (!Files.exists(resolvedPath)) {
+            throw new FileNotFoundException("Le fichier d'entrée n'a pas été trouvé : " + resolvedPath);
+        }
+
+        return resolvedPath;
+    }
+}
+
+
+
+# application.yml
+batch:
+  files:
+    allowed-dirs:
+      - /data/mft/consopmt/inbound
+      - /data/mft/consopmt/backup
+
+
+@Component
+public class BatchDirectories {
+    @Value("${batch.files.allowed-dirs}")
+    private List<String> allowedDirs;
+
+    public boolean isAllowed(Path dir) {
+        return allowedDirs.stream()
+            .map(Paths::get)
+            .map(Path::toAbsolutePath)
+            .map(Path::normalize)
+            .anyMatch(allowed -> allowed.equals(dir));
+    }
+}
+
+
+@Component
+public class DirectorySecurity {
+    private final Set<Path> allowedDirs;
+
+    // Injection de la liste depuis application.yml
+    public DirectorySecurity(@Value("${batch.files.allowed-dirs}") List<String> dirs) {
+        this.allowedDirs = dirs.stream()
+                .map(pathStr -> Paths.get(pathStr).toAbsolutePath().normalize())
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** Méthode principale réutilisable : */
+    public Path getSecurePath(String baseDir, String nomFichier) throws IOException {
+        Path base = Paths.get(baseDir).toAbsolutePath().normalize();
+        if (!allowedDirs.contains(base)) {
+            throw new SecurityException("Répertoire parent non autorisé : " + base);
+        }
+        Path resolvedPath = base.resolve(nomFichier).normalize();
+        if (!resolvedPath.startsWith(base)) {
+            throw new SecurityException("Tentative d'accès non autorisé : " + resolvedPath);
+        }
+        if (!Files.exists(resolvedPath)) {
+            throw new FileNotFoundException("Fichier non trouvé : " + resolvedPath);
+        }
+        return resolvedPath;
+    }
+}
