@@ -744,3 +744,96 @@ public class DirectorySecurity {
         return resolvedPath;
     }
 }
+
+
+
+
+@Component
+public class SicFileProperties {
+
+    private final String baseDirectory;
+
+    public SicFileProperties(@Value("${batch.sic.base-directory}") String baseDirectory) {
+        this.baseDirectory = baseDirectory;
+    }
+
+    public Path getSecurePath(String fileName) throws IOException {
+        Path base = Paths.get(baseDirectory).toAbsolutePath().normalize();
+        Path resolved = base.resolve(fileName).normalize();
+
+        if (!resolved.startsWith(base)) {
+            throw new SecurityException("Accès non autorisé : " + resolved);
+        }
+
+        if (!Files.exists(resolved)) {
+            throw new FileNotFoundException("Fichier introuvable : " + resolved);
+        }
+
+        return resolved;
+    }
+
+    public String getBaseDirectory() {
+        return baseDirectory;
+    }
+}
+
+
+
+@ExtendWith(MockitoExtension.class)
+class SicFilePropertiesTest {
+
+    @TempDir
+    Path tempDir;
+
+    SicFileProperties sicFileProperties;
+
+    @BeforeEach
+    void setUp() {
+        // simule ta propriété venant de application.yml
+        sicFileProperties = new SicFileProperties(tempDir.toString());
+    }
+
+    @Test
+    void getSecurePath_ShouldReturnValidPath_WhenFileExistsAndIsSecure() throws IOException {
+        // GIVEN
+        String fileName = "testfile.txt";
+        Path file = Files.createFile(tempDir.resolve(fileName));
+
+        // WHEN
+        Path securePath = sicFileProperties.getSecurePath(fileName);
+
+        // THEN
+        assertNotNull(securePath);
+        assertEquals(file, securePath);
+    }
+
+    @Test
+    void getSecurePath_ShouldThrowFileNotFound_WhenFileDoesNotExist() {
+        // GIVEN
+        String fileName = "inexistant.txt";
+
+        // WHEN & THEN
+        FileNotFoundException ex = assertThrows(FileNotFoundException.class, () -> {
+            sicFileProperties.getSecurePath(fileName);
+        });
+
+        assertTrue(ex.getMessage().contains("Fichier introuvable"));
+    }
+
+    @Test
+    void getSecurePath_ShouldThrowSecurityException_WhenPathTraversalAttempted() {
+        // GIVEN
+        String maliciousFileName = "../malicious.txt";
+
+        // WHEN & THEN
+        SecurityException ex = assertThrows(SecurityException.class, () -> {
+            sicFileProperties.getSecurePath(maliciousFileName);
+        });
+
+        assertTrue(ex.getMessage().contains("Accès non autorisé"));
+    }
+}
+
+DirectorySecurity
+
+FileSecurityUtils
