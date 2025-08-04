@@ -215,3 +215,19 @@ Facilité de maintenance, évolutivité, et simplicité d’utilisation.
 Cette structuration en POO avec Chain of Responsibility est idéale pour résoudre élégamment et durablement ton cas d’usage.
 
 ✅ Tu peux adapter ce modèle directement à ton implémentation.
+
+
+public class Compteur {
+    private Long jobExecutionId;
+    private LocalDateTime dateTraitement;
+    private String nomFlux;
+    private String nomCompteur;
+    private String source;
+    private String typeDonnee; // int, decimal, string
+    private String valeur;
+    private String alerte;
+    private LocalDateTime dateCreation;
+    private LocalDateTime dateMiseAJour;
+
+    // getters et setters
+}
