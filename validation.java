@@ -231,3 +231,129 @@ public class Compteur {
 
     // getters et setters
 }
+
+
+
+
+
+@Repository
+public interface CompteurRepository extends JpaRepository<Compteur, CompteurId> {
+
+    @Query("SELECT c FROM Compteur c WHERE c.id.nomFlux = :nomFlux AND c.id.nomCompteur = :nomCompteur ORDER BY c.id.dateTraitement DESC")
+    List<Compteur> findDernierCompteur(@Param("nomFlux") String nomFlux, @Param("nomCompteur") String nomCompteur);
+}
+
+
+public interface RegleValidation {
+    ValidationResult valider(Map<String, Compteur> compteurs);
+    List<String> getCompteursNecessaires();
+}
+
+
+public abstract class RegleValidationGenerique implements RegleValidation {
+    protected String nomRegle;
+
+    public RegleValidationGenerique(String nomRegle) {
+        this.nomRegle = nomRegle;
+    }
+}
+
+
+
+
+public class GroupeReglesValidation {
+    private List<RegleValidation> reglesValidation;
+
+    public GroupeReglesValidation(List<RegleValidation> reglesValidation) {
+        this.reglesValidation = reglesValidation;
+    }
+
+    public List<String> getTousCompteursNecessaires() {
+        return reglesValidation.stream()
+            .flatMap(regle -> regle.getCompteursNecessaires().stream())
+            .distinct()
+            .collect(Collectors.toList());
+    }
+
+    public List<ValidationResult> valider(Map<String, Compteur> compteurs) {
+        return reglesValidation.stream()
+            .map(regle -> regle.valider(compteurs))
+            .filter(resultat -> !resultat.isValide())
+            .collect(Collectors.toList());
+    }
+}
+
+
+public class RegleDifferenceDeuxCompteurs extends RegleValidationGenerique {
+    private final String compteurA, compteurB, compteurResultat;
+
+    public RegleDifferenceDeuxCompteurs(String compteurA, String compteurB, String compteurResultat, String nomRegle) {
+        super(nomRegle);
+        this.compteurA = compteurA;
+        this.compteurB = compteurB;
+        this.compteurResultat = compteurResultat;
+    }
+
+    @Override
+    public ValidationResult valider(Map<String, Compteur> compteurs) {
+        Compteur a = compteurs.get(compteurA);
+        Compteur b = compteurs.get(compteurB);
+        Compteur resultat = compteurs.get(compteurResultat);
+
+        if (a == null || b == null || resultat == null) {
+            return ValidationResult.echec(nomRegle, "Compteur manquant");
+        }
+
+        BigDecimal diff = a.getValeur().subtract(b.getValeur());
+        if (diff.compareTo(resultat.getValeur()) != 0) {
+            return ValidationResult.echec(nomRegle, "Différence incorrecte : attendu " + resultat.getValeur() + ", obtenu " + diff);
+        }
+
+        return ValidationResult.succes();
+    }
+
+    @Override
+    public List<String> getCompteursNecessaires() {
+        return List.of(compteurA, compteurB, compteurResultat);
+    }
+}
+
+
+@Service
+public class ValidationService {
+
+    private final CompteurRepository compteurRepository;
+
+    public ValidationService(CompteurRepository compteurRepository) {
+        this.compteurRepository = compteurRepository;
+    }
+
+    public Map<String, Compteur> recupererDerniersCompteurs(String nomFlux, List<String> nomsCompteurs) {
+        Map<String, Compteur> result = new HashMap<>();
+        for (String nomCompteur : nomsCompteurs) {
+            Compteur compteur = compteurRepository
+                .findDernierCompteur(nomFlux, nomCompteur)
+                .stream()
+                .findFirst()
+                .orElse(null);
+            result.put(nomCompteur, compteur);
+        }
+        return result;
+    }
+
+    public List<ValidationResult> validerFlux(String nomFlux, GroupeReglesValidation groupe) {
+        List<String> nomsCompteurs = groupe.getTousCompteursNecessaires();
+        Map<String, Compteur> compteurs = recupererDerniersCompteurs(nomFlux, nomsCompteurs);
+        return groupe.valider(compteurs);
+    }
+}
+
+
+GroupeReglesValidation groupe = new GroupeReglesValidation(List.of(
+    new RegleDifferenceDeuxCompteurs("COMPTEUR_A", "COMPTEUR_B", "COMPTEUR_DIFF", "Valider différence A-B"),
+    new RegleDifferenceDeuxCompteurs("COMPTEUR_C", "COMPTEUR_D", "COMPTEUR_RES", "Valider différence C-D")
+));
+
+List<ValidationResult> resultats = validationService.validerFlux("MON_FLUX", groupe);
+
+resultats.forEach(r -> System.out.println(r.getNomRegle() + ": " + r.getMessage()));
