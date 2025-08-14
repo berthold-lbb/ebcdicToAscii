@@ -1,0 +1,24 @@
+@SpringBootTest // charge ta @Configuration qui déclare le bean @StepScope
+class PretsEntreprisesRubanSicProcessorStepScopeTest {
+
+  @Autowired
+  ApplicationContext ctx;
+
+  @Test
+  void injecte_jobExecutionId_dans_bean_stepScope() throws Exception {
+    // 1) Crée un JobExecution/StepExecution factices
+    long expectedId = 12345L;
+    JobExecution jobExecution = MetaDataInstanceFactory.createJobExecution(expectedId);
+    StepExecution stepExecution = MetaDataInstanceFactory.createStepExecution(jobExecution, "testStep");
+
+    // 2) Exécute dans le contexte "step scope"
+    StepScopeTestUtils.doInStepScope(stepExecution, () -> {
+      // IMPORTANT : récupérer le bean **à l'intérieur** du scope
+      PretsEntreprisesRubanSicProcessor p =
+          ctx.getBean(PretsEntreprisesRubanSicProcessor.class);
+
+      assertThat(p.getJobExecutionId()).isEqualTo(expectedId);
+      return null;
+    });
+  }
+}
