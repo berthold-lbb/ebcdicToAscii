@@ -103,3 +103,138 @@ export class CreditComponent {
   <mat-datepicker #pEnd startView="multi-year"></mat-datepicker>
 </mat-form-field>
 
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+
+// app.config.ts (ou main.ts si vous regroupez)
+import { ApplicationConfig, ErrorHandler, provideHttpClient, withInterceptors } from '@angular/core';
+import { provideAnimations } from '@angular/platform-browser/animations';
+import { provideMatSnackBar } from '@angular/material/snack-bar';
+import { httpErrorInterceptor } from './core/interceptors/http-error.interceptor';
+import { GlobalErrorHandler } from './core/errors/global-error.handler';
+
+export const appConfig: ApplicationConfig = {
+  providers: [
+    provideAnimations(),
+    provideMatSnackBar(),
+    provideHttpClient(withInterceptors([httpErrorInterceptor])),
+    { provide: ErrorHandler, useClass: GlobalErrorHandler },
+  ],
+};
+
+
+// core/services/snack-bar.service.ts
+import { Injectable } from '@angular/core';
+import { MatSnackBar, MatSnackBarConfig } from '@angular/material/snack-bar';
+
+export type SnackType = 'success' | 'info' | 'warn' | 'error';
+
+@Injectable({ providedIn: 'root' })
+export class SnackBarService {
+  private readonly base: MatSnackBarConfig = {
+    duration: 5000,
+    horizontalPosition: 'end',
+    verticalPosition: 'top',
+    panelClass: ['snack-base'],
+  };
+
+  constructor(private readonly snack: MatSnackBar) {}
+
+  show(message: string, type: SnackType = 'info', action = 'OK', cfg?: MatSnackBarConfig) {
+    const panel = this.classFor(type);
+    const config: MatSnackBarConfig = {
+      ...this.base,
+      ...cfg,
+      panelClass: [...(this.base.panelClass ?? []), panel, ...(cfg?.panelClass ?? [])],
+    };
+    this.snack.open(message, action, config);
+  }
+
+  success(msg: string, cfg?: MatSnackBarConfig) { this.show(msg, 'success', 'OK', cfg); }
+  info(msg: string, cfg?: MatSnackBarConfig)    { this.show(msg, 'info', 'OK', cfg); }
+  warn(msg: string, cfg?: MatSnackBarConfig)    { this.show(msg, 'warn', 'Fermer', cfg); }
+  error(msg: string, cfg?: MatSnackBarConfig)   { this.show(msg, 'error', 'Détails', cfg); }
+
+  private classFor(type: SnackType) {
+    switch (type) {
+      case 'success': return 'snack-success';
+      case 'warn':    return 'snack-warn';
+      case 'error':   return 'snack-error';
+      default:        return 'snack-info';
+    }
+  }
+}
+
+
+.snack-base { color: white; font-weight: 500; }
+.snack-success { background: #2e7d32; }  /* green 800 */
+.snack-info    { background: #1565c0; }  /* blue 800  */
+.snack-warn    { background: #ef6c00; }  /* orange 800*/
+.snack-error   { background: #c62828; }  /* red 800   */
+
+
+// core/interceptors/http-error.interceptor.ts
+import { HttpErrorResponse, HttpInterceptorFn } from '@angular/common/http';
+import { inject } from '@angular/core';
+import { SnackBarService } from '../services/snack-bar.service';
+import { catchError, throwError } from 'rxjs';
+
+export const httpErrorInterceptor: HttpInterceptorFn = (req, next) => {
+  const snack = inject(SnackBarService);
+  return next(req).pipe(
+    catchError((err: unknown) => {
+      if (err instanceof HttpErrorResponse) {
+        const msg = err.error?.message || err.message || 'Erreur réseau';
+        snack.error(`HTTP ${err.status} – ${msg}`);
+      } else {
+        snack.error('Erreur inattendue');
+      }
+      return throwError(() => err);
+    })
+  );
+};
+
+// core/errors/global-error.handler.ts
+import { ErrorHandler, Injectable, NgZone } from '@angular/core';
+import { SnackBarService } from '../services/snack-bar.service';
+
+@Injectable()
+export class GlobalErrorHandler implements ErrorHandler {
+  constructor(private snack: SnackBarService, private zone: NgZone) {}
+
+  handleError(error: unknown): void {
+    // S’assure d’ouvrir le snackbar dans la zone Angular
+    this.zone.run(() => this.snack.error('Une erreur est survenue (voir console).'));
+    console.error('[GlobalError]', error);
+  }
+}
+
+
+import { Component } from '@angular/core';
+import { SnackBarService } from '../core/services/snack-bar.service';
+
+@Component({
+  selector: 'app-demo',
+  standalone: true,
+  template: `
+    <button mat-raised-button (click)="save()">Save</button>
+  `,
+})
+export class DemoComponent {
+  constructor(private snack: SnackBarService) {}
+
+  async save() {
+    try {
+      // ... votre logique
+      this.snack.success('Sauvegarde réussie');
+    } catch (e) {
+      this.snack.error('Une erreur est survenue lors de la sauvegarde');
+      console.error(e);
+    }
+  }
+}
+
+
+
+
