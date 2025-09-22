@@ -235,6 +235,31 @@ export class DemoComponent {
   }
 }
 
+-------
+// snack-bar.service.ts
+import { Injectable } from '@angular/core';
+import { MatSnackBar, MatSnackBarConfig } from '@angular/material/snack-bar';
+
+type Snack = 'success' | 'info' | 'warn' | 'error'; // évite les fautes de frappe
+
+@Injectable({ providedIn: 'root' })
+export class SnackBarService {
+  constructor(private readonly snack: MatSnackBar) {}
+
+  open(message: string, type: Snack = 'info', cfg?: MatSnackBarConfig) {
+    this.snack.open(message, 'OK', {
+      duration: 5000,
+      horizontalPosition: 'end',
+      verticalPosition: 'top',
+      panelClass: [`${type}-snackbar`],
+      ...cfg, // permet d'écraser si besoin
+    });
+  }
+
+  // raccourcis optionnels
+  success(msg: string, cfg?: MatSnackBarConfig) { this.open(msg, 'success', cfg); }
+  error(msg: string, cfg?: MatSnackBarConfig)   { this.open(msg, 'error', cfg); }
+}
 
 
 
