@@ -263,3 +263,64 @@ export class SnackBarService {
 
 
 
+------------------------------------------------
+
+import { Component, OnInit } from '@angular/core';
+import { OAuthService } from 'angular-oauth2-oidc';
+import { ActivatedRoute, Router } from '@angular/router';
+import { AuthService } from '../auth/auth.service';
+
+@Component({
+  selector: 'app-login',
+  template: `
+    <button (click)="doLogin()">Se connecter</button>
+  `
+})
+export class LoginComponent implements OnInit {
+  constructor(
+    private oauth: OAuthService,
+    private auth: AuthService,
+    private route: ActivatedRoute,
+    private router: Router
+  ) {}
+
+  async ngOnInit(): Promise<void> {
+    // 1) Consomme le hash (#access_token=...) puis callback
+    await this.oauth.tryLoginImplicitFlow({
+      onTokenReceived: () => {
+        this.cleanUrlBar();         // enlève le hash dans la barre d'adresse
+        this.navigateToReturnUrl(); // redirige proprement
+      }
+    });
+
+    // 2) Si déjà connecté (reload / retour direct)
+    if (this.auth.isAuthenticated()) {
+      this.cleanUrlBar();
+      this.navigateToReturnUrl();
+    }
+
+    // 3) Sécurité : si l'événement arrive plus tard (rare)
+    this.oauth.events.subscribe(e => {
+      if (e.type === 'token_received') {
+        this.cleanUrlBar();
+        this.navigateToReturnUrl();
+      }
+    });
+  }
+
+  doLogin(): void {
+    this.auth.login();
+  }
+
+  /** Helpers */
+  private navigateToReturnUrl(): void {
+    const raw = this.route.snapshot.queryParamMap.get('returnUrl') || '/worktable';
+    const clean = raw.split('#')[0]; // au cas où returnUrl aurait un fragment
+    this.router.navigateByUrl(clean, { replaceUrl: true });
+  }
+
+  private cleanUrlBar(): void {
+    // Supprime tout fragment ou query restants de la barre d'adresse
+    window.history.replaceState({}, document.title, window.location.pathname);
+  }
+}
