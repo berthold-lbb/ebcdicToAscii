@@ -1,0 +1,80 @@
+<div class="table-wrapper">
+  <!-- Overlay de chargement -->
+  @if (loading) {
+    <div class="overlay" aria-label="Chargement des données">
+      <mat-progress-spinner mode="indeterminate" diameter="28"></mat-progress-spinner>
+    </div>
+  }
+
+  <table mat-table [dataSource]="dataSource" class="mat-elevation-z8" matSort>
+    @for (col of visibleColumnDefs; track col.nom) {
+      <ng-container [matColumnDef]="col.nom">
+        <th
+          mat-header-cell
+          *matHeaderCellDef
+          mat-sort-header
+          [disabled]="!(enableOrder && col.enableOrder) || loading">
+          <span>{{ col.label }}</span>
+
+          <!-- mini spinner dans le header (optionnel) -->
+          @if (showHeaderSpinner && loading) {
+            <mat-progress-spinner class="th-spinner" mode="indeterminate" diameter="14"></mat-progress-spinner>
+          }
+        </th>
+
+        <!-- cellule par type -->
+        @switch (col.type) {
+          @case (TableDataType.STRING)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+          @case (TableDataType.NUMBER)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+          @case (TableDataType.BOOLEAN)  { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+          @case (TableDataType.DATE)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy' }}</td> }
+          @case (TableDataType.TIME)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'HH:mm:ss' }}</td> }
+          @case (TableDataType.DATETIME) { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy HH:mm:ss' }}</td> }
+          @case (TableDataType.JSON)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | json }}</td> }
+          @case (TableDataType.OBJECT)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+          @case (TableDataType.LINK)     {
+            <td mat-cell class="data-table-colonne-{{ col.nom }}">
+              <a class="lien-url" [routerLink]="[col.link, row[col.nom]]">{{ row[col.nom] }}</a>
+            </td>
+          }
+          @default { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+        }
+      </ng-container>
+    }
+
+    <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+    <tr mat-row        *matRowDef="let row; columns: displayedColumns"></tr>
+
+    @if (!loading && dataSource.data?.length === 0) {
+      <tr class="mat-row">
+        <td class="mat-cell" [attr.colspan]="displayedColumns.length">Aucune donnée</td>
+      </tr>
+    }
+  </table>
+</div>
+
+
+
+.table-wrapper { position: relative; }
+
+.overlay {
+  position: absolute; inset: 0;
+  display: grid; place-items: center;
+  background: rgba(255,255,255,.6);
+  z-index: 2;
+}
+
+.th-spinner {
+  margin-left: .5rem;
+  vertical-align: middle;
+}
+
+
+<lib-data-table
+  [data]="rows"
+  [columns]="columns"
+  [hiddenColumns]="['amount']"
+  [enableOrder]="true"
+  [loading]="loading"
+  [showHeaderSpinner]="false">
+</lib-data-table>
