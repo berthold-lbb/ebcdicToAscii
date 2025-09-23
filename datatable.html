@@ -1,28 +1,43 @@
-<div class="table-wrapper">
-  <!-- Overlay de chargement -->
+<div class="table-wrapper" [style.max-height.px]="maxHeight">
   @if (loading) {
-    <div class="overlay" aria-label="Chargement des données">
-      <mat-progress-spinner mode="indeterminate" diameter="28"></mat-progress-spinner>
+    <div class="loading-overlay" role="status" aria-live="polite">
+      <mat-progress-spinner mode="indeterminate" diameter="40"></mat-progress-spinner>
+    </div>
+  }
+
+  <!-- Barre d’actions -->
+  @if (showColumnMenu) {
+    <div class="table-actions">
+      <button mat-stroked-button [matMenuTriggerFor]="colMenu">
+        <mat-icon>view_column</mat-icon>
+        Colonnes
+      </button>
+
+      <mat-menu #colMenu="matMenu" class="columns-menu">
+        @for (col of _columns; track col.nom) {
+          <button mat-menu-item (click)="$event.stopPropagation()">
+            <mat-checkbox
+              [checked]="!isHidden(col)"
+              [disabled]="!col.retractable"
+              (change)="toggleColumn(col)">
+              {{ col.label }}
+            </mat-checkbox>
+          </button>
+        }
+      </mat-menu>
     </div>
   }
 
   <table mat-table [dataSource]="dataSource" class="mat-elevation-z8" matSort>
+    <!-- Colonnes dynamiques (1 th + 1 td par colonne) -->
     @for (col of visibleColumnDefs; track col.nom) {
       <ng-container [matColumnDef]="col.nom">
-        <th
-          mat-header-cell
-          *matHeaderCellDef
-          mat-sort-header
-          [disabled]="!(enableOrder && col.enableOrder) || loading">
-          <span>{{ col.label }}</span>
-
-          <!-- mini spinner dans le header (optionnel) -->
-          @if (showHeaderSpinner && loading) {
-            <mat-progress-spinner class="th-spinner" mode="indeterminate" diameter="14"></mat-progress-spinner>
-          }
+        <th mat-header-cell *matHeaderCellDef
+            mat-sort-header
+            [disabled]="!(enableOrder && col.enableOrder)">
+          {{ col.label }}
         </th>
 
-        <!-- cellule par type -->
         @switch (col.type) {
           @case (TableDataType.STRING)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
           @case (TableDataType.NUMBER)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
@@ -42,32 +57,58 @@
       </ng-container>
     }
 
-    <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+    <tr mat-header-row *matHeaderRowDef="displayedColumns" [class.sticky]="stickyHeader"></tr>
     <tr mat-row        *matRowDef="let row; columns: displayedColumns"></tr>
 
-    @if (!loading && dataSource.data?.length === 0) {
+    @if (!loading && (serverSide ? total : autoLength) === 0) {
       <tr class="mat-row">
         <td class="mat-cell" [attr.colspan]="displayedColumns.length">Aucune donnée</td>
       </tr>
     }
   </table>
+
+  <mat-paginator
+    [length]="serverSide ? total : autoLength"
+    [pageSize]="pageSize"
+    [pageSizeOptions]="pageSizeOptions"
+    showFirstLastButtons>
+  </mat-paginator>
 </div>
 
 
 
-.table-wrapper { position: relative; }
 
-.overlay {
-  position: absolute; inset: 0;
-  display: grid; place-items: center;
-  background: rgba(255,255,255,.6);
+.table-wrapper {
+  position: relative;
+  overflow: auto;
+}
+
+.table-actions {
+  display: flex;
+  gap: .5rem;
+  align-items: center;
+  padding: .5rem 0;
+}
+
+.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.6);
   z-index: 2;
 }
 
-.th-spinner {
-  margin-left: .5rem;
-  vertical-align: middle;
+.sticky,
+.mat-mdc-header-row.sticky {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #fff;
 }
+
+table { width: 100%; }
+
 
 
 <lib-data-table
@@ -78,3 +119,14 @@
   [loading]="loading"
   [showHeaderSpinner]="false">
 </lib-data-table>
+
+<lib-data-table
+  [data]="rows"
+  [columns]="columns"
+  [(hiddenColumns)]="hiddenColumns"  <!-- récupère l’état -->
+  [enableOrder]="true"
+  [loading]="loading"
+  [maxHeight]="520">
+</lib-data-table>
+
+hiddenColumns: string[] = ['amount']; // ex. masquée par défaut
