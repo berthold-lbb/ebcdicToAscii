@@ -1,0 +1,51 @@
+/* Pas de scroll vertical; seulement horizontal si nécessaire */
+.dt-root { display: block; overflow-y: visible; overflow-x: auto; }
+
+/* Barre fine en haut pendant loading */
+.dt-topbar { margin-bottom: 6px; }
+
+/* Toolbar */
+.dt-toolbar {
+  display: flex; align-items: center; gap: 12px; padding: 8px 0 6px;
+  .left { flex: 1 1 auto; }
+  .right { margin-left: auto; }
+  .dt-search { width: clamp(240px, 30vw, 420px); }
+}
+
+/* Wrap pour positionner l’overlay */
+.dt-table-wrap { position: relative; }
+
+/* Overlay centrée */
+.dt-loader {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.6);
+  z-index: 3;
+}
+.dt-loader-text { margin-top: 8px; font-size: 13px; color: #555; }
+
+/* Petit blur du tableau quand loading */
+.dt-blurred { filter: blur(1px); pointer-events: none; }
+
+/* Table avec cadre + grille */
+.dt-table {
+  width: 100%;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+.dt-table .mdc-data-table__table { border-collapse: separate; border-spacing: 0; }
+.dt-table .mdc-data-table__header-cell,
+.dt-table .mdc-data-table__cell { border-right: 1px solid #eeeeee; white-space: nowrap; }
+.dt-table .mdc-data-table__header-cell:last-child,
+.dt-table .mdc-data-table__cell:last-child { border-right: none; }
+.dt-table .mdc-data-table__row { border-bottom: 1px solid #eeeeee; }
+
+/* esthétique */
+.clickable-row { cursor: pointer; }
+.clickable-row:hover td { background: #f7f9ff; }
+.sticky { position: sticky; top: 0; z-index: 2; background: #fff; }
+
+.mr-2 { margin-right: 8px; }
+.ml-auto { margin-left: auto; }
+.col-select { width: 48px; padding-left: 8px; padding-right: 8px; }

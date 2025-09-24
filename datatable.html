@@ -132,3 +132,152 @@ table { width: 100%; }
 </lib-data-table>
 
 hiddenColumns: string[] = ['amount']; // ex. masquée par défaut
+
+
+
+----------------------------------------------------------------------------------------------------------------
+----------------------------------------------------------------------------------------------------------------
+
+<div class="dt-root">
+  <!-- Barre fine en haut pendant le chargement -->
+  <mat-progress-bar *ngIf="loading && showTopBarWhileLoading"
+                    mode="indeterminate" class="dt-topbar"></mat-progress-bar>
+
+  <!-- Toolbar -->
+  <div class="dt-toolbar">
+    <div class="left">
+      <button mat-button [matMenuTriggerFor]="colsMenu">
+        <mat-icon>view_column</mat-icon>
+        Colonnes
+      </button>
+      <mat-menu #colsMenu="matMenu" xPosition="after">
+        @for (c of _columns; track c.nom) {
+          <button mat-menu-item (click)="toggleColumn(c)" [disabled]="!c.retractable">
+            <mat-icon class="mr-2">{{ isHidden(c) ? 'check_box_outline_blank' : 'check_box' }}</mat-icon>
+            <span>{{ c.label }}</span>
+            @if (!c.retractable) { <mat-icon class="ml-auto" matTooltip="Non rétractable">lock</mat-icon> }
+          </button>
+        }
+      </mat-menu>
+    </div>
+
+    @if (searchable) {
+      <div class="right">
+        <mat-form-field appearance="outline" class="dt-search">
+          <mat-label>{{ filterPlaceholder }}</mat-label>
+          <input matInput [formControl]="searchCtrl" />
+          <button mat-icon-button matSuffix (click)="searchCtrl.setValue('')" *ngIf="searchCtrl.value">
+            <mat-icon>close</mat-icon>
+          </button>
+          <mat-icon matPrefix>search</mat-icon>
+        </mat-form-field>
+      </div>
+    }
+  </div>
+
+  <!-- Zone table + overlay -->
+  <div class="dt-table-wrap">
+    <!-- Overlay loader -->
+    @if (loading) {
+      <div class="dt-loader" aria-busy="true" aria-live="polite">
+        <mat-progress-spinner mode="indeterminate" diameter="44"></mat-progress-spinner>
+        @if (loadingText) { <div class="dt-loader-text">{{ loadingText }}</div> }
+      </div>
+    }
+
+    <table mat-table [dataSource]="dataSource" class="mat-elevation-z2 dt-table" matSort
+           [class.dt-blurred]="loading"> <!-- petit blur visuel pendant loading -->
+      @if (selectable) {
+        <ng-container matColumnDef="select">
+          <th mat-header-cell *matHeaderCellDef class="col-select" [class.sticky]="stickyHeader">
+            <mat-checkbox
+              (change)="masterToggle()"
+              [checked]="isAllSelected()"
+              [indeterminate]="selection.hasValue() && !isAllSelected()"
+              [aria-label]="checkboxLabel()">
+            </mat-checkbox>
+          </th>
+          <td mat-cell *matCellDef="let row" class="col-select">
+            <mat-checkbox
+              (click)="$event.stopPropagation()"
+              (change)="toggleRow(row)"
+              [checked]="selection.isSelected(row)"
+              [aria-label]="checkboxLabel(row)">
+            </mat-checkbox>
+          </td>
+        </ng-container>
+      }
+
+      @for (col of visibleColumnDefs; track col.nom) {
+        <ng-container [matColumnDef]="col.nom">
+          <th mat-header-cell *matHeaderCellDef
+              mat-sort-header
+              [disabled]="!(enableOrder && col.enableOrder)"
+              [class.sticky]="stickyHeader">
+            {{ col.label }}
+          </th>
+
+          @switch (col.type) {
+            @case (TableDataType.STRING)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+            @case (TableDataType.NUMBER)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+            @case (TableDataType.BOOLEAN)  { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+            @case (TableDataType.DATE)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy' }}</td> }
+            @case (TableDataType.TIME)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'HH:mm:ss' }}</td> }
+            @case (TableDataType.DATETIME) { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy HH:mm:ss' }}</td> }
+            @case (TableDataType.JSON)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | json }}</td> }
+            @case (TableDataType.OBJECT)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+            @case (TableDataType.LINK)     {
+              <td mat-cell class="data-table-colonne-{{ col.nom }}">
+                <a class="lien-url" [routerLink]="[col.link, row[col.nom]]">{{ row[col.nom] }}</a>
+              </td>
+            }
+            @default { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+          }
+        </ng-container>
+      }
+
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+      <tr mat-row *matRowDef="let row; columns: displayedColumns"
+          class="clickable-row"
+          (click)="selectable && toggleRow(row)"></tr>
+
+      @if ((serverSide ? total : autoLength) === 0 && !loading) {
+        <tr class="mat-row">
+          <td class="mat-cell" [attr.colspan]="displayedColumns.length">Aucune donnée</td>
+        </tr>
+      }
+    </table>
+  </div>
+
+  <mat-paginator
+    [length]="serverSide ? total : autoLength"
+    [pageSize]="pageSize"
+    [pageSizeOptions]="pageSizeOptions"
+    showFirstLastButtons>
+  </mat-paginator>
+</div>
+
+
+----------------------------------------------------------------------------------------------------------------
+<lib-data-table
+  [data]="rows"
+  [columns]="columns"
+  [hiddenColumns]="hidden"
+  (hiddenColumnsChange)="hidden = $event"
+
+  [searchable]="true"
+  [filterKeys]="['client','amount']"
+
+  [selectable]="true"
+  [selectionMode]="'multiple'"
+  (selectionChange)="onSelection($event)"
+
+  [enableOrder]="true"
+  [pageSize]="10"
+  [pageSizeOptions]="[5,10,25,50]"
+
+  [loading]="loading"                         <!-- 👈 -->
+  [loadingText]="'Chargement des transactions…'"  <!-- optionnel -->
+  [showTopBarWhileLoading]="true"                 <!-- optionnel -->
+></lib-data-table>
+
