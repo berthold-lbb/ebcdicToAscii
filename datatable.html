@@ -281,3 +281,14 @@ hiddenColumns: string[] = ['amount']; // ex. masquée par défaut
   [showTopBarWhileLoading]="true"                 <!-- optionnel -->
 ></lib-data-table>
 
+
+@if (searchable) {
+    <div class="right">
+      <mat-form-field appearance="outline" class="dt-search">
+        <mat-label>{{ filterPlaceholder }}</mat-label>
+        <input matInput [formControl]="searchCtrl" />
+        <mat-icon matPrefix>search</mat-icon>
+        <!-- pas de bouton, pas de ng-if interne -->
+      </mat-form-field>
+    </div>
+  }

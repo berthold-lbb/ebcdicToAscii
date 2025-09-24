@@ -350,3 +350,32 @@ export class DataTableComponent<T extends Record<string, any>>
     return base.slice(start, start + this.paginator.pageSize);
   }
 }
+
+--------------------
+searchCtrl = new FormControl<string>('', { nonNullable: true });
+
+constructor() {
+  this.searchCtrl.valueChanges
+    .pipe(startWith(''), debounceTime(300), distinctUntilChanged())
+    .subscribe(q => {
+      const query = (q ?? '').trim();
+      if (this.serverSide) {
+        this.filterChange.emit(query);
+      } else {
+        // filtrage client
+        this.dataSource.filter = query.toLowerCase();
+        if (this.paginator) this.paginator.firstPage();
+      }
+    });
+
+  // prédicat de filtre (client)
+  this.dataSource.filterPredicate = (row: any, filter: string) => {
+    const q = filter.toLowerCase();
+    const keys = this.filterKeys?.length ? this.filterKeys : Object.keys(row);
+    return keys.some(k => {
+      const v = row[k];
+      const s = (typeof v === 'object') ? JSON.stringify(v) : String(v ?? '');
+      return s.toLowerCase().includes(q);
+    });
+  };
+}
