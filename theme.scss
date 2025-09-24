@@ -1,13 +1,27 @@
 @use '@angular/material' as mat;
 
 $my-green: (
+  50:  #e5f3ec,
+  100: #bfe1d1,
+  200: #99cfb5,
+  300: #73bd9a,
+  400: #4daa7f,
   500: #008c53,
   600: #008c53,
   700: #00663d,
+  800: #004f30,
+  900: #003e26,
   contrast: (
+    50:  #1f2937,
+    100: #1f2937,
+    200: #1f2937,
+    300: white,
+    400: white,
     500: white,
     600: white,
     700: white,
+    800: white,
+    900: white,
   )
 );
 
