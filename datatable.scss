@@ -49,3 +49,109 @@
 .mr-2 { margin-right: 8px; }
 .ml-auto { margin-left: auto; }
 .col-select { width: 48px; padding-left: 8px; padding-right: 8px; }
+
+
+------------------------------------------global styles (for theming)------------------------------------------
+/* Vars pratiques */
+:root{
+  --app-primary: #008c53;
+  --app-primary-dark: #00663d;
+  --app-on-primary: #fff;
+}
+
+/* =======================
+   Boutons Material
+   ======================= */
+.mat-mdc-raised-button.mat-primary,
+.mat-mdc-unelevated-button.mat-primary,
+.mat-mdc-fab.mat-primary,
+.mat-mdc-mini-fab.mat-primary{
+  background-color: var(--app-primary) !important;
+  color: var(--app-on-primary) !important;
+}
+.mat-mdc-raised-button.mat-primary:hover,
+.mat-mdc-unelevated-button.mat-primary:hover{
+  background-color: var(--app-primary-dark) !important;
+}
+
+/* =======================
+   Form-field / Inputs
+   ======================= */
+.mat-mdc-form-field.mat-focused .mdc-notched-outline__leading,
+.mat-mdc-form-field.mat-focused .mdc-notched-outline__notch,
+.mat-mdc-form-field.mat-focused .mdc-notched-outline__trailing{
+  border-color: var(--app-primary) !important;
+}
+.mat-mdc-form-field.mat-focused .mdc-floating-label{
+  color: var(--app-primary) !important;
+}
+/* underline (appearance="legacy" / fill) */
+.mat-mdc-form-field .mdc-line-ripple{
+  background-color: var(--app-primary) !important;
+}
+/* icônes suffix/prefix (loupe, etc.) */
+.mat-mdc-form-field .mat-mdc-form-field-icon-suffix .mat-icon,
+.mat-mdc-form-field .mat-mdc-form-field-icon-prefix .mat-icon{
+  color: var(--app-primary) !important;
+}
+
+/* =======================
+   Datepicker / Calendar
+   ======================= */
+.mat-datepicker-toggle-default-icon{ color: var(--app-primary) !important; }
+.mat-calendar-body-selected,
+.mat-calendar-body-active{
+  background-color: var(--app-primary) !important;
+  color: #fff !important;
+}
+.mat-calendar-body-today{
+  border-color: var(--app-primary) !important;
+}
+
+/* =======================
+   Progress Spinner / Bar
+   ======================= */
+.mat-mdc-progress-spinner .mdc-circular-progress__determinate-circle,
+.mat-mdc-progress-spinner .mdc-circular-progress__indeterminate-circle-graphic{
+  stroke: var(--app-primary) !important;
+}
+.mat-mdc-progress-bar .mdc-linear-progress__bar-inner{
+  border-color: var(--app-primary) !important;
+}
+
+/* =======================
+   Paginator
+   ======================= */
+.mat-mdc-paginator .mat-mdc-icon-button{ color: var(--app-primary) !important; }
+.mat-mdc-paginator .mat-mdc-select-trigger{ color: var(--app-primary) !important; }
+
+/* =======================
+   Checkbox / Radio / Slide-toggle
+   ======================= */
+.mat-mdc-checkbox .mdc-checkbox__background{
+  border-color: var(--app-primary) !important;
+}
+.mat-mdc-checkbox .mdc-checkbox__native-control:enabled:checked~.mdc-checkbox__background{
+  background-color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
+}
+.mat-mdc-radio-button .mdc-radio__inner-circle{ border-color: var(--app-primary) !important; }
+.mat-mdc-radio-button .mdc-radio__outer-circle{ border-color: var(--app-primary) !important; }
+.mat-mdc-slide-toggle .mdc-switch--selected .mdc-switch__track{
+  background-color: var(--app-primary) !important;
+}
+.mat-mdc-slide-toggle .mdc-switch--selected .mdc-switch__handle{
+  background-color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
+}
+
+/* =======================
+   Slider
+   ======================= */
+.mat-mdc-slider .mdc-slider__track--active_fill{ background-color: var(--app-primary) !important; }
+.mat-mdc-slider .mdc-slider__thumb{ background-color: var(--app-primary) !important; border-color: var(--app-primary) !important; }
+
+/* =======================
+   Table / Sort header
+   ======================= */
+.mat-sort-header-arrow{ color: var(--app-primary) !important; }
