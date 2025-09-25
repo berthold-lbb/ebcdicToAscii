@@ -77,6 +77,7 @@
 /* =======================
    Form-field / Inputs
    ======================= */
+/* appearance="outline" : bordures vertes au focus */
 .mat-mdc-form-field.mat-focused .mdc-notched-outline__leading,
 .mat-mdc-form-field.mat-focused .mdc-notched-outline__notch,
 .mat-mdc-form-field.mat-focused .mdc-notched-outline__trailing{
@@ -85,15 +86,17 @@
 .mat-mdc-form-field.mat-focused .mdc-floating-label{
   color: var(--app-primary) !important;
 }
-/* underline (appearance="legacy" / fill) */
-.mat-mdc-form-field .mdc-line-ripple{
+
+/* appearance="fill" ou "legacy" : underline en vert */
+.mat-mdc-form-field .mdc-line-ripple,
+.mat-mdc-form-field .mdc-line-ripple::before,
+.mat-mdc-form-field .mdc-line-ripple::after{
   background-color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
 }
-/* icônes suffix/prefix (loupe, etc.) */
-.mat-mdc-form-field .mat-mdc-form-field-icon-suffix .mat-icon,
-.mat-mdc-form-field .mat-mdc-form-field-icon-prefix .mat-icon{
-  color: var(--app-primary) !important;
-}
+
+/* caret (curseur de saisie) en vert */
+.mat-mdc-input-element{ caret-color: var(--app-primary); }
 
 /* =======================
    Datepicker / Calendar
