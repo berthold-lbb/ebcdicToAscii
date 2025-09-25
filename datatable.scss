@@ -101,25 +101,18 @@
 /* =======================
    SELECT
    ======================= */
-/* item sélectionné */
-.mat-mdc-option.mdc-list-item--selected,
-.mat-mdc-option.mdc-list-item--activated {
-  color: var(--app-primary) !important;
-}
-
-/* checkmark dans le menu */
-.mat-pseudo-checkbox-checked,
-.mat-mdc-option .mat-mdc-option-ripple .mat-pseudo-checkbox-checked,
-.mdc-list-item__primary-text .mat-mdc-select-value {
-  color: var(--app-primary) !important;
-  border-color: var(--app-primary) !important;
+/* coche (check) verte dans mat-select */
+.mat-mdc-option.mdc-list-item--selected .mat-pseudo-checkbox-checked,
+.mat-mdc-option.mdc-list-item--selected .mat-pseudo-checkbox-indeterminate {
   background-color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
 }
 
-/* icône chevron du select */
-.mat-mdc-select-arrow {
+/* si Material utilise le SVG "✔" au lieu du pseudo-checkbox */
+.mat-mdc-option .mdc-list-item__meta {
   color: var(--app-primary) !important;
 }
+
 
 /* =======================
    Curseur
@@ -180,6 +173,23 @@ input.mat-mdc-input-element:-webkit-autofill {
    ======================= */
 .mat-mdc-paginator .mat-mdc-icon-button{ color: var(--app-primary) !important; }
 .mat-mdc-paginator .mat-mdc-select-trigger{ color: var(--app-primary) !important; }
+
+/* coche (✔) verte sur l’option sélectionnée */
+.mat-mdc-paginator .mat-mdc-option.mdc-list-item--selected .mat-pseudo-checkbox-checked,
+.mat-mdc-paginator .mat-mdc-option.mdc-list-item--selected .mat-pseudo-checkbox-indeterminate {
+  background-color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
+}
+
+/* si la coche est rendue via l’icône/meta (selon version) */
+.mat-mdc-paginator .mat-mdc-option .mdc-list-item__meta {
+  color: var(--app-primary) !important;
+}
+
+/* flèche ▼ du select en vert */
+.mat-mdc-paginator .mat-mdc-select-arrow {
+  color: var(--app-primary) !important;
+}
 
 /* =======================
    Checkbox / Radio / Slide-toggle
