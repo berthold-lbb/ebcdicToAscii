@@ -77,26 +77,31 @@
 /* =======================
    Form-field / Inputs
    ======================= */
-/* appearance="outline" : bordures vertes au focus */
+
+/* Outline seulement AU FOCUS */
 .mat-mdc-form-field.mat-focused .mdc-notched-outline__leading,
 .mat-mdc-form-field.mat-focused .mdc-notched-outline__notch,
 .mat-mdc-form-field.mat-focused .mdc-notched-outline__trailing{
   border-color: var(--app-primary) !important;
 }
+
+/* Label seulement AU FOCUS */
 .mat-mdc-form-field.mat-focused .mdc-floating-label{
   color: var(--app-primary) !important;
 }
 
-/* appearance="fill" ou "legacy" : underline en vert */
-.mat-mdc-form-field .mdc-line-ripple,
-.mat-mdc-form-field .mdc-line-ripple::before,
-.mat-mdc-form-field .mdc-line-ripple::after{
+/* Underline (appearance="fill" ou "legacy") — seulement AU FOCUS */
+.mat-mdc-form-field.mat-focused .mdc-line-ripple,
+.mat-mdc-form-field.mat-focused .mdc-line-ripple::before,
+.mat-mdc-form-field.mat-focused .mdc-line-ripple::after{
   background-color: var(--app-primary) !important;
   border-color: var(--app-primary) !important;
 }
 
-/* caret (curseur de saisie) en vert */
+/* Curseur de saisie (facultatif) */
 .mat-mdc-input-element{ caret-color: var(--app-primary); }
+
+
 
 /* =======================
    Datepicker / Calendar
