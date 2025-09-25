@@ -98,8 +98,51 @@
   border-color: var(--app-primary) !important;
 }
 
+/* =======================
+   SELECT
+   ======================= */
+/* item sélectionné */
+.mat-mdc-option.mdc-list-item--selected,
+.mat-mdc-option.mdc-list-item--activated {
+  color: var(--app-primary) !important;
+}
+
+/* checkmark dans le menu */
+.mat-pseudo-checkbox-checked,
+.mat-mdc-option .mat-mdc-option-ripple .mat-pseudo-checkbox-checked,
+.mdc-list-item__primary-text .mat-mdc-select-value {
+  color: var(--app-primary) !important;
+  border-color: var(--app-primary) !important;
+  background-color: var(--app-primary) !important;
+}
+
+/* icône chevron du select */
+.mat-mdc-select-arrow {
+  color: var(--app-primary) !important;
+}
+
+/* =======================
+   Curseur
+   ======================= */
+
 /* Curseur de saisie (facultatif) */
 .mat-mdc-input-element{ caret-color: var(--app-primary); }
+
+
+/* Chrome/Edge : champ rempli en autofill peut ignorer le caret */
+input.mat-mdc-input-element:-webkit-autofill {
+  -webkit-text-fill-color: inherit;
+  caret-color: var(--app-primary) !important;
+}
+
+/* Contenteditable (si tu en as) */
+[contenteditable="true"] { caret-color: var(--app-primary) !important; }
+
+/* Ne pas forcer sur désactivés / readonly */
+.mat-mdc-input-element[disabled],
+.mat-mdc-input-element[readonly] {
+  caret-color: auto !important;
+}
 
 
 
@@ -125,6 +168,11 @@
 }
 .mat-mdc-progress-bar .mdc-linear-progress__bar-inner{
   border-color: var(--app-primary) !important;
+}
+
+/* couleur de fond (buffer / background) */
+.mat-mdc-progress-bar .mdc-linear-progress__buffer {
+  background-color: rgba(0, 140, 83, 0.2) !important;
 }
 
 /* =======================
