@@ -292,3 +292,175 @@ hiddenColumns: string[] = ['amount']; // ex. masquée par défaut
       </mat-form-field>
     </div>
   }
+
+
+
+  ------------------update recent --------------------------------------------
+
+
+  <div class="dt-root">
+  <!-- Toolbar: menu colonnes + recherche -->
+  <div class="dt-toolbar">
+    <div class="left">
+      <button mat-button [matMenuTriggerFor]="colsMenu">
+        <mat-icon>view_column</mat-icon> Colonnes
+      </button>
+      <mat-menu #colsMenu="matMenu" xPosition="after">
+        @for (c of _columns; track c.nom) {
+          <button mat-menu-item (click)="toggleColumn(c)" [disabled]="!c.retractable">
+            <mat-icon class="mr-2">
+              {{ isHidden(c) ? 'check_box_outline_blank' : 'check_box' }}
+            </mat-icon>
+            <span>{{ c.label }}</span>
+            @if (!c.retractable) {
+              <mat-icon class="ml-auto" matTooltip="Non rétractable">lock</mat-icon>
+            }
+          </button>
+        }
+      </mat-menu>
+    </div>
+
+    @if (searchable) {
+      <div class="right">
+        <mat-form-field appearance="outline" class="dt-search">
+          <mat-label>{{ filterPlaceholder }}</mat-label>
+          <input matInput [formControl]="searchCtrl" placeholder="Search..." />
+          <mat-icon matPrefix>search</mat-icon>
+        </mat-form-field>
+      </div>
+    }
+  </div>
+
+  <!-- Loader top bar -->
+  @if (loading && showTopBarWhileLoading) {
+    <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+  }
+
+  <!-- Table -->
+  <table mat-table [dataSource]="dataSource" class="mat-elevation-z2 dt-table" matSort>
+
+    <!-- Colonne sélection -->
+    @if (selectable) {
+      <ng-container matColumnDef="select">
+        <th mat-header-cell *matHeaderCellDef class="col-select" [class.sticky]="stickyHeader">
+          <mat-checkbox
+            (change)="masterToggle()"
+            [checked]="isAllSelected()"
+            [indeterminate]="selection.hasValue() && !isAllSelected()"
+            [aria-label]="checkboxLabel()">
+          </mat-checkbox>
+        </th>
+        <td mat-cell *matCellDef="let row" class="col-select">
+          <mat-checkbox
+            (click)="$event.stopPropagation()"
+            (change)="toggleRow(row)"
+            [checked]="isSelected(row)"
+            [aria-label]="checkboxLabel(row)">
+          </mat-checkbox>
+        </td>
+      </ng-container>
+    }
+
+    <!-- Colonnes dynamiques -->
+    @for (col of visibleColumnDefs; track col.nom) {
+      <ng-container [matColumnDef]="col.nom">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header
+            [disabled]="!(enableOrder && col.enableOrder)"
+            [class.sticky]="stickyHeader">
+          {{ col.label }}
+        </th>
+
+        @switch (col.type) {
+          @case (TableDataType.STRING) {
+            <td mat-cell class="data-table-colonne-{{ col.nom }}"
+                [class.cell-clickable]="col.clickable"
+                (click)="col.clickable && onCellClick($event, row, col)">
+              {{ row[col.nom] }}
+            </td>
+          }
+          @case (TableDataType.NUMBER) {
+            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td>
+          }
+          @case (TableDataType.BOOLEAN) {
+            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td>
+          }
+          @case (TableDataType.DATE) {
+            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy' }}</td>
+          }
+          @case (TableDataType.TIME) {
+            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'HH:mm:ss' }}</td>
+          }
+          @case (TableDataType.DATETIME) {
+            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy HH:mm:ss' }}</td>
+          }
+          @case (TableDataType.JSON) {
+            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | json }}</td>
+          }
+          @case (TableDataType.OBJECT) {
+            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td>
+          }
+          @case (TableDataType.LINK) {
+            <td mat-cell class="data-table-colonne-{{ col.nom }}">
+              <a [routerLink]="[col.link, row[col.nom]]" (click)="$event.stopPropagation()">{{ row[col.nom] }}</a>
+            </td>
+          }
+          @default {
+            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td>
+          }
+        }
+      </ng-container>
+    }
+
+    <!-- Lignes -->
+    <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+
+    <tr
+      mat-row
+      *matRowDef="let row; columns: displayedColumns"
+      class="clickable-row"
+      (click)="selectable && toggleRow(row)"
+      [class.row-selected]="isSelected(row) && highlightSelection"
+      [ngStyle]="(isSelected(row) && highlightSelection)
+                   ? {'--sel-bg': highlightColor, '--sel-bar': highlightBarColor}
+                   : null">
+    </tr>
+
+    @if ((serverSide ? total : autoLength) === 0) {
+      <tr class="mat-row">
+        <td class="mat-cell" [attr.colspan]="displayedColumns.length">Aucune donnée</td>
+      </tr>
+    }
+  </table>
+
+  <!-- Loader overlay -->
+  @if (loading) {
+    <div class="dt-loading">
+      <mat-progress-spinner mode="indeterminate" diameter="40"></mat-progress-spinner>
+      @if (loadingText) { <div class="loading-text">{{ loadingText }}</div> }
+    </div>
+  }
+
+  <mat-paginator
+    [length]="serverSide ? total : autoLength"
+    [pageSize]="pageSize"
+    [pageSizeOptions]="pageSizeOptions"
+    showFirstLastButtons>
+  </mat-paginator>
+</div>
+
+  --------------------------------------------
+  <lib-data-table
+  [data]="rows"
+  [columns]="columns"
+  [(selectedRows)]="selectedRows"
+
+  [searchable]="true" [filterKeys]="['client','amount']"
+  [enableOrder]="true"
+  [pageSize]="10" [pageSizeOptions]="[5,10,25,50]"
+
+  [highlightSelection]="highlightOn"
+  [highlightColor]="colorBg"
+  [highlightBarColor]="colorBar"
+
+  (cellClick)="cellClick.emit($event)">
+</lib-data-table>

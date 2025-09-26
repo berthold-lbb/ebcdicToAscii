@@ -221,3 +221,50 @@ input.mat-mdc-input-element:-webkit-autofill {
    Table / Sort header
    ======================= */
 .mat-sort-header-arrow{ color: var(--app-primary) !important; }
+
+
+
+------------------------------------------angular recent------------------------------------------
+
+/* Conteneur : pas de scroll vertical ; scroll horizontal si trop de colonnes */
+.dt-root { display: block; overflow-y: visible; overflow-x: auto; }
+
+/* Toolbar */
+.dt-toolbar { display: flex; align-items: center; gap: 12px; padding: 8px 0 4px; }
+.dt-toolbar .left { flex: 1 1 auto; }
+.dt-toolbar .right { margin-left: auto; }
+.dt-search { width: 220px; }
+.dt-search .mat-mdc-text-field-wrapper { display: flex; align-items: center; }
+.dt-search input.mat-mdc-input-element { padding: 0; }
+
+/* Table : cadre/grille */
+.dt-table { width: 100%; border: 1px solid #e0e0e0; border-radius: 8px; overflow: hidden; box-shadow: none; }
+.dt-table .mdc-data-table__table { border-collapse: separate; border-spacing: 0; }
+.dt-table .mdc-data-table__header-cell,
+.dt-table .mdc-data-table__cell { border-right: 1px solid #eee; white-space: nowrap; }
+.dt-table .mdc-data-table__header-cell:last-child,
+.dt-table .mdc-data-table__cell:last-child { border-right: none; }
+.dt-table .mdc-data-table__row { border-bottom: 1px solid #eee; }
+.col-select { width: 48px; padding-left: 8px; padding-right: 8px; }
+
+/* Sticky header cells */
+.sticky { position: sticky; top: 0; z-index: 2; background: #fff; }
+
+/* Hover doux */
+.mat-mdc-row:hover .mdc-data-table__cell { background: #f7f9fc; }
+
+/* Ligne sélectionnée (quand highlightSelection=true) */
+.mat-mdc-row.row-selected .mdc-data-table__cell { background: var(--sel-bg, #E6F4EA); }
+.mat-mdc-row.row-selected { box-shadow: inset 4px 0 0 var(--sel-bar, #2E7D32); }
+
+/* Cellule cliquable */
+.cell-clickable { cursor: pointer; text-decoration: underline; }
+.cell-clickable:hover { opacity: .85; }
+
+/* Loader overlay */
+.dt-loading {
+  position: absolute; inset: 48px 0 56px 0; /* laisse header & paginator cliquables si besoin */
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(255,255,255,.6);
+}
+.loading-text { margin-top: 8px; color: #2f7a2f; font-size: .9rem; }
