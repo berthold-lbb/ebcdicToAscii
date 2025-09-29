@@ -168,3 +168,96 @@ export class WsDemoComponent implements OnInit, OnDestroy {
     this.ws.close();
   }
 }
+
+
+-----------------implements----------------
+
+// worktable.component.ts
+import { Component, OnDestroy, OnInit, signal } from '@angular/core';
+import { Subscription } from 'rxjs';
+import { WsService } from '@/core/services/ws.service';
+
+type BtnState = { disabled: boolean; color: string; text: string };
+
+@Component({
+  selector: 'app-worktable',
+  templateUrl: './worktable.component.html'
+})
+export class WorktableComponent implements OnInit, OnDestroy {
+  private subs: Subscription[] = [];
+  btn = signal<BtnState>({
+    disabled: true,
+    color: 'orange',
+    text: 'Charger des matchs'
+  });
+
+  constructor(private wsService: WsService) {}
+
+  ngOnInit(): void {
+    this.wsService.connect('ws://localhost:8081/ws-match');
+    const s = this.wsService.status$.subscribe(st => {
+      if (st === 'OPEN') {
+        this.wsService.send({ idbatch: '12345' });
+        s.unsubscribe();
+      }
+    });
+    this.subs.push(s);
+
+    // 👇 Ici, juste un appel à la fonction dédiée
+    this.subs.push(
+      this.wsService.json$.subscribe(json => this.handleWsMessage(json))
+    );
+  }
+
+  /**
+   * Traite un message JSON reçu via WebSocket et met à jour le bouton.
+   */
+  private handleWsMessage(json: any): void {
+    const code = Number(json?.code);
+    const detail = json?.detail ?? '';
+    const idBatch = json?.idBatch ?? json?.idbatch ?? '—';
+    const totalMatchFound = Number(json?.totalMatch);
+
+    if (code === 500) {
+      this.btn.set({
+        disabled: false,
+        color: 'orange',
+        text: `Erreur — déconnecté (code=500) ${detail ? '· ' + detail : ''}`
+      });
+      this.wsService.close();
+      return;
+    }
+
+    if (!Number.isNaN(totalMatchFound)) {
+      if (totalMatchFound > 0) {
+        this.btn.set({
+          disabled: false,
+          color: '#000000',
+          text: `Afficher les matchs du batch #${idBatch} · total=${totalMatchFound}`
+        });
+      } else {
+        this.btn.set({
+          disabled: false,
+          color: '#000000',
+          text: 'Pas de matchs trouvés — afficher d’autres ?'
+        });
+      }
+      return;
+    }
+
+    this.btn.set({
+      disabled: true,
+      color: 'orange',
+      text: `Analyse en cours… code=${Number.isNaN(code) ? '' : code} ${detail ? '· ' + detail : ''}`
+    });
+  }
+
+  onLoadMatches(): void {
+    // action quand l’utilisateur clique sur le bouton
+  }
+
+  ngOnDestroy(): void {
+    this.subs.forEach(s => s.unsubscribe());
+    this.wsService.close();
+  }
+}
