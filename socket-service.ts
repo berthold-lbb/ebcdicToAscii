@@ -61,7 +61,39 @@ export class WsService implements OnDestroy {
   }
 
   private tryParseJson(text: string): void {
-    try { this.json$.next(JSON.parse(text)); } catch {}
+    try {
+      let s = text.trim();
+
+      // 1) remplacer quotes simples par quotes doubles
+      s = s.replace(/'/g, '"');
+
+      // 2) ajouter des quotes autour des clés si absentes
+      //    ex: { code : "200" } -> { "code": "200" }
+      s = s.replace(/([{,]\s*)([A-Za-z0-9_]+)\s*:/g, '$1"$2":');
+
+      // 3) supprimer les virgules en trop avant } ou ]
+      s = s.replace(/,\s*([}\]])/g, '$1');
+
+      // 4) parser
+      const obj = JSON.parse(s);
+
+      // 5) coercition de certains champs
+      if (obj && typeof obj === 'object') {
+        if (typeof obj.code === 'string' && /^\d+$/.test(obj.code)) {
+          obj.code = Number(obj.code);
+        }
+        if (typeof obj.totalMatch === 'string' && /^\d+$/.test(obj.totalMatch)) {
+          obj.totalMatch = Number(obj.totalMatch);
+        }
+        if (obj.idbatch != null && obj.idBatch == null) {
+          obj.idBatch = obj.idbatch;
+        }
+      }
+
+      this.json$.next(obj);
+    } catch (err) {
+      console.warn('[WS] Failed to parse JSON:', text, err);
+    }
   }
 }
 
