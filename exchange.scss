@@ -48,26 +48,31 @@ html, body { scrollbar-gutter: stable; }
   border-top: 1px solid rgba(0,0,0,.06);
 }
 
-/* grille horizontale : autant de colonnes que de .cell */
-.horizontal-container {
+/* combien de colonnes de données ? -> via une CSS var --cols */
+.horizontal-container{
   display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;        /* colonnes égales */
+  grid-template-columns: repeat(var(--cols, 7), minmax(0,1fr)) max-content; 
   align-items: center;
+  gap: 0;
   min-height: 44px;
 }
 
-/* cellules (liens + bouton) */
-.cell {
+/* le texte ne casse pas, se compacte si besoin */
+.cell{
   padding: 10px 12px;
-  min-height: 44px;
-  display: flex;
-  align-items: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* >>> Traits verticaux (comme le 2ᵉ écran) */
-.cell + .cell {
-  border-left: 1px solid var(--mat-divider-color, rgba(0,0,0,.12));
+/* traits verticaux */
+.cell + .cell{ border-left: 1px solid rgba(0,0,0,.12); }
+
+/* le bouton reste sur la même ligne, collé à droite */
+.persist-btn{
+  justify-self: end;
+  white-space: nowrap;
+  margin: 6px 8px;
 }
 
 /* style lien “bleu” */
