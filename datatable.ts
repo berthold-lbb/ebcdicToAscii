@@ -1,138 +1,6 @@
 import {
-  AfterViewInit, ChangeDetectionStrategy, Component, EventEmitter, Input, Output, ViewChild
-} from '@angular/core';
-import { MatTableDataSource } from '@angular/material/table';
-import { MatPaginator, PageEvent } from '@angular/material/paginator';
-import { MatSort, Sort } from '@angular/material/sort';
-import { ITableColonne, TableDataType } from '../model/table-colonne.model';
-
-@Component({
-  selector: 'lib-data-table',
-  templateUrl: './data-table.component.html',
-  styleUrls: ['./data-table.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush
-})
-export class DataTableComponent<T> implements AfterViewInit {
-  TableDataType = TableDataType;
-
-  // ====== Etat interne ======
-  private _columns: ITableColonne[] = [];
-  private _hidden = new Set<string>();
-
-  dataSource = new MatTableDataSource<T>([]);
-  visibleColumnDefs: ITableColonne[] = [];
-  displayedColumns: string[] = [];
-  autoLength = 0; // longueur client-side
-
-  // ====== Entrées ======
-  @Input() set data(value: T[] | null | undefined) {
-    this.dataSource.data = value ?? [];
-    if (!this.serverSide) this.autoLength = this.dataSource.data?.length ?? 0;
-    if (this.autoStopLoadingOnData) this.loading = false;
-  }
-
-  @Input() set columns(value: ITableColonne[] | null | undefined) {
-    this._columns = (value ?? []).map(c => ({ ...c }));
-    this.recomputeVisible();
-  }
-
-  /** Colonnes initialement masquées (noms) */
-  @Input() set hiddenColumns(value: string[] | null | undefined) {
-    this._hidden = new Set((value ?? []).filter(Boolean));
-    this.recomputeVisible();
-  }
-  /** Pour permettre [(hiddenColumns)] côté parent */
-  @Output() hiddenColumnsChange = new EventEmitter<string[]>();
-
-  @Input() enableOrder = true;
-
-  // Pagination: client (par défaut) ou serveur
-  @Input() serverSide = false;
-  @Input() pageSize = 10;
-  @Input() pageSizeOptions: number[] = [5, 10, 25, 50];
-  @Input() total = 0; // utilisé seulement en serverSide
-
-  // UI/UX
-  @Input() maxHeight = 520;           // px
-  @Input() stickyHeader = true;
-  @Input() loading = false;
-  @Input() autoStopLoadingOnData = true;
-
-  /** Afficher le menu “Colonnes” */
-  @Input() showColumnMenu = true;
-
-  // ====== Sortie (pour le mode serveur) ======
-  @Output() pageChange = new EventEmitter<PageEvent>();
-  @Output() sortChange = new EventEmitter<Sort>();
-
-  // ====== ViewChild ======
-  @ViewChild(MatPaginator) paginator!: MatPaginator;
-  @ViewChild(MatSort) sort!: MatSort;
-
-  // ====== Cycle ======
-  ngAfterViewInit() {
-    if (this.sort) {
-      this.dataSource.sort = this.sort;
-      if (this.serverSide) {
-        this.sort.sortChange.subscribe(s => this.sortChange.emit(s));
-      }
-    }
-
-    if (this.paginator) {
-      this.dataSource.paginator = this.serverSide ? undefined : this.paginator;
-      if (this.serverSide) {
-        this.paginator.page.subscribe(p => this.pageChange.emit(p));
-      }
-    }
-  }
-
-  // ====== Helpers ======
-  trackByCol = (_: number, c: ITableColonne) => c.nom;
-
-  /** Public: savoir si une colonne est masquée (respecte retractable) */
-  isHidden(col: ITableColonne): boolean {
-    return col.retractable && this._hidden.has(col.nom);
-  }
-
-  /** Toggle depuis le menu */
-  toggleColumn(col: ITableColonne): void {
-    if (!col.retractable) return;
-    if (this._hidden.has(col.nom)) this._hidden.delete(col.nom);
-    else this._hidden.add(col.nom);
-    this.recomputeVisible();
-    this.hiddenColumnsChange.emit(Array.from(this._hidden));
-  }
-
-  private recomputeVisible() {
-    this.visibleColumnDefs = this._columns.filter(c => !this.isHidden(c));
-    this.displayedColumns = this.visibleColumnDefs.map(c => c.nom);
-  }
-}
-
-
-
-
-
-// Example of usage of loading and rows
-import { finalize } from 'rxjs/operators';
-loading = false;
-rows: any[] = [];
-
-load() {
-  this.loading = true;
-  this.creditService.getCredits(payload)
-    .pipe(finalize(() => this.loading = false))
-    .subscribe(resp => {
-      this.rows = Array.isArray(resp?.content) ? [...resp.content] : [];
-    });
-
-
---------------------------------------------------------------------------------------------------------------
---------------------------------------------------------------------------------------------------------------
-
-import {
-  AfterViewInit, ChangeDetectionStrategy, Component, EventEmitter,
-  Input, Output, ViewChild, OnChanges, SimpleChanges
+  AfterViewInit, ChangeDetectionStrategy, Component, ContentChild, EventEmitter,
+  Input, OnChanges, Output, SimpleChanges, TemplateRef, ViewChild
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
@@ -149,8 +17,9 @@ import { MatInputModule } from '@angular/material/input';
 import { MatIconModule } from '@angular/material/icon';
 import { MatMenuModule } from '@angular/material/menu';
 import { MatButtonModule } from '@angular/material/button';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner'; // 🔹
-import { MatProgressBarModule } from '@angular/material/progress-bar';         // 🔹
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
 import { debounceTime, distinctUntilChanged, startWith } from 'rxjs/operators';
 
 export enum TableDataType { STRING=0, NUMBER=1, BOOLEAN=2, DATE=3, DATETIME=4, TIME=5, JSON=6, OBJECT=7, LINK=8 }
@@ -162,6 +31,17 @@ export interface ITableColonne {
   enableOrder: boolean;
   retractable: boolean;
   link?: any;
+  clickable?: boolean;
+}
+
+export interface TableAction<T> {
+  id: string;
+  label?: string;
+  icon?: string;
+  color?: 'primary'|'accent'|'warn'|string;
+  tooltip?: string;
+  show?: (row: T, index: number) => boolean;
+  disabled?: (row: T, index: number) => boolean;
 }
 
 @Component({
@@ -171,8 +51,8 @@ export interface ITableColonne {
     CommonModule, RouterLink,
     MatTableModule, MatPaginatorModule, MatSortModule,
     MatCheckboxModule, MatFormFieldModule, MatInputModule,
-    MatIconModule, MatMenuModule, MatButtonModule,
-    MatProgressSpinnerModule, MatProgressBarModule, // 🔹
+    MatIconModule, MatMenuModule, MatButtonModule, MatTooltipModule,
+    MatProgressSpinnerModule, MatProgressBarModule,
     ReactiveFormsModule
   ],
   templateUrl: './data-table.component.html',
@@ -187,7 +67,6 @@ export class DataTableComponent<T extends Record<string, any>>
   // ===== Données & colonnes =====
   private _columns: ITableColonne[] = [];
   private _hidden = new Set<string>();
-
   dataSource = new MatTableDataSource<T>([]);
   visibleColumnDefs: ITableColonne[] = [];
   displayedColumns: string[] = [];
@@ -207,15 +86,20 @@ export class DataTableComponent<T extends Record<string, any>>
   }
   @Output() hiddenColumnsChange = new EventEmitter<string[]>();
 
-  // ===== Sélection =====
+  // ===== Menu colonnes rétractables visible ? =====
+  @Input() showColumnRetractable = true;
+
+  // ===== Sélection (two-way) =====
   @Input() selectable = true;
   @Input() selectionMode: 'single'|'multiple' = 'multiple';
-  selection = new SelectionModel<T>(true, []);
-  @Output() selectionChange = new EventEmitter<T[]>();
+  private selection = new SelectionModel<T>(true, []);
+
+  @Input()  selectedRows: T[] = [];
+  @Output() selectedRowsChange = new EventEmitter<T[]>();
+  @Output() selectionChange = new EventEmitter<T[]>(); // rétro-compat
 
   // ===== Tri & Pagination =====
   @Input() enableOrder = true;
-
   @Input() serverSide = false;
   @Input() pageSize = 10;
   @Input() pageSizeOptions: number[] = [5,10,25,50];
@@ -234,14 +118,37 @@ export class DataTableComponent<T extends Record<string, any>>
 
   // ===== UI =====
   @Input() stickyHeader = true;
-
-  // ===== Loader ===== 🔹
-  /** Active l’overlay de chargement (spinner au centre + barre fine en haut) */
+  @Input() showHeader = true;
   @Input() loading = false;
-  /** Texte optionnel sous le spinner */
   @Input() loadingText: string | null = null;
-  /** Afficher une barre de progression fine en haut */
   @Input() showTopBarWhileLoading = true;
+
+  // ===== Coloration sélection =====
+  @Input() highlightSelection = false;
+  @Input() highlightColor: string = '#E6F4EA';
+  @Input() highlightBarColor: string = '#2E7D32';
+
+  // ===== Cellule cliquable =====
+  @Output() cellClick = new EventEmitter<{ row: T; column: ITableColonne }>();
+  onCellClick(ev: MouseEvent, row: T, col: ITableColonne) {
+    ev.stopPropagation();
+    this.cellClick.emit({ row, column: col });
+  }
+
+  // ===== Colonne actions =====
+  @Input() showActionsColumn = false;
+  @Input() actionsHeaderLabel = '';
+  @Input() actions: TableAction<T>[] = [];
+  @Output() action = new EventEmitter<{ actionId: string; row: T; index: number }>();
+  @ContentChild('rowActions', { read: TemplateRef }) actionsTpl?: TemplateRef<any>;
+
+  onAction(a: TableAction<T>, row: T, i: number, ev: MouseEvent) {
+    ev.stopPropagation();
+    this.action.emit({ actionId: a.id, row, index: i });
+  }
+  isMatPalette(c?: string): c is 'primary'|'accent'|'warn' {
+    return c === 'primary' || c === 'accent' || c === 'warn';
+  }
 
   @ViewChild(MatPaginator) paginator!: MatPaginator;
   @ViewChild(MatSort) sort!: MatSort;
@@ -275,6 +182,14 @@ export class DataTableComponent<T extends Record<string, any>>
         this.selection = new SelectionModel<T>(multi, this.selection.selected);
       }
     }
+    if (ch['selectedRows']) {
+      const multi = this.selectionMode !== 'single';
+      if (this.selection.isMultipleSelection() !== multi) {
+        this.selection = new SelectionModel<T>(multi, []);
+      }
+      this.selection.clear();
+      (this.selectedRows ?? []).forEach(r => this.selection.select(r));
+    }
   }
 
   ngAfterViewInit(): void {
@@ -289,16 +204,20 @@ export class DataTableComponent<T extends Record<string, any>>
   }
 
   // ===== Sélection helpers =====
+  isSelected(row: T): boolean { return this.selection.isSelected(row); }
+
   isAllSelected(): boolean {
     const pageRows = this._currentPageRows();
     return pageRows.length > 0 && pageRows.every(r => this.selection.isSelected(r));
   }
+
   masterToggle(): void {
     const pageRows = this._currentPageRows();
     if (this.isAllSelected()) pageRows.forEach(r => this.selection.deselect(r));
     else pageRows.forEach(r => this.selection.select(r));
-    this.selectionChange.emit(this.selection.selected);
+    this.emitSelection();
   }
+
   toggleRow(row: T): void {
     if (this.selectionMode === 'single') {
       this.selection.clear();
@@ -306,11 +225,18 @@ export class DataTableComponent<T extends Record<string, any>>
     } else {
       this.selection.toggle(row);
     }
-    this.selectionChange.emit(this.selection.selected);
+    this.emitSelection();
   }
+
   checkboxLabel(row?: T): string {
     if (!row) return `${this.isAllSelected() ? 'deselect' : 'select'} all`;
     return `${this.selection.isSelected(row) ? 'deselect' : 'select'} row`;
+  }
+
+  private emitSelection(): void {
+    this.selectedRows = this.selection.selected;
+    this.selectedRowsChange.emit(this.selectedRows);
+    this.selectionChange.emit(this.selectedRows);
   }
 
   // ===== Colonnes visibles / menu =====
@@ -323,18 +249,27 @@ export class DataTableComponent<T extends Record<string, any>>
     this._recomputeVisible();
     this.hiddenColumnsChange.emit([...this._hidden]);
   }
+
   private _recomputeVisible(): void {
     this.visibleColumnDefs = this._columns.filter(c => !this.isHidden(c));
     this.displayedColumns = this.visibleColumnDefs.map(c => c.nom);
+
     if (this.selectable && !this.displayedColumns.includes('select')) {
       this.displayedColumns = ['select', ...this.displayedColumns];
     }
     if (!this.selectable) {
       this.displayedColumns = this.displayedColumns.filter(c => c !== 'select');
     }
+
+    if (this.showActionsColumn && !this.displayedColumns.includes('actions')) {
+      this.displayedColumns = [...this.displayedColumns, 'actions'];
+    }
+    if (!this.showActionsColumn) {
+      this.displayedColumns = this.displayedColumns.filter(c => c !== 'actions');
+    }
   }
 
-  // ===== Filtre client =====
+  // ===== Filtre client & pagination locale =====
   private _applyClientFilter(query: string) {
     this.dataSource.filter = query.trim().toLowerCase();
     if (this.paginator) this.paginator.firstPage();
@@ -344,41 +279,13 @@ export class DataTableComponent<T extends Record<string, any>>
     this.autoLength = this.dataSource.filteredData?.length ?? this.dataSource.data?.length ?? 0;
   }
   private _currentPageRows(): T[] {
-    const base = this.dataSource.filteredData ?? this.dataSource.data ?? [];
-    if (!this.paginator || this.serverSide) return base;
+    const base = this.dataSource.filteredData?.length ? this.dataSource.filteredData : this.dataSource.data;
+    if (!this.paginator || this.serverSide) return base ?? [];
     const start = this.paginator.pageIndex * this.paginator.pageSize;
-    return base.slice(start, start + this.paginator.pageSize);
+    return (base ?? []).slice(start, start + this.paginator.pageSize);
   }
 }
 
---------------------
-searchCtrl = new FormControl<string>('', { nonNullable: true });
-
-constructor() {
-  this.searchCtrl.valueChanges
-    .pipe(startWith(''), debounceTime(300), distinctUntilChanged())
-    .subscribe(q => {
-      const query = (q ?? '').trim();
-      if (this.serverSide) {
-        this.filterChange.emit(query);
-      } else {
-        // filtrage client
-        this.dataSource.filter = query.toLowerCase();
-        if (this.paginator) this.paginator.firstPage();
-      }
-    });
-
-  // prédicat de filtre (client)
-  this.dataSource.filterPredicate = (row: any, filter: string) => {
-    const q = filter.toLowerCase();
-    const keys = this.filterKeys?.length ? this.filterKeys : Object.keys(row);
-    return keys.some(k => {
-      const v = row[k];
-      const s = (typeof v === 'object') ? JSON.stringify(v) : String(v ?? '');
-      return s.toLowerCase().includes(q);
-    });
-  };
-}
 
 
 ------------------------------------------------------------------------------------

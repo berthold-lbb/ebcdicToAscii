@@ -1,324 +1,29 @@
 
-<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
-<div class="table-wrapper" [style.max-height.px]="maxHeight">
-  @if (loading) {
-    <div class="loading-overlay" role="status" aria-live="polite">
-      <mat-progress-spinner mode="indeterminate" diameter="40"></mat-progress-spinner>
-    </div>
-  }
-
-  <!-- Barre d’actions -->
-  @if (showColumnMenu) {
-    <div class="table-actions">
-      <button mat-stroked-button [matMenuTriggerFor]="colMenu">
-        <mat-icon>view_column</mat-icon>
-        Colonnes
-      </button>
-
-      <mat-menu #colMenu="matMenu" class="columns-menu">
-        @for (col of _columns; track col.nom) {
-          <button mat-menu-item (click)="$event.stopPropagation()">
-            <mat-checkbox
-              [checked]="!isHidden(col)"
-              [disabled]="!col.retractable"
-              (change)="toggleColumn(col)">
-              {{ col.label }}
-            </mat-checkbox>
-          </button>
-        }
-      </mat-menu>
-    </div>
-  }
-
-  <table mat-table [dataSource]="dataSource" class="mat-elevation-z8" matSort>
-    <!-- Colonnes dynamiques (1 th + 1 td par colonne) -->
-    @for (col of visibleColumnDefs; track col.nom) {
-      <ng-container [matColumnDef]="col.nom">
-        <th mat-header-cell *matHeaderCellDef
-            mat-sort-header
-            [disabled]="!(enableOrder && col.enableOrder)">
-          {{ col.label }}
-        </th>
-
-        @switch (col.type) {
-          @case (TableDataType.STRING)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
-          @case (TableDataType.NUMBER)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
-          @case (TableDataType.BOOLEAN)  { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
-          @case (TableDataType.DATE)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy' }}</td> }
-          @case (TableDataType.TIME)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'HH:mm:ss' }}</td> }
-          @case (TableDataType.DATETIME) { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy HH:mm:ss' }}</td> }
-          @case (TableDataType.JSON)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | json }}</td> }
-          @case (TableDataType.OBJECT)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
-          @case (TableDataType.LINK)     {
-            <td mat-cell class="data-table-colonne-{{ col.nom }}">
-              <a class="lien-url" [routerLink]="[col.link, row[col.nom]]">{{ row[col.nom] }}</a>
-            </td>
-          }
-          @default { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
-        }
-      </ng-container>
-    }
-
-    <tr mat-header-row *matHeaderRowDef="displayedColumns" [class.sticky]="stickyHeader"></tr>
-    <tr mat-row        *matRowDef="let row; columns: displayedColumns"></tr>
-
-    @if (!loading && (serverSide ? total : autoLength) === 0) {
-      <tr class="mat-row">
-        <td class="mat-cell" [attr.colspan]="displayedColumns.length">Aucune donnée</td>
-      </tr>
-    }
-  </table>
-
-  <mat-paginator
-    [length]="serverSide ? total : autoLength"
-    [pageSize]="pageSize"
-    [pageSizeOptions]="pageSizeOptions"
-    showFirstLastButtons>
-  </mat-paginator>
-</div>
-
-
-
-
-.table-wrapper {
-  position: relative;
-  overflow: auto;
-}
-
-.table-actions {
-  display: flex;
-  gap: .5rem;
-  align-items: center;
-  padding: .5rem 0;
-}
-
-.loading-overlay {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  background: rgba(255, 255, 255, 0.6);
-  z-index: 2;
-}
-
-.sticky,
-.mat-mdc-header-row.sticky {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: #fff;
-}
-
-table { width: 100%; }
-
-
-
-<lib-data-table
-  [data]="rows"
-  [columns]="columns"
-  [hiddenColumns]="['amount']"
-  [enableOrder]="true"
-  [loading]="loading"
-  [showHeaderSpinner]="false">
-</lib-data-table>
-
-<lib-data-table
-  [data]="rows"
-  [columns]="columns"
-  [(hiddenColumns)]="hiddenColumns"  <!-- récupère l’état -->
-  [enableOrder]="true"
-  [loading]="loading"
-  [maxHeight]="520">
-</lib-data-table>
-
-hiddenColumns: string[] = ['amount']; // ex. masquée par défaut
-
-
-
-----------------------------------------------------------------------------------------------------------------
-----------------------------------------------------------------------------------------------------------------
+------------------update recent --------------------------------------------
 
 <div class="dt-root">
-  <!-- Barre fine en haut pendant le chargement -->
-  <mat-progress-bar *ngIf="loading && showTopBarWhileLoading"
-                    mode="indeterminate" class="dt-topbar"></mat-progress-bar>
-
   <!-- Toolbar -->
   <div class="dt-toolbar">
-    <div class="left">
-      <button mat-button [matMenuTriggerFor]="colsMenu">
-        <mat-icon>view_column</mat-icon>
-        Colonnes
-      </button>
-      <mat-menu #colsMenu="matMenu" xPosition="after">
-        @for (c of _columns; track c.nom) {
-          <button mat-menu-item (click)="toggleColumn(c)" [disabled]="!c.retractable">
-            <mat-icon class="mr-2">{{ isHidden(c) ? 'check_box_outline_blank' : 'check_box' }}</mat-icon>
-            <span>{{ c.label }}</span>
-            @if (!c.retractable) { <mat-icon class="ml-auto" matTooltip="Non rétractable">lock</mat-icon> }
-          </button>
-        }
-      </mat-menu>
-    </div>
-
-    @if (searchable) {
-      <div class="right">
-        <mat-form-field appearance="outline" class="dt-search">
-          <mat-label>{{ filterPlaceholder }}</mat-label>
-          <input matInput [formControl]="searchCtrl" />
-          <button mat-icon-button matSuffix (click)="searchCtrl.setValue('')" *ngIf="searchCtrl.value">
-            <mat-icon>close</mat-icon>
-          </button>
-          <mat-icon matPrefix>search</mat-icon>
-        </mat-form-field>
-      </div>
-    }
-  </div>
-
-  <!-- Zone table + overlay -->
-  <div class="dt-table-wrap">
-    <!-- Overlay loader -->
-    @if (loading) {
-      <div class="dt-loader" aria-busy="true" aria-live="polite">
-        <mat-progress-spinner mode="indeterminate" diameter="44"></mat-progress-spinner>
-        @if (loadingText) { <div class="dt-loader-text">{{ loadingText }}</div> }
-      </div>
-    }
-
-    <table mat-table [dataSource]="dataSource" class="mat-elevation-z2 dt-table" matSort
-           [class.dt-blurred]="loading"> <!-- petit blur visuel pendant loading -->
-      @if (selectable) {
-        <ng-container matColumnDef="select">
-          <th mat-header-cell *matHeaderCellDef class="col-select" [class.sticky]="stickyHeader">
-            <mat-checkbox
-              (change)="masterToggle()"
-              [checked]="isAllSelected()"
-              [indeterminate]="selection.hasValue() && !isAllSelected()"
-              [aria-label]="checkboxLabel()">
-            </mat-checkbox>
-          </th>
-          <td mat-cell *matCellDef="let row" class="col-select">
-            <mat-checkbox
-              (click)="$event.stopPropagation()"
-              (change)="toggleRow(row)"
-              [checked]="selection.isSelected(row)"
-              [aria-label]="checkboxLabel(row)">
-            </mat-checkbox>
-          </td>
-        </ng-container>
-      }
-
-      @for (col of visibleColumnDefs; track col.nom) {
-        <ng-container [matColumnDef]="col.nom">
-          <th mat-header-cell *matHeaderCellDef
-              mat-sort-header
-              [disabled]="!(enableOrder && col.enableOrder)"
-              [class.sticky]="stickyHeader">
-            {{ col.label }}
-          </th>
-
-          @switch (col.type) {
-            @case (TableDataType.STRING)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
-            @case (TableDataType.NUMBER)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
-            @case (TableDataType.BOOLEAN)  { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
-            @case (TableDataType.DATE)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy' }}</td> }
-            @case (TableDataType.TIME)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'HH:mm:ss' }}</td> }
-            @case (TableDataType.DATETIME) { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy HH:mm:ss' }}</td> }
-            @case (TableDataType.JSON)     { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | json }}</td> }
-            @case (TableDataType.OBJECT)   { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
-            @case (TableDataType.LINK)     {
-              <td mat-cell class="data-table-colonne-{{ col.nom }}">
-                <a class="lien-url" [routerLink]="[col.link, row[col.nom]]">{{ row[col.nom] }}</a>
-              </td>
-            }
-            @default { <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+    @if (showColumnRetractable) {
+      <div class="left">
+        <button mat-button [matMenuTriggerFor]="colsMenu">
+          <mat-icon>view_column</mat-icon> Colonnes
+        </button>
+        <mat-menu #colsMenu="matMenu" xPosition="after">
+          @for (c of _columns; track c.nom) {
+            <button mat-menu-item (click)="toggleColumn(c)" [disabled]="!c.retractable">
+              <mat-icon class="mr-2">
+                {{ isHidden(c) ? 'check_box_outline_blank' : 'check_box' }}
+              </mat-icon>
+              <span>{{ c.label }}</span>
+              @if (!c.retractable) {
+                <mat-icon class="ml-auto" matTooltip="Non rétractable">lock</mat-icon>
+              }
+            </button>
           }
-        </ng-container>
-      }
-
-      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-      <tr mat-row *matRowDef="let row; columns: displayedColumns"
-          class="clickable-row"
-          (click)="selectable && toggleRow(row)"></tr>
-
-      @if ((serverSide ? total : autoLength) === 0 && !loading) {
-        <tr class="mat-row">
-          <td class="mat-cell" [attr.colspan]="displayedColumns.length">Aucune donnée</td>
-        </tr>
-      }
-    </table>
-  </div>
-
-  <mat-paginator
-    [length]="serverSide ? total : autoLength"
-    [pageSize]="pageSize"
-    [pageSizeOptions]="pageSizeOptions"
-    showFirstLastButtons>
-  </mat-paginator>
-</div>
-
-
-----------------------------------------------------------------------------------------------------------------
-<lib-data-table
-  [data]="rows"
-  [columns]="columns"
-  [hiddenColumns]="hidden"
-  (hiddenColumnsChange)="hidden = $event"
-
-  [searchable]="true"
-  [filterKeys]="['client','amount']"
-
-  [selectable]="true"
-  [selectionMode]="'multiple'"
-  (selectionChange)="onSelection($event)"
-
-  [enableOrder]="true"
-  [pageSize]="10"
-  [pageSizeOptions]="[5,10,25,50]"
-
-  [loading]="loading"                         <!-- 👈 -->
-  [loadingText]="'Chargement des transactions…'"  <!-- optionnel -->
-  [showTopBarWhileLoading]="true"                 <!-- optionnel -->
-></lib-data-table>
-
-
-@if (searchable) {
-    <div class="right">
-      <mat-form-field appearance="outline" class="dt-search">
-        <mat-label>{{ filterPlaceholder }}</mat-label>
-        <input matInput [formControl]="searchCtrl" />
-        <mat-icon matPrefix>search</mat-icon>
-        <!-- pas de bouton, pas de ng-if interne -->
-      </mat-form-field>
-    </div>
-  }
-
-
-
-  ------------------update recent --------------------------------------------
-
-
-  <div class="dt-root">
-  <!-- Toolbar: menu colonnes + recherche -->
-  <div class="dt-toolbar">
-    <div class="left">
-      <button mat-button [matMenuTriggerFor]="colsMenu">
-        <mat-icon>view_column</mat-icon> Colonnes
-      </button>
-      <mat-menu #colsMenu="matMenu" xPosition="after">
-        @for (c of _columns; track c.nom) {
-          <button mat-menu-item (click)="toggleColumn(c)" [disabled]="!c.retractable">
-            <mat-icon class="mr-2">
-              {{ isHidden(c) ? 'check_box_outline_blank' : 'check_box' }}
-            </mat-icon>
-            <span>{{ c.label }}</span>
-            @if (!c.retractable) {
-              <mat-icon class="ml-auto" matTooltip="Non rétractable">lock</mat-icon>
-            }
-          </button>
-        }
-      </mat-menu>
-    </div>
+        </mat-menu>
+      </div>
+    }
 
     @if (searchable) {
       <div class="right">
@@ -331,7 +36,6 @@ hiddenColumns: string[] = ['amount']; // ex. masquée par défaut
     }
   </div>
 
-  <!-- Loader top bar -->
   @if (loading && showTopBarWhileLoading) {
     <mat-progress-bar mode="indeterminate"></mat-progress-bar>
   }
@@ -339,14 +43,13 @@ hiddenColumns: string[] = ['amount']; // ex. masquée par défaut
   <!-- Table -->
   <table mat-table [dataSource]="dataSource" class="mat-elevation-z2 dt-table" matSort>
 
-    <!-- Colonne sélection -->
     @if (selectable) {
       <ng-container matColumnDef="select">
         <th mat-header-cell *matHeaderCellDef class="col-select" [class.sticky]="stickyHeader">
           <mat-checkbox
             (change)="masterToggle()"
             [checked]="isAllSelected()"
-            [indeterminate]="selection.hasValue() && !isAllSelected()"
+            [indeterminate]="selectedRows?.length && !isAllSelected()"
             [aria-label]="checkboxLabel()">
           </mat-checkbox>
         </th>
@@ -372,48 +75,71 @@ hiddenColumns: string[] = ['amount']; // ex. masquée par défaut
 
         @switch (col.type) {
           @case (TableDataType.STRING) {
-            <td mat-cell class="data-table-colonne-{{ col.nom }}"
+            <td mat-cell *matCellDef="let row"
+                class="data-table-colonne-{{ col.nom }}"
                 [class.cell-clickable]="col.clickable"
                 (click)="col.clickable && onCellClick($event, row, col)">
               {{ row[col.nom] }}
             </td>
           }
-          @case (TableDataType.NUMBER) {
-            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td>
-          }
-          @case (TableDataType.BOOLEAN) {
-            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td>
-          }
-          @case (TableDataType.DATE) {
-            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy' }}</td>
-          }
-          @case (TableDataType.TIME) {
-            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'HH:mm:ss' }}</td>
-          }
-          @case (TableDataType.DATETIME) {
-            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy HH:mm:ss' }}</td>
-          }
-          @case (TableDataType.JSON) {
-            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | json }}</td>
-          }
-          @case (TableDataType.OBJECT) {
-            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td>
-          }
+          @case (TableDataType.NUMBER)   { <td mat-cell *matCellDef="let row" class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+          @case (TableDataType.BOOLEAN)  { <td mat-cell *matCellDef="let row" class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
+          @case (TableDataType.DATE)     { <td mat-cell *matCellDef="let row" class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy' }}</td> }
+          @case (TableDataType.TIME)     { <td mat-cell *matCellDef="let row" class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'HH:mm:ss' }}</td> }
+          @case (TableDataType.DATETIME) { <td mat-cell *matCellDef="let row" class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | date:'dd/MM/yyyy HH:mm:ss' }}</td> }
+          @case (TableDataType.JSON)     { <td mat-cell *matCellDef="let row" class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] | json }}</td> }
+          @case (TableDataType.OBJECT)   { <td mat-cell *matCellDef="let row" class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td> }
           @case (TableDataType.LINK) {
-            <td mat-cell class="data-table-colonne-{{ col.nom }}">
-              <a [routerLink]="[col.link, row[col.nom]]" (click)="$event.stopPropagation()">{{ row[col.nom] }}</a>
+            <td mat-cell *matCellDef="let row" class="data-table-colonne-{{ col.nom }}">
+              <a [routerLink]="[col.link, row[col.nom]]" (click)="$event.stopPropagation()">
+                {{ row[col.nom] }}
+              </a>
             </td>
           }
           @default {
-            <td mat-cell class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td>
+            <td mat-cell *matCellDef="let row" class="data-table-colonne-{{ col.nom }}">{{ row[col.nom] }}</td>
           }
         }
       </ng-container>
     }
 
-    <!-- Lignes -->
-    <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+    <!-- Colonne ACTIONS -->
+    @if (showActionsColumn) {
+      <ng-container matColumnDef="actions">
+        <th mat-header-cell *matHeaderCellDef [class.sticky]="stickyHeader">
+          {{ actionsHeaderLabel || '' }}
+        </th>
 
+        <td mat-cell *matCellDef="let row; let i = index" class="col-actions">
+          @if (actionsTpl) {
+            <ng-container [ngTemplateOutlet]="actionsTpl"
+                          [ngTemplateOutletContext]="{ $implicit: row, index: i }">
+            </ng-container>
+          } @else {
+            @for (a of actions; track a.id) {
+              @if (!a.show || a.show(row, i)) {
+                <button mat-raised-button class="mr-2"
+                        [color]="isMatPalette(a.color) ? a.color : null"
+                        [ngStyle]="!isMatPalette(a.color) && a.color ? {'background': a.color, 'color':'#fff'} : null"
+                        [disabled]="a.disabled?.(row, i)"
+                        [matTooltip]="a.tooltip || a.label || ''"
+                        (click)="onAction(a,row,i,$event)">
+                  @if (a.icon) { <mat-icon class="mr-1">{{ a.icon }}</mat-icon> }
+                  @if (a.label) { <span>{{ a.label }}</span> }
+                </button>
+              }
+            }
+          }
+        </td>
+      </ng-container>
+    }
+
+    <!-- Header optionnel -->
+    @if (showHeader) {
+      <tr mat-header-row [matHeaderRowDef]="displayedColumns"></tr>
+    }
+
+    <!-- Rows -->
     <tr
       mat-row
       *matRowDef="let row; columns: displayedColumns"
@@ -432,7 +158,6 @@ hiddenColumns: string[] = ['amount']; // ex. masquée par défaut
     }
   </table>
 
-  <!-- Loader overlay -->
   @if (loading) {
     <div class="dt-loading">
       <mat-progress-spinner mode="indeterminate" diameter="40"></mat-progress-spinner>
@@ -448,11 +173,16 @@ hiddenColumns: string[] = ['amount']; // ex. masquée par défaut
   </mat-paginator>
 </div>
 
-  --------------------------------------------
-  <lib-data-table
+
+--------------------------------------------
+
+<lib-data-table
   [data]="rows"
   [columns]="columns"
   [(selectedRows)]="selectedRows"
+
+  [showColumnRetractable]="true"
+  [showHeader]="true"
 
   [searchable]="true" [filterKeys]="['client','amount']"
   [enableOrder]="true"
@@ -462,5 +192,63 @@ hiddenColumns: string[] = ['amount']; // ex. masquée par défaut
   [highlightColor]="colorBg"
   [highlightBarColor]="colorBar"
 
-  (cellClick)="cellClick.emit($event)">
+  [showActionsColumn]="true"
+  [actionsHeaderLabel]="' '"
+  [actions]="rowActions"
+  (action)="onRowAction($event)"
+  (cellClick)="onCellClick($event)">
 </lib-data-table>
+
+  <lib-data-table
+  [data]="rows"
+  [columns]="columns"
+  [(selectedRows)]="selectedRows"
+
+  [showHeader]="true"                     <!-- mettre false pour cacher -->
+  [showActionsColumn]="true"
+  [actionsHeaderLabel]="' '"              <!-- vide = pas de titre -->
+  [actions]="rowActions"
+  (action)="onRowAction($event)"          <!-- {actionId,row,index} -->
+
+  [searchable]="true" [filterKeys]="['client','amount']"
+  [enableOrder]="true"
+  [pageSize]="10" [pageSizeOptions]="[5,10,25,50]"
+
+  [highlightSelection]="highlightOn"
+  [highlightColor]="colorBg"
+  [highlightBarColor]="colorBar"
+
+  (cellClick)="onCellClick($event)">
+</lib-data-table>
+
+<lib-data-table
+  [data]="rows"
+  [columns]="columns"
+  [(selectedRows)]="selectedRows"
+  [showHeader]="false"
+  [showActionsColumn]="true">
+
+  <ng-template #rowActions let-row let-i="index">
+    <button mat-stroked-button color="primary"
+            (click)="$event.stopPropagation(); editRow(row)">Edit</button>
+    <button mat-icon-button color="warn" matTooltip="Supprimer"
+            (click)="$event.stopPropagation(); removeRow(row)">
+      <mat-icon>delete</mat-icon>
+    </button>
+  </ng-template>
+</lib-data-table>
+
+rowActions = [
+  { id: 'persist', label: 'Persist', icon: 'save', color: 'primary', tooltip: 'Enregistrer' },
+  { id: 'delete',  label: 'Delete',  icon: 'delete', color: 'warn',    tooltip: 'Supprimer' }
+];
+
+onRowAction(e: {actionId: string; row: any; index: number}) {
+  if (e.actionId === 'persist') { /* … */ }
+  if (e.actionId === 'delete')  { /* … */ }
+}
+onCellClick(e: {row:any; column: ITableColonne}) {
+  // traitement cellule cliquée
+}
+
+
