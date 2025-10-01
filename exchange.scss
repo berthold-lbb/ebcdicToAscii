@@ -1,0 +1,85 @@
+/* 1) Empêche le “saut” de layout quand le scrollbar apparaît */
+html, body { scrollbar-gutter: stable; }
+
+/* ----- Barre en haut : sticky + ligne de séparation ----- */
+.dialog-toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--mdc-theme-surface, #fff);
+  border-bottom: 1px solid var(--mat-divider-color, rgba(0,0,0,.12));
+}
+
+/* ----- Zone scrollable du contenu du dialog ----- */
+::ng-deep .mat-mdc-dialog-content {
+  padding: 0 !important; /* look bord-à-bord comme ton 2ᵉ écran */
+}
+
+.dialog-content {
+  max-height: min(80vh, 720px);
+  overflow: auto;
+  scrollbar-gutter: stable both-edges; /* largeur stable avec/sans scroll */
+}
+
+/* ----- Actions en bas : sticky ----- */
+.actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: var(--mdc-theme-surface, #fff);
+  border-top: 1px solid var(--mat-divider-color, rgba(0,0,0,.12));
+  padding: 12px 16px;
+}
+
+/* ----- Liste style “table” ----- */
+.match-list {
+  display: flex;
+  flex-direction: column;
+}
+
+/* chaque item est un mat-card mais on annule l'apparence "card" */
+.match-item {
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* ligne horizontale très légère entre les rows */
+.match-item + .match-item {
+  border-top: 1px solid rgba(0,0,0,.06);
+}
+
+/* grille horizontale : autant de colonnes que de .cell */
+.horizontal-container {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;        /* colonnes égales */
+  align-items: center;
+  min-height: 44px;
+}
+
+/* cellules (liens + bouton) */
+.cell {
+  padding: 10px 12px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+/* >>> Traits verticaux (comme le 2ᵉ écran) */
+.cell + .cell {
+  border-left: 1px solid var(--mat-divider-color, rgba(0,0,0,.12));
+}
+
+/* style lien “bleu” */
+.link {
+  color: #1976d2;
+  text-decoration: none;
+  cursor: pointer;
+}
+.link:hover { text-decoration: underline; }
+
+/* bouton persist si tu gardes Bootstrap */
+.persist-btn {
+  justify-self: end;            /* pousse le bouton à droite */
+  white-space: nowrap;
+}
