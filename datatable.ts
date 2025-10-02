@@ -150,6 +150,54 @@ export class DataTableComponent<T extends Record<string, any>>
     return c === 'primary' || c === 'accent' || c === 'warn';
   }
 
+  ----------------------------------------------------------------------------
+  /** événement émis quand un bouton d’actions est cliqué */
+  @Output() action = new EventEmitter<{ actionId: string; row: T; index: number }>();
+
+  /* ---- champs privés + setters (pattern strict) ---- */
+
+  private _showActionsColumn = false;
+  private _rowActionsTpl?: TemplateRef<any>;
+  private _actions: TableAction<T>[] = [];
+
+  /** forcer l’affichage de la colonne actions */
+  @Input() set showActionsColumn(v: boolean) {
+    this._showActionsColumn = !!v;
+    this._recomputeVisible(); // 🔁 recalcule immédiatement
+  }
+  get showActionsColumn(): boolean { return this._showActionsColumn; }
+
+  /** Template custom pour les actions */
+  @Input() set rowActionsTemplate(tpl: TemplateRef<any> | null | undefined) {
+    this._rowActionsTpl = tpl ?? undefined; // 🔎 normalisation
+    this._recomputeVisible();               // 🔁 recalcule immédiatement
+  }
+  get rowActionsTemplate(): TemplateRef<any> | undefined {
+    return this._rowActionsTpl;
+  }
+
+  /** Liste d’actions fallback si pas de template */
+  @Input() set actions(value: TableAction<T>[] | null | undefined) {
+    this._actions = value ?? [];
+    this._recomputeVisible();               // 🔁 recalcule immédiatement
+  }
+  get actions(): TableAction<T>[] { return this._actions; }
+
+  /** Vrai si on DOIT afficher la colonne actions (forcé OU template OU liste d’actions) */
+  get hasActionsColumn(): boolean {
+    return this._showActionsColumn || !!this._rowActionsTpl || (this._actions?.length > 0);
+  }
+  ----------------------------------------------------------------------
+
+  onAction(a: TableAction<T>, row: T, i: number, ev: MouseEvent) {
+    ev?.stopPropagation?.();
+    if (a?.disabled && (typeof a.disabled === 'function' ? a.disabled(row) : a.disabled)) {
+      return;
+    }
+    this.action.emit({ actionId: a.id, row, index: i });
+  }
+
+
   @ViewChild(MatPaginator) paginator!: MatPaginator;
   @ViewChild(MatSort) sort!: MatSort;
 
@@ -261,10 +309,11 @@ export class DataTableComponent<T extends Record<string, any>>
       this.displayedColumns = this.displayedColumns.filter(c => c !== 'select');
     }
 
-    if (this.showActionsColumn && !this.displayedColumns.includes('actions')) {
+    // case: colonne d’actions (nouvelle logique unifiée)
+    if (this.hasActionsColumn && !this.displayedColumns.includes('actions')) {
       this.displayedColumns = [...this.displayedColumns, 'actions'];
     }
-    if (!this.showActionsColumn) {
+    if (!this.hasActionsColumn && this.displayedColumns.includes('actions')) {
       this.displayedColumns = this.displayedColumns.filter(c => c !== 'actions');
     }
   }
@@ -284,6 +333,8 @@ export class DataTableComponent<T extends Record<string, any>>
     const start = this.paginator.pageIndex * this.paginator.pageSize;
     return (base ?? []).slice(start, start + this.paginator.pageSize);
   }
+
+  
 }
 
 
