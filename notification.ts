@@ -80,3 +80,55 @@
     </section>
   }
 }
+
+
+-----------
+<mat-toolbar class="toolbar">
+  <span>Modifier le commentaire</span>
+</mat-toolbar>
+
+<mat-dialog-content [formGroup]="form">
+  <mat-form-field appearance="fill" class="full-width">
+    <mat-label>Commentaire</mat-label>
+    <textarea
+      matInput
+      formControlName="comments"
+      rows="4">
+    </textarea>
+
+    @if (form.get('comments')?.hasError('required')) {
+      <mat-error>Le commentaire est requis</mat-error>
+    }
+
+    @if (form.get('comments')?.hasError('maxlength')) {
+      <mat-error>Maximum 500 caractères</mat-error>
+    }
+  </mat-form-field>
+</mat-dialog-content>
+
+<mat-dialog-actions align="end">
+  <button mat-button (click)="cancel()">Annuler</button>
+  <button
+    mat-raised-button
+    color="primary"
+    (click)="saveComment()"
+    [disabled]="form.invalid || isSaving">
+    @if (isSaving) {
+      Enregistrement...
+    } @else {
+      Enregistrer
+    }
+  </button>
+</mat-dialog-actions>
+
+@if (saveSuccess) {
+  <div class="success-message">
+    Commentaire enregistré avec succès
+  </div>
+}
+
+@if (saveError) {
+  <div class="error-message">
+    Erreur lors de l'enregistrement du commentaire
+  </div>
+}
