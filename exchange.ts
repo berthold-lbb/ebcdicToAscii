@@ -164,3 +164,5 @@ export class FrNativeDateAdapter extends NativeDateAdapter {
            `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
   }
 }
+-----------
+test -f coverage/lcov.info || { echo "LCOV manquant"; ls -la coverage; exit 1; }
