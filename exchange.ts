@@ -165,4 +165,23 @@ export class FrNativeDateAdapter extends NativeDateAdapter {
   }
 }
 -----------
-test -f coverage/lcov.info || { echo "LCOV manquant"; ls -la coverage; exit 1; }
+
+
+jobs:
+  ci-frontend:
+    uses: chemin/vers/le/workflow/ci.yml
+    with:
+      component-name: frontend
+      npm-test-command: test-ci
+      manifest-path: ci
+    secrets: inherit
+
+    steps:
+      - name: 🔍 Vérifier le dossier courant
+        shell: bash
+        run: |
+          echo "📂 Répertoire courant : $(pwd)"
+          echo "📁 Contenu du dossier courant :"
+          ls -la
+          echo "📁 Contenu du dossier coverage :"
+          ls -la coverage || echo "⚠️ Dossier coverage introuvable"
