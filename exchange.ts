@@ -123,3 +123,44 @@ HTML
     <!-- champ de recherche ici -->
   }
 </div>
+
+
+--------------------------
+
+import { Injectable } from '@angular/core';
+import { NativeDateAdapter } from '@angular/material/core';
+
+@Injectable()
+export class FrNativeDateAdapter extends NativeDateAdapter {
+  override parse(value: unknown): Date | null {
+    if (value instanceof Date) return this.isValid(value) ? value : null;
+    if (typeof value !== 'string' || !value.trim()) return null;
+
+    // Accepte : DD/MM/YYYY ou DD/MM/YYYY HH:mm[:ss]
+    const match = value.trim().match(
+      /^(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/
+    );
+    if (!match) return null;
+
+    const [, d, m, y, hh = '0', mm = '0', ss = '0'] = match;
+    const year = y.length === 2 ? Number(`20${y}`) : Number(y);
+
+    const date = new Date(
+      year,
+      Number(m) - 1,
+      Number(d),
+      Number(hh),
+      Number(mm),
+      Number(ss)
+    );
+    return this.isValid(date) ? date : null;
+  }
+
+  override format(date: Date, displayFormat: string | unknown): string {
+    if (!this.isValid(date)) return '';
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    // Format affiché dans l’input : DD/MM/YYYY HH:mm:ss
+    return `${pad(date.getDate())}/${pad(date.getMonth() + 1)}/${date.getFullYear()} ` +
+           `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  }
+}
