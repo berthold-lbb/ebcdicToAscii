@@ -234,3 +234,27 @@ export class DataTableComponent<T extends Record<string, any>>
     </div>
   </div>
 </ng-template>
+
+-----------
+dans le sccs parent 
+
+.detail-flex {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.detail-flex > div { flex: 1 1 300px; } /* 2 colonnes ≈ si la place le permet */
+.detail-flex .actions { flex: 1 1 100%; margin-top: 8px; } /* 
+
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 16px;
+  align-items: start;
+}
+.detail-grid .actions {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+
