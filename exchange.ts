@@ -1,6 +1,15 @@
 import {
-  AfterViewInit, ChangeDetectionStrategy, Component, EventEmitter,
-  Input, OnChanges, Output, SimpleChanges, TemplateRef, ViewChild
+  AfterViewInit,
+  ChangeDetectionStrategy,
+  ChangeDetectorRef,
+  Component,
+  EventEmitter,
+  Input,
+  OnChanges,
+  Output,
+  SimpleChanges,
+  TemplateRef,
+  ViewChild
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterLink } from '@angular/router';
@@ -34,7 +43,6 @@ export interface ITableColonne {
 }
 
 type IdType = string | number;
-interface DetailRow { __detail: true; forId: IdType; }
 
 @Component({
   selector: 'lib-data-table',
@@ -54,140 +62,164 @@ interface DetailRow { __detail: true; forId: IdType; }
 export class DataTableComponent<T extends Record<string, any>>
   implements AfterViewInit, OnChanges {
 
+  // ========= Données & colonnes =========
   protected readonly TableDataType = TableDataType;
 
-  // ===== Données & colonnes =====
   private _columns: ITableColonne[] = [];
   private _hidden = new Set<string>();
-
   dataSource = new MatTableDataSource<T>([]);
   visibleColumnDefs: ITableColonne[] = [];
   displayedColumns: string[] = [];
 
   @Input() set data(value: T[] | null | undefined) {
     const arr = value ?? [];
-    this._ensureStableIds(arr);
+    this._ensureStableIds(arr);           // nécessaire si pas de rowIdKey
     this.dataSource.data = arr;
     if (!this.serverSide) this._updateClientLength();
+    // si la ligne ouverte n’existe plus, on ferme
+    this._closeDetailIfRowGone();
+    this.cdr.markForCheck();
   }
   @Input() set columns(value: ITableColonne[] | null | undefined) {
     this._columns = (value ?? []).map(c => ({ ...c }));
     this._recomputeVisible();
+    this.cdr.markForCheck();
   }
   @Input() set hiddenColumns(value: string[] | null | undefined) {
     this._hidden = new Set((value ?? []).filter(Boolean));
     this._recomputeVisible();
     this.hiddenColumnsChange.emit([...this._hidden]);
+    this.cdr.markForCheck();
   }
   @Output() hiddenColumnsChange = new EventEmitter<string[]>();
-  @Input() showColumnRetractable = true;
 
-  // ===== Sélection =====
+  // ========= Sélection (existant) =========
   @Input() selectable = true;
-  @Input() selectionMode: 'single'|'multiple' = 'multiple';
+  @Input() selectionMode: 'single' | 'multiple' = 'multiple';
   private selection = new SelectionModel<T>(true, []);
-
-  @Input()  selectedRows: T[] = [];
+  @Input() selectedRows: T[] = [];
   @Output() selectedRowsChange = new EventEmitter<T[]>();
   @Output() selectionChange = new EventEmitter<T[]>();
 
-  // ===== Tri & Pagination =====
+  // ========= Tri & Pagination =========
   @Input() enableOrder = true;
   @Input() serverSide = false;
   @Input() pageSize = 10;
-  @Input() pageSizeOptions: number[] = [5,10,25,50];
-  @Input() total = 0;     // pour serverSide
-  autoLength = 0;         // pour clientSide
+  @Input() pageSizeOptions: number[] = [5, 10, 25, 50];
+  @Input() total = 0;   // server side
+  autoLength = 0;       // client side
 
   @Output() pageChange = new EventEmitter<PageEvent>();
   @Output() sortChange = new EventEmitter<Sort>();
 
-  // ===== Recherche =====
+  // ========= Recherche =========
   @Input() searchable = true;
   @Input() filterPlaceholder = 'Search…';
   @Input() filterKeys: string[] = [];
   @Output() filterChange = new EventEmitter<string>();
   searchCtrl = new FormControl<string>('', { nonNullable: true });
 
-  // ===== UI / loader & highlight =====
+  // ========= UI / Loader / Highlight =========
   @Input() stickyHeader = true;
   @Input() loading = false;
   @Input() loadingText: string | null = null;
   @Input() showTopBarWhileLoading = true;
-
   @Input() highlightSelection = false;
   @Input() highlightColor: string = '#E6F4EA';
   @Input() highlightBarColor: string = '#2E7D32';
 
-  // ===== Cellule cliquable =====
+  // ========= Cellule cliquable (existant) =========
   @Output() cellClick = new EventEmitter<{ row: T; column: ITableColonne }>();
   onCellClick(ev: MouseEvent, row: T, col: ITableColonne) {
     ev.stopPropagation();
     this.cellClick.emit({ row, column: col });
   }
 
-  // ===== Détail de ligne =====
-  @Input() rowIdKey?: keyof T;                 // optionnel si tu as une vraie clé
-  @Input() rowDetailTemplate?: TemplateRef<any>; // si absent => fallback JSON
+  // ========= Vue DÉTAIL (2 modes) =========
+  /** Active/désactive la fonctionnalité */
+  @Input() enableRowDetail = true;
 
-  expandedId: IdType | null = null;            // id de la ligne ouverte
-
-  onRowDblClick(row: T): void {
-    const id = this._rowId(row);
-    this.expandedId = (this.expandedId === id) ? null : id;
+  /** Template projeté depuis le parent (optionnel) */
+  private _rowDetailTpl?: TemplateRef<any>;
+  @Input() set rowDetailTemplate(tpl: TemplateRef<any> | null | undefined) {
+    this._rowDetailTpl = tpl ?? undefined;
   }
+  get rowDetailTemplate(): TemplateRef<any> | undefined { return this._rowDetailTpl; }
 
-  /** Tableau rendu : base paginée + éventuelle ligne de détail */
-  get rowsForRender(): Array<T|DetailRow> {
-    const baseAll = this.dataSource.filteredData?.length
-      ? this.dataSource.filteredData
-      : (this.dataSource.data ?? []);
+  /** Mode B : clé d’identification stable */
+  @Input() rowIdKey?: keyof T;
 
-    // pagination client : découpe avant d’injecter le détail
-    let pageRows = baseAll;
-    if (this.paginator && !this.serverSide) {
-      const start = this.paginator.pageIndex * this.paginator.pageSize;
-      pageRows = baseAll.slice(start, start + this.paginator.pageSize);
+  /** Mode A (sans rowIdKey) : référence d’objet */
+  expandedRow: T | null = null;
+
+  /** Mode B (avec rowIdKey) : id stable */
+  expandedId: IdType | null = null;
+
+  /** Double-clic : ouvre/ferme le détail */
+  onRowDblClick(row: T): void {
+    if (!this.enableRowDetail) return;
+
+    if (this.rowIdKey) {
+      const id = this._rowId(row);
+      this.expandedId = (this.expandedId === id) ? null : id;
+      this.expandedRow = null; // on n’utilise pas la ref en mode id
+    } else {
+      this.expandedRow = (this.expandedRow === row) ? null : row;
+      this.expandedId = null;
     }
 
-    if (this.expandedId == null) return pageRows;
-
-    const idx = pageRows.findIndex(r => this._rowId(r) === this.expandedId);
-    if (idx === -1) return pageRows; // détail hors page courante => rien à insérer
-
-    const res: Array<T|DetailRow> = pageRows.slice(0, idx + 1);
-    res.push({ __detail: true, forId: this.expandedId });
-    res.push(...pageRows.slice(idx + 1));
-    return res;
+    this.cdr.markForCheck(); // 🔥 force le rafraîchissement avec OnPush
   }
 
-  /** predicate pour MatTable */
-  isDetailRow = (_i: number, row: T | DetailRow) =>
-    (row as any)?.__detail === true;
+  /** Prédicat pour la 2e RowDef (ligne détail) */
+  isDetailRow = (_: number, row: T) => {
+    if (!this.enableRowDetail) return false;
+    return this.rowIdKey
+      ? this.expandedId != null && this._rowId(row) === this.expandedId
+      : this.expandedRow != null && row === this.expandedRow;
+  };
 
-  // ===== Mat refs =====
+  // ========= Mat refs =========
   @ViewChild(MatPaginator) paginator!: MatPaginator;
   @ViewChild(MatSort) sort!: MatSort;
 
-  // ===== ids stables si pas de rowIdKey =====
+  // ========= Ids stables (si pas de rowIdKey) =========
   private _ids = new WeakMap<T, number>();
   private _seq = 1;
+
   private _ensureStableIds(rows: T[]) {
     if (this.rowIdKey) return;
     for (const r of rows) if (!this._ids.has(r)) this._ids.set(r, this._seq++);
-    // si la ligne ouverte a disparu, on la ferme
-    if (this.expandedId != null && !rows.some(r => this._rowId(r) === this.expandedId)) {
-      this.expandedId = null;
-    }
   }
   private _rowId(row: T): IdType {
-    if (this.rowIdKey && row[this.rowIdKey] != null) return row[this.rowIdKey] as unknown as IdType;
-    return this._ids.get(row)!; // assuré par _ensureStableIds
+    if (this.rowIdKey && row && (row as any)[this.rowIdKey] != null) {
+      return (row as any)[this.rowIdKey] as IdType;
+    }
+    // fallback : id synthétique (mode A seulement)
+    let id = this._ids.get(row);
+    if (id == null) {
+      id = this._seq++;
+      this._ids.set(row, id);
+    }
+    return id;
   }
 
-  // ===== ctor =====
-  constructor() {
-    // search
+  private _closeDetailIfRowGone() {
+    const base = this.dataSource.data ?? [];
+    if (this.rowIdKey) {
+      if (this.expandedId != null && !base.some(r => this._rowId(r) === this.expandedId)) {
+        this.expandedId = null;
+      }
+    } else {
+      if (this.expandedRow != null && !base.includes(this.expandedRow)) {
+        this.expandedRow = null;
+      }
+    }
+  }
+
+  // ========= ctor =========
+  constructor(private cdr: ChangeDetectorRef) {
+    // recherche
     this.searchCtrl.valueChanges
       .pipe(startWith(''), debounceTime(300), distinctUntilChanged())
       .subscribe(q => {
@@ -210,7 +242,7 @@ export class DataTableComponent<T extends Record<string, any>>
     };
   }
 
-  // ===== Hooks =====
+  // ========= Hooks =========
   ngOnChanges(ch: SimpleChanges): void {
     if (ch['selectionMode']) {
       const multi = this.selectionMode !== 'single';
@@ -226,6 +258,12 @@ export class DataTableComponent<T extends Record<string, any>>
       this.selection.clear();
       (this.selectedRows ?? []).forEach(r => this.selection.select(r));
     }
+    if (ch['rowIdKey']) {
+      // on bascule proprement d’un mode à l’autre
+      this.expandedRow = null;
+      this.expandedId = null;
+      this.cdr.markForCheck();
+    }
   }
 
   ngAfterViewInit(): void {
@@ -233,22 +271,26 @@ export class DataTableComponent<T extends Record<string, any>>
       this.dataSource.sort = this.sort;
       this.sort.sortChange.subscribe(s => {
         if (this.serverSide) this.sortChange.emit(s);
-        this.expandedId = null;                 // ferme le détail au tri
+        this.expandedRow = null;
+        this.expandedId = null;
+        this.cdr.markForCheck();
       });
     }
     if (this.paginator) {
-      // IMPORTANT : on ne branche PAS dataSource.paginator (on pagine nous-mêmes)
       if (this.serverSide) {
         this.paginator.page.subscribe(p => this.pageChange.emit(p));
       } else {
-        this.paginator.page.subscribe(() => this.expandedId = null); // ferme au changement de page
+        this.paginator.page.subscribe(() => {
+          this.expandedRow = null;
+          this.expandedId = null;
+          this.cdr.markForCheck();
+        });
       }
     }
   }
 
-  // ===== Sélection =====
+  // ========= Sélection (helpers existants) =========
   isSelected = (row: T) => this.selection.isSelected(row);
-
   isAllSelected(): boolean {
     const rows = this._currentPageRows();
     return rows.length > 0 && rows.every(r => this.selection.isSelected(r));
@@ -278,7 +320,7 @@ export class DataTableComponent<T extends Record<string, any>>
     this.selectionChange.emit(this.selectedRows);
   }
 
-  // ===== Colonnes visibles =====
+  // ========= Colonnes visibles =========
   trackByCol = (_: number, c: ITableColonne) => c.nom;
   isHidden = (col: ITableColonne) => col.retractable && this._hidden.has(col.nom);
   toggleColumn(col: ITableColonne): void {
@@ -299,16 +341,13 @@ export class DataTableComponent<T extends Record<string, any>>
     }
   }
 
-  // ===== Filtre & pagination client =====
+  // ========= Filtre & pagination client =========
   private _applyClientFilter(query: string) {
     this.dataSource.filter = query.trim().toLowerCase();
     if (this.paginator && !this.serverSide) this.paginator.firstPage();
     this._updateClientLength();
-    // si la ligne ouverte sort du résultat filtré => fermer
-    const base = this.dataSource.filteredData ?? this.dataSource.data ?? [];
-    if (this.expandedId != null && !base.some(r => this._rowId(r) === this.expandedId)) {
-      this.expandedId = null;
-    }
+    this._closeDetailIfRowGone();
+    this.cdr.markForCheck();
   }
   private _updateClientLength() {
     this.autoLength = this.dataSource.filteredData?.length ?? this.dataSource.data?.length ?? 0;
@@ -322,162 +361,3 @@ export class DataTableComponent<T extends Record<string, any>>
     return base.slice(start, start + this.paginator.pageSize);
   }
 }
------------
-<div class="dt-root">
-  <!-- Toolbar -->
-  <div class="dt-toolbar">
-    <div class="left">
-      @if (showColumnRetractable) {
-        <button mat-button [matMenuTriggerFor]="colsMenu">
-          <mat-icon>view_column</mat-icon> Colonnes
-        </button>
-        <mat-menu #colsMenu="matMenu" xPosition="after">
-          @for (c of _columns; track c.nom) {
-            <button mat-menu-item (click)="toggleColumn(c)" [disabled]="!c.retractable">
-              <mat-icon class="mr-2">{{ isHidden(c) ? 'check_box_outline_blank' : 'check_box' }}</mat-icon>
-              <span>{{ c.label }}</span>
-              @if (!c.retractable) { <mat-icon class="ml-auto" matTooltip="Non rétractable">lock</mat-icon> }
-            </button>
-          }
-        </mat-menu>
-      }
-    </div>
-
-    @if (searchable) {
-      <div class="right">
-        <mat-form-field appearance="outline" class="dt-search">
-          <mat-label>{{ filterPlaceholder }}</mat-label>
-          <mat-icon matPrefix>search</mat-icon>
-          <input matInput [formControl]="searchCtrl" placeholder="Search..." />
-        </mat-form-field>
-      </div>
-    }
-  </div>
-
-  @if (loading && showTopBarWhileLoading) {
-    <mat-progress-bar mode="indeterminate"></mat-progress-bar>
-  }
-
-  <table mat-table
-         [dataSource]="rowsForRender"
-         class="mat-elevation-z2 dt-table"
-         matSort
-         [multiTemplateDataRows]="true">
-
-    <!-- Col sélection -->
-    @if (selectable) {
-      <ng-container matColumnDef="select">
-        <th mat-header-cell *matHeaderCellDef class="col-select" [class.sticky]="stickyHeader">
-          <mat-checkbox
-            (change)="masterToggle()"
-            [checked]="isAllSelected()"
-            [indeterminate]="selection.hasValue() && !isAllSelected()"
-            [aria-label]="checkboxLabel()"
-            (keydown.space)="$event.preventDefault(); masterToggle()"
-            (keydown.enter)="$event.preventDefault(); masterToggle()">
-          </mat-checkbox>
-        </th>
-        <td mat-cell *matCellDef="let row" class="col-select" @if="!(row as any).__detail">
-          <mat-checkbox
-            (click)="$event.stopPropagation()"
-            (change)="toggleRow(row)"
-            [checked]="isSelected(row)"
-            [aria-label]="checkboxLabel(row)"
-            (keydown.space)="$event.preventDefault(); toggleRow(row)"
-            (keydown.enter)="$event.preventDefault(); toggleRow(row)">
-          </mat-checkbox>
-        </td>
-      </ng-container>
-    }
-
-    <!-- Colonnes dynamiques -->
-    @for (col of visibleColumnDefs; track col.nom) {
-      <ng-container [matColumnDef]="col.nom">
-        <th mat-header-cell *matHeaderCellDef mat-sort-header
-            [disabled]="!(enableOrder && col.enableOrder)"
-            [class.sticky]="stickyHeader">
-          {{ col.label }}
-        </th>
-
-        @switch (col.type) {
-          @case (TableDataType.STRING) {
-            <td mat-cell *matCellDef="let row" @if="!(row as any).__detail"
-                class="data-table-colonne-{{ col.nom }}"
-                [class.cell-clickable]="col.clickable"
-                (click)="col.clickable && onCellClick($event, row, col)">
-              {{ row[col.nom] }}
-            </td>
-          }
-          @case (TableDataType.NUMBER)   { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] }}</td> }
-          @case (TableDataType.BOOLEAN)  { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] }}</td> }
-          @case (TableDataType.DATE)     { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] | date:'dd/MM/yyyy' }}</td> }
-          @case (TableDataType.TIME)     { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] | date:'HH:mm:ss' }}</td> }
-          @case (TableDataType.DATETIME) { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] | date:'dd/MM/yyyy HH:mm:ss' }}</td> }
-          @case (TableDataType.JSON)     { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] | json }}</td> }
-          @case (TableDataType.OBJECT)   { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] }}</td> }
-          @case (TableDataType.LINK) {
-            <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">
-              <a [routerLink]="[col.link, row[col.nom]]" (click)="$event.stopPropagation()">{{ row[col.nom] }}</a>
-            </td>
-          }
-          @default { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] }}</td> }
-        }
-      </ng-container>
-    }
-
-    <!-- Header -->
-    <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-
-    <!-- Lignes normales -->
-    <tr mat-row
-        *matRowDef="let row; columns: displayedColumns"
-        class="clickable-row"
-        @if="!(row as any).__detail"
-        (dblclick)="onRowDblClick(row)"
-        (click)="selectable && toggleRow(row)"
-        [class.row-selected]="isSelected(row) && highlightSelection"
-        [ngStyle]="(isSelected(row) && highlightSelection)
-                     ? {'--sel-bg': highlightColor, '--sel-bar': highlightBarColor}
-                     : null">
-    </tr>
-
-    <!-- Colonne technique pour la ligne de détail -->
-    <ng-container matColumnDef="detail">
-      <td mat-cell class="detail-cell" [attr.colspan]="displayedColumns.length">
-        <div class="detail-wrapper">
-          @if (rowDetailTemplate) {
-            <ng-container *ngTemplateOutlet="rowDetailTemplate; context: {$implicit: row.__host, row: row.__host}"></ng-container>
-          } @else {
-            <div class="detail-fallback"><strong>Détails :</strong> {{ row.__host ?? row | json }}</div>
-          }
-        </div>
-      </td>
-    </ng-container>
-
-    <!-- Lignes de détail (quand: isDetailRow) -->
-    <tr mat-row
-        *matRowDef="let row; columns: ['detail']; when: isDetailRow"
-        class="detail-row">
-    </tr>
-
-    @if ((serverSide ? total : autoLength) === 0) {
-      <tr class="mat-row">
-        <td class="mat-cell" [attr.colspan]="displayedColumns.length">Aucune donnée</td>
-      </tr>
-    }
-  </table>
-
-  @if (loading) {
-    <div class="dt-loading">
-      <mat-progress-spinner mode="indeterminate" diameter="40"></mat-progress-spinner>
-      @if (loadingText) { <div class="loading-text">{{ loadingText }}</div> }
-    </div>
-  }
-
-  <mat-paginator
-    [length]="serverSide ? total : autoLength"
-    [pageSize]="pageSize"
-    [pageSizeOptions]="pageSizeOptions"
-    showFirstLastButtons>
-  </mat-paginator>
-</div>
