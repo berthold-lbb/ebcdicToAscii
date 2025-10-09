@@ -777,3 +777,43 @@ export class DataTableComponent<T extends Record<string, any>>
   </div>
 </ng-template>
 
+
+--------------------------------------------------------------------------------
+/** Double-clic = ouvrir/fermer */
+  onRowDblClick(row: T): void {
+    const id = this._getRowId(row);
+    this.expandedId = (this.expandedId === id) ? null : id;
+  }
+
+  /** Predicate pour la ligne “detail” */
+  isDetailRow = (_i: number, row: T) => this._getRowId(row) === this.expandedId;
+
+  // ====== Mat refs ======
+  @ViewChild(MatPaginator) paginator!: MatPaginator;
+  @ViewChild(MatSort) sort!: MatSort;
+
+  // ====== IDs stables quand rowIdKey absent ======
+  private _ids = new WeakMap<T, number>();
+  private _seq = 1;
+
+  private _assignStableIds(rows: T[]) {
+    for (const r of rows) {
+      if (this.rowIdKey) {
+        // si clé métier fournie, rien à faire
+        continue;
+      }
+      if (!this._ids.has(r)) this._ids.set(r, this._seq++);
+    }
+    // si la ligne ouverte n’existe plus, on ferme
+    if (this.expandedId != null) {
+      const stillThere = rows.some(r => this._getRowId(r) === this.expandedId);
+      if (!stillThere) this.expandedId = null;
+    }
+  }
+  private _getRowId(row: T): string | number {
+    if (this.rowIdKey && row[this.rowIdKey] != null) {
+      return row[this.rowIdKey] as (string | number);
+    }
+    return this._ids.get(row)!; // existe car _assignStableIds appelé
+  }
+
