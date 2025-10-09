@@ -322,3 +322,162 @@ export class DataTableComponent<T extends Record<string, any>>
     return base.slice(start, start + this.paginator.pageSize);
   }
 }
+-----------
+<div class="dt-root">
+  <!-- Toolbar -->
+  <div class="dt-toolbar">
+    <div class="left">
+      @if (showColumnRetractable) {
+        <button mat-button [matMenuTriggerFor]="colsMenu">
+          <mat-icon>view_column</mat-icon> Colonnes
+        </button>
+        <mat-menu #colsMenu="matMenu" xPosition="after">
+          @for (c of _columns; track c.nom) {
+            <button mat-menu-item (click)="toggleColumn(c)" [disabled]="!c.retractable">
+              <mat-icon class="mr-2">{{ isHidden(c) ? 'check_box_outline_blank' : 'check_box' }}</mat-icon>
+              <span>{{ c.label }}</span>
+              @if (!c.retractable) { <mat-icon class="ml-auto" matTooltip="Non rétractable">lock</mat-icon> }
+            </button>
+          }
+        </mat-menu>
+      }
+    </div>
+
+    @if (searchable) {
+      <div class="right">
+        <mat-form-field appearance="outline" class="dt-search">
+          <mat-label>{{ filterPlaceholder }}</mat-label>
+          <mat-icon matPrefix>search</mat-icon>
+          <input matInput [formControl]="searchCtrl" placeholder="Search..." />
+        </mat-form-field>
+      </div>
+    }
+  </div>
+
+  @if (loading && showTopBarWhileLoading) {
+    <mat-progress-bar mode="indeterminate"></mat-progress-bar>
+  }
+
+  <table mat-table
+         [dataSource]="rowsForRender"
+         class="mat-elevation-z2 dt-table"
+         matSort
+         [multiTemplateDataRows]="true">
+
+    <!-- Col sélection -->
+    @if (selectable) {
+      <ng-container matColumnDef="select">
+        <th mat-header-cell *matHeaderCellDef class="col-select" [class.sticky]="stickyHeader">
+          <mat-checkbox
+            (change)="masterToggle()"
+            [checked]="isAllSelected()"
+            [indeterminate]="selection.hasValue() && !isAllSelected()"
+            [aria-label]="checkboxLabel()"
+            (keydown.space)="$event.preventDefault(); masterToggle()"
+            (keydown.enter)="$event.preventDefault(); masterToggle()">
+          </mat-checkbox>
+        </th>
+        <td mat-cell *matCellDef="let row" class="col-select" @if="!(row as any).__detail">
+          <mat-checkbox
+            (click)="$event.stopPropagation()"
+            (change)="toggleRow(row)"
+            [checked]="isSelected(row)"
+            [aria-label]="checkboxLabel(row)"
+            (keydown.space)="$event.preventDefault(); toggleRow(row)"
+            (keydown.enter)="$event.preventDefault(); toggleRow(row)">
+          </mat-checkbox>
+        </td>
+      </ng-container>
+    }
+
+    <!-- Colonnes dynamiques -->
+    @for (col of visibleColumnDefs; track col.nom) {
+      <ng-container [matColumnDef]="col.nom">
+        <th mat-header-cell *matHeaderCellDef mat-sort-header
+            [disabled]="!(enableOrder && col.enableOrder)"
+            [class.sticky]="stickyHeader">
+          {{ col.label }}
+        </th>
+
+        @switch (col.type) {
+          @case (TableDataType.STRING) {
+            <td mat-cell *matCellDef="let row" @if="!(row as any).__detail"
+                class="data-table-colonne-{{ col.nom }}"
+                [class.cell-clickable]="col.clickable"
+                (click)="col.clickable && onCellClick($event, row, col)">
+              {{ row[col.nom] }}
+            </td>
+          }
+          @case (TableDataType.NUMBER)   { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] }}</td> }
+          @case (TableDataType.BOOLEAN)  { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] }}</td> }
+          @case (TableDataType.DATE)     { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] | date:'dd/MM/yyyy' }}</td> }
+          @case (TableDataType.TIME)     { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] | date:'HH:mm:ss' }}</td> }
+          @case (TableDataType.DATETIME) { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] | date:'dd/MM/yyyy HH:mm:ss' }}</td> }
+          @case (TableDataType.JSON)     { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] | json }}</td> }
+          @case (TableDataType.OBJECT)   { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] }}</td> }
+          @case (TableDataType.LINK) {
+            <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">
+              <a [routerLink]="[col.link, row[col.nom]]" (click)="$event.stopPropagation()">{{ row[col.nom] }}</a>
+            </td>
+          }
+          @default { <td mat-cell *matCellDef="let row" @if="!(row as any).__detail">{{ row[col.nom] }}</td> }
+        }
+      </ng-container>
+    }
+
+    <!-- Header -->
+    <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+
+    <!-- Lignes normales -->
+    <tr mat-row
+        *matRowDef="let row; columns: displayedColumns"
+        class="clickable-row"
+        @if="!(row as any).__detail"
+        (dblclick)="onRowDblClick(row)"
+        (click)="selectable && toggleRow(row)"
+        [class.row-selected]="isSelected(row) && highlightSelection"
+        [ngStyle]="(isSelected(row) && highlightSelection)
+                     ? {'--sel-bg': highlightColor, '--sel-bar': highlightBarColor}
+                     : null">
+    </tr>
+
+    <!-- Colonne technique pour la ligne de détail -->
+    <ng-container matColumnDef="detail">
+      <td mat-cell class="detail-cell" [attr.colspan]="displayedColumns.length">
+        <div class="detail-wrapper">
+          @if (rowDetailTemplate) {
+            <ng-container *ngTemplateOutlet="rowDetailTemplate; context: {$implicit: row.__host, row: row.__host}"></ng-container>
+          } @else {
+            <div class="detail-fallback"><strong>Détails :</strong> {{ row.__host ?? row | json }}</div>
+          }
+        </div>
+      </td>
+    </ng-container>
+
+    <!-- Lignes de détail (quand: isDetailRow) -->
+    <tr mat-row
+        *matRowDef="let row; columns: ['detail']; when: isDetailRow"
+        class="detail-row">
+    </tr>
+
+    @if ((serverSide ? total : autoLength) === 0) {
+      <tr class="mat-row">
+        <td class="mat-cell" [attr.colspan]="displayedColumns.length">Aucune donnée</td>
+      </tr>
+    }
+  </table>
+
+  @if (loading) {
+    <div class="dt-loading">
+      <mat-progress-spinner mode="indeterminate" diameter="40"></mat-progress-spinner>
+      @if (loadingText) { <div class="loading-text">{{ loadingText }}</div> }
+    </div>
+  }
+
+  <mat-paginator
+    [length]="serverSide ? total : autoLength"
+    [pageSize]="pageSize"
+    [pageSizeOptions]="pageSizeOptions"
+    showFirstLastButtons>
+  </mat-paginator>
+</div>
