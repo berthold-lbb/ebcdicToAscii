@@ -191,3 +191,65 @@ const slideInOut = animation([
 })
 export class DataTableComponent<...> {}
 
+
+--------------
+import { trigger, state, style, transition, animate } from '@angular/animations';
+
+
+@Component({
+  // ...
+  animations: [
+    // Carte de détail : open/closed
+    trigger('detailToggle', [
+      state('closed', style({
+        height: '0px',
+        opacity: 0,
+        transform: 'translateY(-4px)',
+        paddingTop: '0',
+        paddingBottom: '0',
+        marginTop: '0',
+        marginBottom: '0',
+      })),
+      state('open', style({
+        height: '*',
+        opacity: 1,
+        transform: 'translateY(0)',
+      })),
+      transition('closed => open', animate('180ms ease-out')),
+      transition('open => closed', animate('120ms ease-in')),
+    ]),
+
+    // Liseré/halo sur la ligne hôte
+    trigger('rowGlow', [
+      state('off', style({ boxShadow: 'none' })),
+      state('on',  style({ boxShadow: 'inset 4px 0 0 0 #2e7d32' })), // ou une border-left si tu préfères
+      transition('off <=> on', animate('120ms ease')),
+    ]),
+  ],
+})
+export class DataTableComponent { /* … */ }
+
+
+<tr mat-row
+    *matRowDef="let row; columns: displayedColumns"
+    (dblclick)="onRowDblClick(row)"
+    [@rowGlow]="expandedId === _rowId(row) ? 'on' : 'off'">
+</tr>
+
+<tr mat-row *matRowDef="let row; columns: ['detail']; when: isDetailRow">
+  <td mat-cell class="detail-cell" [attr.colspan]="displayedColumns.length">
+    <div class="detail-card"
+         [@detailToggle]="expandedId ? 'open' : 'closed'">
+      <div class="detail-indent">
+        <ng-container *ngIf="rowDetailTemplate; else jsonFallback"
+          [ngTemplateOutlet]="rowDetailTemplate"
+          [ngTemplateOutletContext]="{$implicit: row.host, row: row.host}">
+        </ng-container>
+
+        <ng-template #jsonFallback>
+          <strong>Détails</strong> {{ row.host | json }}
+        </ng-template>
+      </div>
+    </div>
+  </td>
+</tr>
