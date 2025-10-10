@@ -1,117 +1,56 @@
-<!-- ===== TOOLBAR ===== -->
-<div class="dt-toolbar">
-  <!-- Titre optionnel -->
-  <div class="dt-toolbar-left">
-    <span class="dt-title">{{ tableTitle || 'Data Table' }}</span>
-  </div>
-
-  <!-- Partie droite -->
-  <div class="dt-toolbar-right">
-    <!-- Barre de recherche -->
-    @if (searchable) {
-      <mat-form-field appearance="outline" class="dt-search-field">
-        <mat-icon matPrefix>search</mat-icon>
-        <input matInput [placeholder]="filterPlaceholder" [formControl]="searchCtrl">
-      </mat-form-field>
-    }
-
-    <!-- Séparateur -->
-    <span class="dt-separator">|</span>
-
-    <!-- Boutons d’action -->
-    <button mat-icon-button matTooltip="Refresh" (click)="refresh?.emit()">
-      <mat-icon>refresh</mat-icon>
-    </button>
-
-    <button mat-icon-button matTooltip="Colonnes" (click)="toggleColumnsMenu?.emit()">
-      <mat-icon>view_column</mat-icon>
-    </button>
-
-    <button mat-icon-button matTooltip="Exporter" (click)="export?.emit()">
-      <mat-icon>download</mat-icon>
-    </button>
-
-    <!-- Séparateur -->
-    <span class="dt-separator">|</span>
-
-    <!-- Bouton principal personnalisable -->
-    <button mat-flat-button color="primary" (click)="mainAction?.emit()">
-      <mat-icon>add</mat-icon>
-      {{ mainActionLabel || 'Add' }}
-    </button>
-  </div>
-</div>
-
-------------------------------------------------
-
-private isDetail = (row: unknown): row is DetailRow<T> =>
-  !!row && typeof row === 'object' && '__detail' in row && (row as any).__detail === true;
-
-// Predicates MatTable
-isDetailRow = (_: number, row: T | DetailRow<T>) => this.isDetail(row);
-isDataRow   = (_: number, row: T | DetailRow<T>) => !this.isDetail(row);
-
-
-.dt-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 16px;
-  background-color: #fafafa;
-  border-bottom: 1px solid #e0e0e0;
-}
-
-.dt-toolbar-left {
-  font-weight: 600;
-  font-size: 1.1rem;
-  color: #333;
-}
-
-.dt-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.dt-search-field {
-  width: 220px;
-  margin-right: 8px;
-
-  input {
-    font-size: 0.9rem;
+// row-detail-card.component.ts
+@Component({
+  selector: 'app-row-detail-card',
+  template: `
+  @if (loading) {
+    <div class="detail-card"><mat-icon class="spin">autorenew</mat-icon> Loading…</div>
+  } @else if (error) {
+    <div class="detail-card error">
+      <mat-icon color="warn">error</mat-icon> {{error}}
+      <button mat-stroked-button (click)="reload()">Retry</button>
+    </div>
+  } @else if (data) {
+    <mat-card class="detail-card">
+      <mat-card-title>Client Details</mat-card-title>
+      <mat-card-content class="detail-grid">
+        <div><b>ID:</b> {{ data.id }}</div>
+        <div><b>Account:</b> {{ data.account }}</div>
+        <div><b>Currency:</b> {{ data.currency }}</div>
+        <div><b>Amount:</b> {{ data.amount | number:'1.0-2' }}</div>
+      </mat-card-content>
+      <mat-card-actions>
+        <button mat-icon-button (click)="reload()" matTooltip="Reload"><mat-icon>refresh</mat-icon></button>
+      </mat-card-actions>
+    </mat-card>
   }
-
-  .mat-mdc-form-field-outline {
-    background-color: #fff;
+  `,
+  styles: [/* réutilise les styles ci-dessus */]
+})
+export class RowDetailCardComponent implements OnInit {
+  @Input() row!: any;
+  loading = false;
+  error: string | null = null;
+  data: any = null;
+  constructor(private api: MyApiService) {}
+  ngOnInit() { this.reload(); }
+  reload() {
+    this.loading = true; this.error = null;
+    this.api.getTxDetail(this.row.id).pipe(
+      finalize(() => this.loading = false),
+      catchError(err => { this.error = err?.message ?? 'Erreur'; return of(null); })
+    ).subscribe(res => this.data = res);
   }
 }
 
-.dt-separator {
-  margin: 0 6px;
-  color: #bbb;
-  font-weight: 300;
-}
 
-button[mat-flat-button] {
-  text-transform: none;
-  font-weight: 500;
-  letter-spacing: 0.2px;
-}
 
-button[mat-icon-button] {
-  color: #555;
-  &:hover {
-    background-color: rgba(0, 0, 0, 0.05);
-  }
-}
------------
 <lib-data-table
-  [data]="rows"
+  [data]="dataSource"
   [columns]="columns"
-  [tableTitle]="'Clients'"
-  [mainActionLabel]="'Add Contact'"
-  (mainAction)="onAddContact()"
-  (refresh)="onRefresh()"
-  (toggleColumnsMenu)="onToggleColumns()"
-  (export)="onExport()">
+  [enableRowDetail]="true"
+  [rowDetailTemplate]="detailTpl">
 </lib-data-table>
+
+<ng-template #detailTpl let-row>
+  <app-row-detail-card [row]="row"></app-row-detail-card>
+</ng-template>
