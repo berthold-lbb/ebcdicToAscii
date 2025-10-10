@@ -152,86 +152,42 @@ export class RowDetailCardComponent implements OnInit {
 }
 
 -----------------------------------------------Animation--------------------------------
+import {
+  animate,
+  state,
+  style,
+  transition as oldTransition,
+  trigger,
+  useAnimation
+} from '@angular/animations';
+import { animation, sequence } from '@angular/animations';
 
-// + imports animations
-import { animate, state, style, transition, trigger } from '@angular/animations';
+const slideInOut = animation([
+  state('void', style({ height: 0, opacity: 0, transform: 'translateY(-4px)' })),
+  state('*', style({ height: '*', opacity: 1, transform: 'translateY(0)' })),
+  sequence([
+    oldTransition('void => *', [
+      animate('180ms ease-out')
+    ]),
+    oldTransition('* => void', [
+      animate('150ms ease-in')
+    ])
+  ])
+]);
 
 @Component({
   // ...
   animations: [
-    // carte de détail qui se déplie
-    trigger('detailToggle', [
-      state('void', style({ height: 0, opacity: 0, transform: 'translateY(-4px)' })),
-      state('*',    style({ height: '*', opacity: 1, transform: 'translateY(0)' })),
-      transition('void <=> *', animate('180ms ease'))
-    ]),
+    // Animation de la carte détail
+    trigger('detailToggle', [useAnimation(slideInOut)]),
 
-    // léger glow sur la ligne parente ouverte
+    // Glow vert pour la ligne ouverte
     trigger('rowGlow', [
       state('off', style({ boxShadow: 'none' })),
       state('on',  style({ boxShadow: 'inset 0 0 0 9999px rgba(0,140,83,0.05)' })),
-      transition('off <=> on', animate('150ms ease-in-out'))
+      oldTransition('off <=> on', animate('150ms ease-in-out'))
     ])
   ]
 })
-export class DataTableComponent<...> { /* rien d’autre à changer ici */ }
+export class DataTableComponent<...> {}
 
-
------
-<!-- cellules "data" (exemple) -->
-<td mat-cell
-    *matCellDef="let row"
-    (dblclick)="onRowDblClick(row)"
-    [class.expanded]="expandedId === _rowId(row)"
-    [@rowGlow]="expandedId === _rowId(row) ? 'on' : 'off'">
-  {{ row[col.nom] }}
-</td>
-----
-<!-- colonne 'detail' déjà en place -->
-<ng-container matColumnDef="detail">
-  <td mat-cell class="detail-cell" [attr.colspan]="displayedColumns.length">
-    <div class="detail-wrapper">
-      @if (rowDetailTemplate) {
-        <div class="detail-card" @detailToggle>
-          <ng-container
-            *ngTemplateOutlet="rowDetailTemplate; context: {$implicit: row.host, row: row.host}">
-          </ng-container>
-        </div>
-      } @else {
-        <div class="detail-card" @detailToggle>
-          <strong>Détails :</strong> {{ row.host | json }}
-        </div>
-      }
-    </div>
-  </td>
-</ng-container>
-----------------
-.mat-mdc-row.expanded {
-  border-left: 4px solid #008c53;
-  background-color: #f6fff9;
-}
-
-.detail-cell { padding: 0 !important; background: transparent !important; border: none !important; }
-
-.detail-wrapper {
-  position: relative;
-  padding-left: 24px;         /* décale vers la droite */
-  background: #fafafa;        /* fond léger */
-}
-
-.detail-wrapper::before {     /* petit trait vertical optionnel */
-  content: '';
-  position: absolute;
-  top: 0; left: 12px;
-  width: 2px; height: 100%;
-  background: #008c53; opacity: .25;
-}
-
-.detail-card {
-  margin: 8px 0;
-  padding: 12px 16px;
-  border-radius: 8px;
-  background: #fff;
-  border-left: 3px solid #008c53;
-  /* pas de transition ici : gérée par @detailToggle */
-}
