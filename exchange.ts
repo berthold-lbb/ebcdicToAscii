@@ -1,209 +1,158 @@
-1) Dans A (le composant qui encapsule lib-data-table)
-
-Il expose déjà [(selectedRows)] (tu le montres dans B ✅).
-
-On ajoute deux @Input():
-
-applyValues: { tag?: string; proprietaire?: string; score?: number }
-
-applyTrigger: number (un compteur; à chaque incrément → on applique aux lignes sélectionnées)
-
-A connaît sa dataSource (tu l’as dans ton screenshot 1). Il patchera ses lignes.
-
-// composant-a.component.ts
-import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, signal, computed } from '@angular/core';
-
-type Id = string | number;
+models/row.model.ts (si pas déjà défini)
 export interface Row {
-  idTransaction: Id;
-  tag?: string;
-  proprietaire?: string;
-  score?: number; // 10..100
-  // ...autres colonnes
+  idTransaction: string | number;
+  txAmountType?: 'credit' | 'debit' | string; // info utile mais pas obligatoire
+  txAmountValue: number;                      // signé (+/-) ou non (voir note)
+  matchTag?: string;
+  originalClientName?: string;
+  matchScore?: number;
+  account?: string;
+  currency?: string;
+  // ...autres champs
 }
 
+recap-table.component.ts
+import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { Row } from '../models/row.model';
+
+// ⚠️ Adapte le chemin d'import vers ton lib-data-table
+import { LibDataTableComponent } from 'src/app/shared/lib-data-table/lib-data-table.component';
+
 @Component({
-  selector: 'composant-a',
+  selector: 'recap-table',
   standalone: true,
-  templateUrl: './composant-a.component.html',
+  imports: [CommonModule, LibDataTableComponent],
+  templateUrl: './recap-table.component.html',
+  styleUrls: ['./recap-table.component.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
-export class ComposantAComponent implements OnChanges {
-  // --- Data du tableau (A est la source pour lib-data-table) ---
-  @Input() dataSource: Row[] = [];
-  @Output() dataSourceChange = new EventEmitter<Row[]>(); // si tu veux remonter au parent (optionnel)
+export class RecapTableComponent {
+  /** Lignes sélectionnées côté Crédit */
+  @Input({ required: true }) credits: Row[] = [];
+  /** Lignes sélectionnées côté Débit */
+  @Input({ required: true }) debits: Row[] = [];
 
-  // --- Sélection surfacée vers B ---
-  @Input() selectedRows: any[] = [];
-  @Output() selectedRowsChange = new EventEmitter<any[]>();
-
-  // --- Clé d'identifiant (tu la passes déjà à lib-data-table) ---
+  /** Clé d'identifiant (si ton lib en a besoin) */
   @Input() rowIdKey: keyof Row = 'idTransaction';
 
-  // --- Nouveau: patch à appliquer + trigger ---
-  @Input() applyValues: Partial<Pick<Row, 'tag' | 'proprietaire' | 'score'>> | null = null;
-  @Input() applyTrigger = 0; // le parent B fera: this.applyTrigger++
+  /** Colonnes pour ton lib-data-table (adapte si ton lib attend `name/label` au lieu de `field/header`) */
+  columns = [
+    { field: 'txAmountType', header: 'Transaction Type' },
+    { field: 'txAmountValue', header: 'Amount' },
+  ];
 
-  ngOnChanges(changes: SimpleChanges): void {
-    if (changes['applyTrigger']) {
-      this.applyPatchToSelected();
-    }
+  /** Fusion (ordre: crédits puis débits) */
+  get allRows(): Row[] {
+    return [...(this.credits ?? []), ...(this.debits ?? [])];
   }
 
-  private normalizeSelectionToIds(sel: any[]): Set<Id> {
-    if (!sel?.length) return new Set<Id>();
-    const first = sel[0];
-    if (typeof first === 'string' || typeof first === 'number') {
-      return new Set<Id>(sel as Id[]);
-    }
-    // sinon, ce sont des objets:
-    return new Set<Id>(sel.map((r: any) => r?.[this.rowIdKey as string]));
+  /** Si tes montants NE sont PAS signés, signe-les ici via txAmountType */
+  private signedAmount(r: Row): number {
+    const v = Number(r.txAmountValue ?? 0);
+    if (Number.isNaN(v)) return 0;
+    // 👉 dé-commente si ta base stocke uniquement des valeurs positives
+    // const t = (r.txAmountType ?? '').toLowerCase();
+    // return t.includes('credit') || t.includes('crédit') ? -v : v;
+
+    // 👉 sinon, si txAmountValue est déjà signé, garde simplement v :
+    return v;
   }
 
-  private applyPatchToSelected() {
-    if (!this.applyValues) return;
-    const ids = this.normalizeSelectionToIds(this.selectedRows);
-    if (!ids.size) return;
+  /** Somme générique */
+  private sum(rows: Row[]): number {
+    return (rows ?? []).reduce((acc, r) => acc + this.signedAmount(r), 0);
+  }
 
-    const { tag, proprietaire, score } = this.applyValues;
+  /** Totaux */
+  get totalCredit(): number { return this.sum(this.credits); }
+  get totalDebit(): number  { return this.sum(this.debits); }
 
-    // Patch immuable
-    const patched = this.dataSource.map(r => {
-      if (!ids.has(r[this.rowIdKey] as Id)) return r;
-      return {
-        ...r,
-        ...(tag !== undefined ? { tag } : {}),
-        ...(proprietaire !== undefined ? { proprietaire } : {}),
-        ...(score !== undefined ? { score } : {}),
-      };
-    });
+  /** Résiduel (balance nette) */
+  private readonly EPS = 0.0001;
+  get residual(): number { return this.totalCredit + this.totalDebit; }
+  get isBalanced(): boolean { return Math.abs(this.residual) < this.EPS; }
 
-    this.dataSource = patched;
-    this.dataSourceChange.emit(patched); // utile si B tient la vérité
-    // Optionnel: vider la sélection après
-    // this.selectedRows = [];
-    // this.selectedRowsChange.emit([]);
+  /** Afficher le composant seulement si on a des sélections (option : sinon géré par le parent) */
+  get hasAnySelection(): boolean {
+    return (this.credits?.length ?? 0) > 0 || (this.debits?.length ?? 0) > 0;
   }
 }
 
-<!-- composant-a.component.html -->
-<lib-data-table
-  [data]="dataSource"
-  [columns]="columns"               <!-- tes colonnes existantes -->
-  [hiddenColumns]="hiddenColumns"
-  [enableOrder]="true"
-  [loading]="loading"
-  [pageSize]="5"
-  [pageSizeOptions]="[5,10,25,50]"
-  [highlightSelection]="highlightedOn"
-  [highlightColor]="colorBG"
-  [rowIdKey]="rowIdKey"
-  [enableRowDetail]="true"
-  [rowDetailTemplate]="detailTpl"
+recap-table.component.html
+<!-- Affiche uniquement si on a au moins une sélection -->
+@if (hasAnySelection) {
+  <!-- Tableau récap avec TON lib-data-table -->
+  <lib-data-table
+    [data]="allRows"
+    [columns]="columns"
+    [rowIdKey]="rowIdKey"
+    [enableOrder]="true"
+    [pageSize]="10"
+    [pageSizeOptions]="[5,10,25,50]"
+    [highlightSelection]="false"
+    [enableRowDetail]="false">
+  </lib-data-table>
 
-  [(selectedRows)]="selectedRows"
-  (selectedRowsChange)="selectedRowsChange.emit($event)"
+  <!-- Résumé chiffré -->
+  <div class="summary-cards">
+    <div class="card credit">
+      <div class="label">Total Crédit</div>
+      <div class="value">{{ totalCredit | number:'1.2-2' }}</div>
+    </div>
+    <div class="card debit">
+      <div class="label">Total Débit</div>
+      <div class="value">{{ totalDebit  | number:'1.2-2' }}</div>
+    </div>
+    <div class="card residual" [class.balanced]="isBalanced" [class.unbalanced]="!isBalanced">
+      <div class="label">Residual Balance</div>
+      <div class="value">{{ residual | number:'1.2-2' }}</div>
+    </div>
+  </div>
+}
 
-  (cellClick)="onCellClick($event)"
->
-</lib-data-table>
+recap-table.component.scss
+.summary-cards {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
 
-<ng-template #detailTpl let-row="row">
-  <!-- ton template détail -->
-  <div>Id: {{ row.idTransaction }} — Tag: {{ row.tag }} — Prop: {{ row.proprietaire }} — Score: {{ row.score }}%</div>
-</ng-template>
+.card {
+  border-radius: 12px;
+  padding: 12px 14px;
+  box-shadow: 0 1px 4px rgba(0,0,0,.06);
+  background: #fff;
 
-2) Dans B (le parent de A)
-
-B a 3 contrôles : tag, propriétaire, score (10..100%).
-
-B passe ces valeurs à A via [applyValues].
-
-Quand on clique “Appliquer”, B incrémente applyTrigger → A applique aux lignes sélectionnées.
-
-// composant-b.component.ts
-import { Component, signal } from '@angular/core';
-import { FormControl, ReactiveFormsModule } from '@angular/forms';
-import { ComposantAComponent, Row } from './composant-a.component';
-
-@Component({
-  selector: 'composant-b',
-  standalone: true,
-  imports: [ReactiveFormsModule, ComposantAComponent],
-  templateUrl: './composant-b.component.html',
-})
-export class ComposantBComponent {
-  // B peut fournir la data à A (ou A peut la charger ; dans les deux cas, A patchera sa copie)
-  dataSource = signal<Row[]>([
-    { idTransaction: 1, tag: '', proprietaire: '', score: 50 },
-    // ...
-  ]);
-
-  // sélection qui remonte depuis A (IDs ou objets – on s’en fiche, A sait normaliser)
-  selectedFromTable = signal<any[]>([]);
-
-  // 3 inputs
-  tagCtrl = new FormControl<string>('', { nonNullable: true });
-  proprietaireCtrl = new FormControl<string>('', { nonNullable: true });
-  scoreCtrl = new FormControl<string>('70%'); // 10%..100%
-
-  // Déclencheur
-  applyCounter = signal(0);
-
-  // Valeurs “propres” à passer à A
-  get applyValues() {
-    return {
-      tag: this.tagCtrl.value?.trim() || undefined,
-      proprietaire: this.proprietaireCtrl.value?.trim() || undefined,
-      score: this.coercePercent(this.scoreCtrl.value) ?? undefined,
-    } as Partial<Pick<Row, 'tag'|'proprietaire'|'score'>>;
+  .label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 4px;
   }
-
-  private coercePercent(v: string | null): number | null {
-    if (!v) return null;
-    const m = v.match(/^(\d{1,3})\s*%?$/);
-    if (!m) return null;
-    const n = Number(m[1]);
-    return n >= 0 && n <= 100 ? n : null;
-    }
-
-  apply() {
-    // incrémenter -> A reçoit ngOnChanges(applyTrigger) et applique
-    this.applyCounter.update(n => n + 1);
-  }
-
-  onRangeCreditReady(e: any) {
-    // ton handler existant
+  .value {
+    font-weight: 700;
+    font-size: 18px;
   }
 }
+
+.card.credit .value { color: #2e7d32; }   /* vert foncé */
+.card.debit  .value { color: #1565c0; }   /* bleu */
+.card.residual {
+  border-top: 3px solid transparent;
+  &.balanced  { border-color: #008c53;  .value { color: #008c53; } }  /* vert */
+  &.unbalanced{ border-color: #c62828;  .value { color: #c62828; } }  /* rouge */
+}
+
+Intégration côté Composant B
+
+Affiche recap-table seulement si des lignes sont sélectionnées (ta demande précédente) :
 
 <!-- composant-b.component.html -->
-<div class="toolbar" style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
-  <input [formControl]="tagCtrl" placeholder="Tag" />
-  <input [formControl]="proprietaireCtrl" placeholder="Propriétaire" />
-  <select [formControl]="scoreCtrl">
-    <option *ngFor="let p of [10,20,30,40,50,60,70,80,90,100]" [value]="p + '%'">{{ p }}%</option>
-  </select>
-
-  <button type="button"
-          (click)="apply()"
-          [disabled]="!selectedFromTable().length">
-    Appliquer aux lignes sélectionnées
-  </button>
-</div>
-
-<composant-a
-  [dataSource]="dataSource()"
-  (dataSourceChange)="dataSource.set($event)"     <!-- si tu veux que B garde la vérité -->
-  [(selectedRows)]="selectedFromTable()"
-  (selectedRowsChange)="selectedFromTable.set($event)"
-
-  [rowIdKey]="'idTransaction'"
-
-  [highlightedOn]="highlightedOn"
-  [colorBG]="colorBG"
-
-  [applyValues]="applyValues"
-  [applyTrigger]="applyCounter()"
-
-  (rangeReady)="onRangeCreditReady($event)"
-></composant-a>
+@if (selectedCredit().length > 0 || selectedDebit().length > 0) {
+  <recap-table
+    [credits]="selectedCredit()"
+    [debits]="selectedDebit()"
+    [rowIdKey]="'idTransaction'">
+  </recap-table>
+}
