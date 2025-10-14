@@ -1,170 +1,209 @@
-import { Component, Input, OnChanges, SimpleChanges, ChangeDetectionStrategy } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { MatCardModule } from '@angular/material/card';
-import { MatIconModule } from '@angular/material/icon';
-import { MatButtonModule } from '@angular/material/button';
-import { Observable, of, forkJoin } from 'rxjs';
-import { catchError, map, startWith, switchMap } from 'rxjs/operators';
+1) Dans A (le composant qui encapsule lib-data-table)
 
-/**
- * Service d’exemple – remplace par TON service réel.
- * Il doit exposer une méthode getById(id) -> Observable<any>
- */
-export abstract class DetailApi {
-  abstract getById(id: string | number): Observable<any>;
+Il expose déjà [(selectedRows)] (tu le montres dans B ✅).
+
+On ajoute deux @Input():
+
+applyValues: { tag?: string; proprietaire?: string; score?: number }
+
+applyTrigger: number (un compteur; à chaque incrément → on applique aux lignes sélectionnées)
+
+A connaît sa dataSource (tu l’as dans ton screenshot 1). Il patchera ses lignes.
+
+// composant-a.component.ts
+import { Component, Input, Output, EventEmitter, OnChanges, SimpleChanges, signal, computed } from '@angular/core';
+
+type Id = string | number;
+export interface Row {
+  idTransaction: Id;
+  tag?: string;
+  proprietaire?: string;
+  score?: number; // 10..100
+  // ...autres colonnes
 }
 
 @Component({
-  selector: 'app-transaction-details-card',
+  selector: 'composant-a',
   standalone: true,
-  imports: [CommonModule, MatCardModule, MatIconModule, MatButtonModule],
-  templateUrl: './transaction-details-card.component.html',
-  styleUrls: ['./transaction-details-card.component.scss'],
-  changeDetection: ChangeDetectionStrategy.OnPush,
+  templateUrl: './composant-a.component.html',
 })
-export class TransactionDetailsCardComponent implements OnChanges {
-  /** La ligne hôte reçue depuis le rowDetailTemplate du DataTable */
-  @Input({ required: true }) row!: any;
+export class ComposantAComponent implements OnChanges {
+  // --- Data du tableau (A est la source pour lib-data-table) ---
+  @Input() dataSource: Row[] = [];
+  @Output() dataSourceChange = new EventEmitter<Row[]>(); // si tu veux remonter au parent (optionnel)
 
-  /**
-   * Où trouver la liste des IDs dans la row ?
-   * ex: row['relatedIds'] -> [233, 234]  OU  row['ids'] -> [...]
-   */
-  @Input() idsKey: string = 'relatedIds';
+  // --- Sélection surfacée vers B ---
+  @Input() selectedRows: any[] = [];
+  @Output() selectedRowsChange = new EventEmitter<any[]>();
 
-  /** Disposition souhaitée : 'stack' (3), 'grid' (4) ou 'auto' */
-  @Input() layout: 'stack' | 'grid' | 'auto' = 'auto';
+  // --- Clé d'identifiant (tu la passes déjà à lib-data-table) ---
+  @Input() rowIdKey: keyof Row = 'idTransaction';
 
-  /** Service à utiliser (si tu veux l’injecter directement ici) */
-  constructor(private api: DetailApi) {}
+  // --- Nouveau: patch à appliquer + trigger ---
+  @Input() applyValues: Partial<Pick<Row, 'tag' | 'proprietaire' | 'score'>> | null = null;
+  @Input() applyTrigger = 0; // le parent B fera: this.applyTrigger++
 
-  // === état affiché dans le template
-  loading = false;
-  error: any = null;
-  items: any[] = [];
-
-  ngOnChanges(ch: SimpleChanges): void {
-    if (ch['row']) {
-      this.load();
+  ngOnChanges(changes: SimpleChanges): void {
+    if (changes['applyTrigger']) {
+      this.applyPatchToSelected();
     }
   }
 
-  /** Décide pile vs grille : si 'auto', 1–2 items -> grid, sinon stack */
-  get computedLayout(): 'stack' | 'grid' {
-    if (this.layout === 'stack' || this.layout === 'grid') return this.layout;
-    const n = this.items?.length ?? 0;
-    return n <= 2 ? 'grid' : 'stack';
-  }
-
-  /** Recharge manuel (bouton Réessayer) */
-  reload() {
-    this.load();
-  }
-
-  private load() {
-    this.loading = true;
-    this.error = null;
-    this.items = [];
-
-    const ids: Array<string | number> = Array.isArray(this.row?.[this.idsKey])
-      ? this.row[this.idsKey]
-      : [];
-
-    if (!ids.length) {
-      // Rien à charger : on laisse une carte “vide” ou rien du tout.
-      this.loading = false;
-      this.items = [];
-      return;
+  private normalizeSelectionToIds(sel: any[]): Set<Id> {
+    if (!sel?.length) return new Set<Id>();
+    const first = sel[0];
+    if (typeof first === 'string' || typeof first === 'number') {
+      return new Set<Id>(sel as Id[]);
     }
+    // sinon, ce sont des objets:
+    return new Set<Id>(sel.map((r: any) => r?.[this.rowIdKey as string]));
+  }
 
-    // Plusieurs appels en parallèle pour chaque id
-    forkJoin(ids.map(id => this.api.getById(id)))
-      .pipe(
-        map(results => results as any[]),
-        catchError(err => {
-          this.error = err;
-          return of<any[]>([]);
-        })
-      )
-      .subscribe(results => {
-        this.items = results;
-        this.loading = false;
-      });
+  private applyPatchToSelected() {
+    if (!this.applyValues) return;
+    const ids = this.normalizeSelectionToIds(this.selectedRows);
+    if (!ids.size) return;
+
+    const { tag, proprietaire, score } = this.applyValues;
+
+    // Patch immuable
+    const patched = this.dataSource.map(r => {
+      if (!ids.has(r[this.rowIdKey] as Id)) return r;
+      return {
+        ...r,
+        ...(tag !== undefined ? { tag } : {}),
+        ...(proprietaire !== undefined ? { proprietaire } : {}),
+        ...(score !== undefined ? { score } : {}),
+      };
+    });
+
+    this.dataSource = patched;
+    this.dataSourceChange.emit(patched); // utile si B tient la vérité
+    // Optionnel: vider la sélection après
+    // this.selectedRows = [];
+    // this.selectedRowsChange.emit([]);
   }
 }
-------------------------------
-<div class="detail-card" [class.grid]="computedLayout === 'grid'">
-  <!-- LOADING -->
-  <div class="detail-loading" *ngIf="loading">
-    <mat-icon class="spin">autorenew</mat-icon>
-    <span>Chargement…</span>
-  </div>
 
-  <!-- ERROR -->
-  <div class="detail-error" *ngIf="!loading && error">
-    <mat-icon color="warn">error</mat-icon>
-    <span>Une erreur est survenue.</span>
-    <button mat-stroked-button color="primary" (click)="reload()">Réessayer</button>
-  </div>
-
-  <!-- CONTENT -->
-  <div class="detail-body" *ngIf="!loading && !error">
-    <!-- Grille ou pile selon computedLayout -->
-    <mat-card class="detail-item" *ngFor="let it of items">
-      <mat-card-title>{{ it?.title || it?.name || 'Item' }}</mat-card-title>
-      <mat-card-content><pre>{{ it | json }}</pre></mat-card-content>
-    </mat-card>
-
-    <!-- Cas où il n’y a rien à afficher -->
-    <div class="empty" *ngIf="items.length === 0">
-      <mat-icon>info</mat-icon>
-      <span>Aucune donnée à afficher</span>
-    </div>
-  </div>
-</div>
-------------------------------
-.detail-card {
-  margin: 8px 10px 12px 28px;  /* décalage vers la droite = enfant visuel */
-  padding: 12px;
-  background: rgba(0,0,0,.03);
-  border: 1px solid #e6e6e6;
-  border-radius: 10px;
-}
-
-.detail-card.grid .detail-body {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(260px, 1fr));
-  gap: 12px;
-}
-.detail-card:not(.grid) .detail-body {
-  display: block;
-}
-
-.detail-item {
-  border: 1px solid #e6e6e6;
-  border-left: 4px solid #2e7d32; /* lien visuel avec la row parent */
-  border-radius: 8px;
-}
-
-.detail-loading, .detail-error, .empty {
-  display: flex; align-items: center; gap: 8px;
-}
-.spin { animation: spin 1s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
--------------------------------
+<!-- composant-a.component.html -->
 <lib-data-table
   [data]="dataSource"
-  [columns]="columns"
-  [rowDetailTemplate]="detailTpl"  <!-- très important -->
-  [enableRowDetail]="true">
+  [columns]="columns"               <!-- tes colonnes existantes -->
+  [hiddenColumns]="hiddenColumns"
+  [enableOrder]="true"
+  [loading]="loading"
+  [pageSize]="5"
+  [pageSizeOptions]="[5,10,25,50]"
+  [highlightSelection]="highlightedOn"
+  [highlightColor]="colorBG"
+  [rowIdKey]="rowIdKey"
+  [enableRowDetail]="true"
+  [rowDetailTemplate]="detailTpl"
+
+  [(selectedRows)]="selectedRows"
+  (selectedRowsChange)="selectedRowsChange.emit($event)"
+
+  (cellClick)="onCellClick($event)"
+>
 </lib-data-table>
 
-<!-- Le DataTable te passe 'row' dans le contexte -->
-<ng-template #detailTpl let-row>
-  <!-- Tu peux choisir l’input idsKey et la disposition -->
-  <app-transaction-details-card
-    [row]="row"
-    idsKey="relatedIds"
-    layout="auto">
-  </app-transaction-details-card>
+<ng-template #detailTpl let-row="row">
+  <!-- ton template détail -->
+  <div>Id: {{ row.idTransaction }} — Tag: {{ row.tag }} — Prop: {{ row.proprietaire }} — Score: {{ row.score }}%</div>
 </ng-template>
+
+2) Dans B (le parent de A)
+
+B a 3 contrôles : tag, propriétaire, score (10..100%).
+
+B passe ces valeurs à A via [applyValues].
+
+Quand on clique “Appliquer”, B incrémente applyTrigger → A applique aux lignes sélectionnées.
+
+// composant-b.component.ts
+import { Component, signal } from '@angular/core';
+import { FormControl, ReactiveFormsModule } from '@angular/forms';
+import { ComposantAComponent, Row } from './composant-a.component';
+
+@Component({
+  selector: 'composant-b',
+  standalone: true,
+  imports: [ReactiveFormsModule, ComposantAComponent],
+  templateUrl: './composant-b.component.html',
+})
+export class ComposantBComponent {
+  // B peut fournir la data à A (ou A peut la charger ; dans les deux cas, A patchera sa copie)
+  dataSource = signal<Row[]>([
+    { idTransaction: 1, tag: '', proprietaire: '', score: 50 },
+    // ...
+  ]);
+
+  // sélection qui remonte depuis A (IDs ou objets – on s’en fiche, A sait normaliser)
+  selectedFromTable = signal<any[]>([]);
+
+  // 3 inputs
+  tagCtrl = new FormControl<string>('', { nonNullable: true });
+  proprietaireCtrl = new FormControl<string>('', { nonNullable: true });
+  scoreCtrl = new FormControl<string>('70%'); // 10%..100%
+
+  // Déclencheur
+  applyCounter = signal(0);
+
+  // Valeurs “propres” à passer à A
+  get applyValues() {
+    return {
+      tag: this.tagCtrl.value?.trim() || undefined,
+      proprietaire: this.proprietaireCtrl.value?.trim() || undefined,
+      score: this.coercePercent(this.scoreCtrl.value) ?? undefined,
+    } as Partial<Pick<Row, 'tag'|'proprietaire'|'score'>>;
+  }
+
+  private coercePercent(v: string | null): number | null {
+    if (!v) return null;
+    const m = v.match(/^(\d{1,3})\s*%?$/);
+    if (!m) return null;
+    const n = Number(m[1]);
+    return n >= 0 && n <= 100 ? n : null;
+    }
+
+  apply() {
+    // incrémenter -> A reçoit ngOnChanges(applyTrigger) et applique
+    this.applyCounter.update(n => n + 1);
+  }
+
+  onRangeCreditReady(e: any) {
+    // ton handler existant
+  }
+}
+
+<!-- composant-b.component.html -->
+<div class="toolbar" style="display:flex; gap:.5rem; align-items:center; flex-wrap:wrap;">
+  <input [formControl]="tagCtrl" placeholder="Tag" />
+  <input [formControl]="proprietaireCtrl" placeholder="Propriétaire" />
+  <select [formControl]="scoreCtrl">
+    <option *ngFor="let p of [10,20,30,40,50,60,70,80,90,100]" [value]="p + '%'">{{ p }}%</option>
+  </select>
+
+  <button type="button"
+          (click)="apply()"
+          [disabled]="!selectedFromTable().length">
+    Appliquer aux lignes sélectionnées
+  </button>
+</div>
+
+<composant-a
+  [dataSource]="dataSource()"
+  (dataSourceChange)="dataSource.set($event)"     <!-- si tu veux que B garde la vérité -->
+  [(selectedRows)]="selectedFromTable()"
+  (selectedRowsChange)="selectedFromTable.set($event)"
+
+  [rowIdKey]="'idTransaction'"
+
+  [highlightedOn]="highlightedOn"
+  [colorBG]="colorBG"
+
+  [applyValues]="applyValues"
+  [applyTrigger]="applyCounter()"
+
+  (rangeReady)="onRangeCreditReady($event)"
+></composant-a>
