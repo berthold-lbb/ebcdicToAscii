@@ -1,5 +1,3 @@
-C) Recap (simplifié, sans @if interne, on délègue au parent)
-// recap-table.component.ts
 import { Component, Input, ChangeDetectionStrategy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Row } from '../models/row.model';
@@ -10,64 +8,72 @@ import { LibDataTableComponent } from 'src/app/shared/lib-data-table/lib-data-ta
   standalone: true,
   imports: [CommonModule, LibDataTableComponent],
   templateUrl: './recap-table.component.html',
+  styleUrls: ['./recap-table.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
 export class RecapTableComponent {
-  @Input() credits: Row[] = [];
-  @Input() debits: Row[] = [];
-  @Input() rowIdKey: keyof Row = 'idTransaction';
-
+  /** colonnes pour ton lib */
   readonly columns = [
     { field: 'txAmountType', header: 'Type' },
     { field: 'txAmountValue', header: 'Montant' },
   ];
 
-  get allRows(): Row[] { return [...this.credits, ...this.debits]; }
-  get totalCredit(): number { return this.credits.reduce((a,r)=>a+Number(r.txAmountValue||0),0); }
-  get totalDebit(): number  { return this.debits.reduce((a,r)=>a+Number(r.txAmountValue||0),0); }
-  get residual(): number { return this.totalCredit + this.totalDebit; }
-  get isBalanced(): boolean { return Math.abs(this.residual) < 0.001; }
+  /** états internes (références stables passées au lib) */
+  allRows: Row[] = [];
+  totalCredit = 0;
+  totalDebit  = 0;
+  residual    = 0;
+  isBalanced  = false;
+  hasAnySelection = false;
+
+  private readonly EPS = 0.001;
+
+  /** buffers des inputs (références actuelles) */
+  private _credits: Row[] = [];
+  private _debits: Row[] = [];
+
+  /** setters d'Input —> recalcul immédiat et unique */
+  @Input() set credits(val: Row[] | null | undefined) {
+    this._credits = val ?? [];
+    this.recompute();
+  }
+  @Input() set debits(val: Row[] | null | undefined) {
+    this._debits = val ?? [];
+    this.recompute();
+  }
+
+  @Input() rowIdKey: keyof Row = 'idTransaction';
+
+  /** ----- utils ----- */
+  private signedAmount(r: Row): number {
+    const v = Number(r.txAmountValue ?? 0);
+    if (Number.isNaN(v)) return 0;
+
+    // Si tes montants ne sont PAS signés, décommente pour signer via le type:
+    // const t = (r.txAmountType ?? '').toLowerCase();
+    // return t.includes('credit') || t.includes('crédit') ? -v : v;
+
+    return v; // s'ils sont déjà signés
+  }
+
+  private sum(rows: Row[]): number {
+    let acc = 0;
+    for (let i = 0; i < rows.length; i++) acc += this.signedAmount(rows[i]);
+    return acc;
+  }
+
+  /** Recalcule les dérivés UNE seule fois par changement d'inputs */
+  private recompute(): void {
+    const c = this._credits;
+    const d = this._debits;
+
+    // ⚠️ Une SEULE nouvelle référence ici (stable pour le lib)
+    this.allRows = [...c, ...d];
+
+    this.totalCredit = this.sum(c);
+    this.totalDebit  = this.sum(d);
+    this.residual    = this.totalCredit + this.totalDebit;
+    this.isBalanced  = Math.abs(this.residual) < this.EPS;
+    this.hasAnySelection = c.length > 0 || d.length > 0;
+  }
 }
-
-<!-- recap-table.component.html -->
-<lib-data-table
-  [data]="allRows"
-  [columns]="columns"
-  [rowIdKey]="rowIdKey"
-  [highlightSelection]="false"
-  [enableOrder]="true"
-  [pageSize]="5"
-  [pageSizeOptions]="[5,10,25]"
-  [enableRowDetail]="false">
-</lib-data-table>
-
-<div style="margin-top:10px; border-top:2px solid #ddd; padding-top:6px;">
-  <div style="display:flex; justify-content:space-between">
-    <span>Total Crédit :</span>
-    <strong>{{ totalCredit | number:'1.2-2' }}</strong>
-  </div>
-  <div style="display:flex; justify-content:space-between">
-    <span>Total Débit :</span>
-    <strong>{{ totalDebit | number:'1.2-2' }}</strong>
-  </div>
-  <div style="display:flex; justify-content:space-between; font-weight:700;"
-       [style.color]="isBalanced ? '#008c53' : '#c62828'">
-    <span>Résiduel :</span>
-    <span>{{ residual | number:'1.2-2' }}</span>
-  </div>
-</div>
-
---------
-<!-- Afficher le recap SEULEMENT si sélection -->
-@if (showRecap()) {
-  <recap-table
-    [credits]="selectedCredit()"
-    [debits]="selectedDebit()"
-    [rowIdKey]="'idTransaction'">
-  </recap-table>
-}
-
-
-showRecap = computed(
-    () => this.selectedCredit().length > 0 || this.selectedDebit().length > 0
-  );
