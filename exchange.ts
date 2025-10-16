@@ -1,7 +1,3 @@
-1) Composant partagé (CVA + Validator) — string[] + récents optionnels
-
-src/app/shared/controls/smart-autocomplete-string/smart-autocomplete-string.component.ts
-
 import { Component, forwardRef, Input, signal, computed, effect } from '@angular/core';
 import {
   ControlValueAccessor, NG_VALUE_ACCESSOR, NG_VALIDATORS,
@@ -9,9 +5,16 @@ import {
 } from '@angular/forms';
 import { CommonModule } from '@angular/common';
 import { ReactiveFormsModule, FormControl } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
+import {
+  MatFormFieldModule,
+  MatFormFieldAppearance
+} from '@angular/material/form-field';
 import { MatInputModule } from '@angular/material/input';
-import { MatAutocompleteModule, MatAutocompleteSelectedEvent } from '@angular/material/autocomplete';
+import {
+  MatAutocompleteModule,
+  MatAutocompleteSelectedEvent,
+  MatAutocompleteTrigger
+} from '@angular/material/autocomplete';
 
 @Component({
   selector: 'app-smart-autocomplete-string',
@@ -37,8 +40,9 @@ import { MatAutocompleteModule, MatAutocompleteSelectedEvent } from '@angular/ma
       matInput
       [placeholder]="placeholder"
       [matAutocomplete]="auto"
+      #trigger="matAutocompleteTrigger"
       [disabled]="disabled"
-      (focus)="openAll(auto)"
+      (focus)="openAll(trigger)"
       (input)="onInput(($event.target as HTMLInputElement).value)"
       (blur)="onBlur()"
       [value]="ctrl.value ?? ''"
@@ -60,54 +64,47 @@ import { MatAutocompleteModule, MatAutocompleteSelectedEvent } from '@angular/ma
   `
 })
 export class SmartAutocompleteStringComponent implements ControlValueAccessor {
-  /** Liste source */
+  /** Données source */
   @Input({ required: true }) options: string[] = [];
 
-  /** Label / placeholder / apparence */
+  /** Libellés / apparence */
   @Input() label = 'Choisir une valeur';
   @Input() placeholder = 'Tapez pour filtrer...';
-  @Input() appearance: 'fill' | 'outline' | 'standard' | 'legacy' = 'fill';
+  @Input() appearance: MatFormFieldAppearance = 'fill';
 
-  /** Gestion des récents (optionnelle) */
+  /** Récents (optionnels) */
   @Input() recentsEnabled = false;
   @Input() storageKey = 'smart-autocomplete-string-recents';
   @Input() maxRecents = 5;
 
-  /** Texte d’erreur */
+  /** Message d’erreur */
   @Input() errorText = 'Veuillez choisir une valeur dans la liste.';
 
   disabled = false;
 
-  // contrôle interne (valeur finale toujours une string de la liste ou null)
   ctrl = new FormControl<string | null>(null);
   query = signal<string>('');
-
-  // internes
   private readonly recents = signal<string[]>(this.loadRecents());
 
-  // logique d’affichage
   filtered = computed(() => {
     const q = this.query().toLowerCase().trim();
     const base = this.options;
     const hasSelection = !!this.ctrl.value;
 
-    // 1) rien saisi & aucune sélection -> liste complète
-    if (!q && !hasSelection) return base;
+    if (!q && !hasSelection) return base;                         // liste complète
+    if (q) return base.filter(v => v.toLowerCase().includes(q));  // filtrage
 
-    // 2) saisie -> filtrage
-    if (q) return base.filter(v => v.toLowerCase().includes(q));
-
-    // 3) avec sélection existante (refocus sans saisie)
+    // refocus sans saisie : récents en tête si activés
     if (this.recentsEnabled) {
-      const recentSet = new Set(this.recents());
-      const rest = base.filter(v => !recentSet.has(v));
+      const set = new Set(this.recents());
+      const rest = base.filter(v => !set.has(v));
       return [...this.recents(), ...rest];
     }
     return base;
   });
 
   constructor() {
-    // si une chaîne non présente est posée, marquer invalide
+    // si une valeur libre "non listée" se glisse, on marque invalide
     effect(() => {
       const v = this.ctrl.value;
       if (v && !this.options.includes(v)) {
@@ -116,7 +113,7 @@ export class SmartAutocompleteStringComponent implements ControlValueAccessor {
     });
   }
 
-  // --- CVA
+  // ---- CVA
   private onChange: (value: string | null) => void = () => {};
   private onTouched: () => void = () => {};
 
@@ -128,23 +125,21 @@ export class SmartAutocompleteStringComponent implements ControlValueAccessor {
   registerOnTouched(fn: () => void): void { this.onTouched = fn; }
   setDisabledState(isDisabled: boolean): void { this.disabled = isDisabled; }
 
-  // --- Validator (exposé au parent)
+  // ---- Validator
   validate(_: AbstractControl): ValidationErrors | null {
     const v = this.ctrl.value;
-    const ok = v === null || this.options.includes(v);
-    return ok ? null : { mustSelect: true };
+    return v === null || this.options.includes(v) ? null : { mustSelect: true };
   }
 
-  // --- handlers template
-  openAll(auto: { openPanel: () => void }) {
+  // ---- Handlers
+  openAll(trigger: MatAutocompleteTrigger) {
     this.query.set('');
-    auto.openPanel();
+    trigger.openPanel();
   }
 
   onInput(value: string) {
     this.query.set(value);
-    // si on retape après sélection -> tant qu’on n’a pas choisi, le form value repasse à null
-    if (this.ctrl.value) {
+    if (this.ctrl.value) {               // si on retape après sélection
       this.ctrl.setValue(null, { emitEvent: false });
       this.onChange(null);
     }
@@ -167,7 +162,7 @@ export class SmartAutocompleteStringComponent implements ControlValueAccessor {
     this.onTouched();
   }
 
-  // --- récents
+  // ---- Récents
   private pushToRecents(item: string) {
     const next = [item, ...this.recents().filter(x => x !== item)].slice(0, this.maxRecents);
     this.recents.set(next);
@@ -180,67 +175,14 @@ export class SmartAutocompleteStringComponent implements ControlValueAccessor {
     } catch { return []; }
   }
 }
-
-2) Exemple d’utilisation (avec ou sans récents)
-
-src/app/features/city-form/city-form.component.ts
-
-import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormGroup, FormControl, ReactiveFormsModule, Validators } from '@angular/forms';
-import { MatButtonModule } from '@angular/material/button';
-import { SmartAutocompleteStringComponent } from '@shared/controls/smart-autocomplete-string/smart-autocomplete-string.component';
-
-@Component({
-  selector: 'app-city-form',
-  standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, MatButtonModule, SmartAutocompleteStringComponent],
-  template: `
-  <form [formGroup]="form" class="p-4" (ngSubmit)="submit()">
-    <!-- Version avec récents activés -->
-    <app-smart-autocomplete-string
-      formControlName="city"
-      [label]="'Ville'"
-      [options]="cities"
-      [placeholder]="'Recherchez une ville...'"
-      [recentsEnabled]="true"
-      [storageKey]="'cities-recents'"
-      [maxRecents]="5"
-    ></app-smart-autocomplete-string>
-
-    <!-- (Optionnel) Une seconde instance sans récents -->
-    <!--
-    <app-smart-autocomplete-string
-      formControlName="city2"
-      [label]="'Ville (sans récents)'"
-      [options]="cities"
-      [recentsEnabled]="false">
-    </app-smart-autocomplete-string>
-    -->
-
-    <div class="mt-4">
-      <button mat-raised-button color="primary" [disabled]="form.invalid">Soumettre</button>
-    </div>
-
-    <pre class="mt-4">Valeur du formulaire :
-{{ form.value | json }}
-    </pre>
-  </form>
-  `
-})
-export class CityFormComponent {
-  cities = ['Québec', 'Montréal', 'Ottawa', 'Toronto', 'Vancouver'];
-
-  form = new FormGroup({
-    city: new FormControl<string | null>(null, Validators.required),
-    // city2: new FormControl<string | null>(null),
-  });
-
-  submit() {
-    if (this.form.valid) {
-      console.log('Ville sélectionnée :', this.form.value.city);
-    } else {
-      this.form.markAllAsTouched();
-    }
-  }
-}
+Utilisation (rappel)
+html
+Copier le code
+<app-smart-autocomplete-string
+  formControlName="city"
+  [label]="'Ville'"
+  [placeholder]="'Recherchez une ville...'"
+  [options]="cities"
+  [recentsEnabled]="true"
+  [storageKey]="'cities-recents'">
+</app-smart-autocomplete-string>
