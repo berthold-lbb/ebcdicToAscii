@@ -1,7 +1,4 @@
-🧩 Composant partagé (standalone)
-
 smart-multi-autocomplete-string.component.ts
-
 import { Component, forwardRef, Input, computed, effect, signal } from '@angular/core';
 import {
   ControlValueAccessor, NG_VALUE_ACCESSOR, NG_VALIDATORS,
@@ -40,7 +37,7 @@ import {
   <mat-form-field [appearance]="appearance" class="w-full">
     <mat-label>{{ label }}</mat-label>
 
-    <!-- Préfixe : sélection sous forme de 'a, b, c,' puis input pour la recherche -->
+    <!-- Préfixe (valeurs sélectionnées affichées dans l'input) -->
     <span matPrefix class="text-gray-600 truncate">
       {{ displayString() }}<ng-container *ngIf="displayString()">,&nbsp;</ng-container>
     </span>
@@ -58,63 +55,72 @@ import {
       [value]="query()" />
 
     <mat-autocomplete #auto="matAutocomplete" (optionSelected)="onSelected($event)">
-      <!-- Sélectionnées : toujours visible -->
-      <mat-optgroup label="Sélectionnées" *ngIf="sections().selected.length > 0">
-        <ng-container *ngFor="let item of sections().selected">
-          <mat-option (click)="toggle(item, trigger)">
-            <span class="mr-2">✔</span>{{ item }}
-            <span class="ml-2 text-xs text-gray-500">(retirer)</span>
-          </mat-option>
-        </ng-container>
-      </mat-optgroup>
+      <!-- Section Sélectionnées -->
+      @if (sections().selected.length > 0) {
+        <mat-optgroup label="Sélectionnées">
+          @for (item of sections().selected; track item) {
+            <mat-option (click)="toggle(item, trigger)">
+              <span class="mr-2 text-green-600">✔</span>
+              {{ item }}
+              <span class="ml-2 text-xs text-gray-500">(retirer)</span>
+            </mat-option>
+          }
+        </mat-optgroup>
+      }
 
-      <!-- Récents (si activés et disponibles) -->
-      <mat-optgroup label="Récents" *ngIf="sections().recents.length > 0">
-        <ng-container *ngFor="let item of sections().recents">
-          <mat-option (click)="toggle(item, trigger)" [disabled]="isSelected(item)">
-            <span class="mr-2" *ngIf="isSelected(item)">✔</span>{{ item }}
-          </mat-option>
-        </ng-container>
-      </mat-optgroup>
+      <!-- Section Récents -->
+      @if (sections().recents.length > 0) {
+        <mat-optgroup label="Récents">
+          @for (item of sections().recents; track item) {
+            <mat-option (click)="toggle(item, trigger)" [disabled]="isSelected(item)">
+              @if (isSelected(item)) {
+                <span class="mr-2 text-green-600">✔</span>
+              }
+              {{ item }}
+            </mat-option>
+          }
+        </mat-optgroup>
+      }
 
-      <!-- Valeurs / Résultats (hors éléments déjà sélectionnés) -->
-      <mat-optgroup [label]="query() ? 'Résultats' : 'Valeurs'" *ngIf="sections().values.length > 0">
-        <ng-container *ngFor="let item of sections().values">
-          <mat-option (click)="toggle(item, trigger)" [disabled]="isSelected(item)">
-            <span class="mr-2" *ngIf="isSelected(item)">✔</span>{{ item }}
-          </mat-option>
-        </ng-container>
-      </mat-optgroup>
+      <!-- Section Valeurs -->
+      @if (sections().values.length > 0) {
+        <mat-optgroup [label]="query() ? 'Résultats' : 'Valeurs'">
+          @for (item of sections().values; track item) {
+            <mat-option (click)="toggle(item, trigger)" [disabled]="isSelected(item)">
+              @if (isSelected(item)) {
+                <span class="mr-2 text-green-600">✔</span>
+              }
+              {{ item }}
+            </mat-option>
+          }
+        </mat-optgroup>
+      }
 
-      <mat-option disabled
-                  *ngIf="sections().selected.length === 0
-                         && sections().recents.length === 0
-                         && sections().values.length === 0">
-        Aucun résultat
-      </mat-option>
+      @if (
+        sections().selected.length === 0 &&
+        sections().recents.length === 0 &&
+        sections().values.length === 0
+      ) {
+        <mat-option disabled>Aucun résultat</mat-option>
+      }
     </mat-autocomplete>
   </mat-form-field>
   `
 })
 export class SmartMultiAutocompleteStringComponent implements ControlValueAccessor {
-  /** Données source */
   @Input({ required: true }) options: string[] = [];
 
-  /** Libellés / apparence */
   @Input() label = 'Choisir des valeurs';
   @Input() placeholder = 'Tapez pour filtrer...';
   @Input() appearance: MatFormFieldAppearance = 'fill';
 
-  /** Historique récents (optionnel) */
   @Input() recentsEnabled = false;
-  /** 'never' | 'onRefocus' | 'always' */
   @Input() recentsMode: 'never' | 'onRefocus' | 'always' = 'onRefocus';
   @Input() storageKey = 'smart-multi-recents';
   @Input() maxRecents = 7;
 
   disabled = false;
 
-  // ---- État interne
   private readonly _selected = signal<string[]>([]);
   selected = this._selected.asReadonly();
 
@@ -122,42 +128,30 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
   query = this._query.asReadonly();
 
   private readonly recents = signal<string[]>(this.loadRecents());
-
-  // Affichage de la sélection dans l'input
   displayString = computed(() => this.selected().join(', '));
 
-  // Sections du panneau
   sections = computed(() => {
     const q = this._query().toLowerCase().trim();
     const base = this.options ?? [];
     const filtered = q ? base.filter(v => v.toLowerCase().includes(q)) : base;
-
     const selSet = new Set(this.selected());
-    const values = filtered.filter(v => !selSet.has(v)); // exclut la sélection
-
-    // récents valides (présents et non sélectionnés)
+    const values = filtered.filter(v => !selSet.has(v));
     let recents: string[] = [];
     if (this.recentsEnabled && this.recents().length) {
       recents = this.recents().filter(r => filtered.includes(r) && !selSet.has(r));
     }
-
     const hasSelection = this.selected().length > 0;
     const showRecents =
-      this.recentsEnabled && recents.length > 0 &&
+      this.recentsEnabled &&
+      recents.length > 0 &&
       (
         (this.recentsMode === 'always' && !q) ||
         (this.recentsMode === 'onRefocus' && !q && hasSelection)
       );
-
-    return {
-      selected: this.selected(),
-      recents: showRecents ? recents : [],
-      values
-    };
+    return { selected: this.selected(), recents: showRecents ? recents : [], values };
   });
 
   constructor() {
-    // Sécurité : on nettoie toute valeur non listée si jamais injectée
     effect(() => {
       const sel = this._selected();
       const clean = sel.filter(v => this.options.includes(v));
@@ -168,7 +162,6 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
     });
   }
 
-  // ---- CVA
   private onChange: (value: string[] | null) => void = () => {};
   private onTouched: () => void = () => {};
 
@@ -180,13 +173,11 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
   registerOnTouched(fn: () => void): void { this.onTouched = fn; }
   setDisabledState(isDisabled: boolean): void { this.disabled = isDisabled; }
 
-  // ---- Validator (valeurs doivent venir de la liste)
   validate(_: AbstractControl): ValidationErrors | null {
     const ok = this.selected().every(v => this.options.includes(v));
     return ok ? null : { mustSelectFromList: true };
   }
 
-  // ---- Handlers
   openAll(trigger: MatAutocompleteTrigger) {
     this._query.set('');
     trigger.openPanel();
@@ -197,7 +188,6 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
   onSelected(ev: MatAutocompleteSelectedEvent) {
     const value = ev.option.value as string;
     this.toggle(value);
-    // garder la frappe enchaînée
     this._query.set('');
   }
 
@@ -228,11 +218,9 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
 
   onBlur() { this.onTouched(); }
 
-  // ---- Helpers
   isSelected = (v: string) => this.selected().includes(v);
   private emit(arr: string[]) { this.onChange(arr.length ? arr : null); }
 
-  // ---- Récents
   private pushToRecents(item: string) {
     if (!this.recentsEnabled) return;
     const list = [item, ...this.recents().filter(x => x !== item)];
@@ -248,64 +236,3 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
     } catch { return []; }
   }
 }
-
-🧪 Exemple d’utilisation avec FormGroup
-
-multi-city-form.component.ts
-
-import { Component } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { FormGroup, FormControl, ReactiveFormsModule } from '@angular/forms';
-import { MatButtonModule } from '@angular/material/button';
-import { SmartMultiAutocompleteStringComponent } from './smart-multi-autocomplete-string.component';
-
-@Component({
-  selector: 'app-multi-city-form',
-  standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, MatButtonModule, SmartMultiAutocompleteStringComponent],
-  template: `
-  <form [formGroup]="form" class="p-4" (ngSubmit)="submit()">
-    <app-smart-multi-autocomplete-string
-      formControlName="cities"                 <!-- string[] | null -->
-      [options]="allCities"
-      [label]="'Villes'"
-      [placeholder]="'Tapez pour filtrer...'"
-      [appearance]="'fill'"
-      [recentsEnabled]="true"
-      [recentsMode]="'always'"
-      [storageKey]="'cities-multi-recents'">
-    </app-smart-multi-autocomplete-string>
-
-    <div class="mt-4">
-      <button mat-raised-button color="primary" type="submit">Soumettre</button>
-    </div>
-
-    <pre class="mt-4">Valeur du formulaire :
-{{ form.value | json }}
-    </pre>
-  </form>
-  `
-})
-export class MultiCityFormComponent {
-  allCities = ['Québec', 'Montréal', 'Ottawa', 'Toronto', 'Vancouver', 'Calgary', 'Halifax'];
-
-  // IMPORTANT : le contrôle accepte null quand aucune sélection
-  form = new FormGroup({
-    cities: new FormControl<string[] | null>(null),
-  });
-
-  submit() {
-    // form.value.cities est soit null, soit string[]
-    console.log('Sélection :', this.form.value.cities);
-  }
-}
-
-✅ À retenir
-
-Aucune sélection → null.
-
-Plusieurs sélections → string[].
-
-Les “Sélectionnées” restent visibles en tête ; les “Résultats/Valeurs” n’affichent que ce qui n’est pas déjà sélectionné ; coche ✔ sur les éléments sélectionnés (et clic = toggle).
-
-Si tu veux la variante objets { id, label } avec la même UX, je te l’adapte en 1 bloc.
