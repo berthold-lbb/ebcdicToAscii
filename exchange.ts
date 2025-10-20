@@ -1,317 +1,628 @@
-Composant réutilisable
+a) Ajoute une fonction optionnelle au modèle de colonne
+// data-table.component.ts
+export interface ITableColonne {
+  nom: string;
+  label: string;
+  type: TableDataType;
+  enableOrder: boolean;
+  retractable: boolean;
+  link?: any;
+  clickable?: boolean;
 
-smart-multi-autocomplete-string.component.ts
+  /** ➕ Valeur calculée pour colonnes virtuelles (non présentes dans le payload) */
+  valueGetter?: (row: T) => any;
+}
 
-import { Component, forwardRef, Input, signal, computed, effect } from '@angular/core';
-import {
-  ControlValueAccessor, NG_VALUE_ACCESSOR, NG_VALIDATORS,
-  AbstractControl, ValidationErrors
-} from '@angular/forms';
-import { CommonModule } from '@angular/common';
-import { ReactiveFormsModule } from '@angular/forms';
+b) Utilise valueGetter quand tu rends une cellule
 
-import {
-  MatFormFieldModule, MatFormFieldAppearance
-} from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import {
-  MatAutocompleteModule, MatAutocompleteSelectedEvent, MatAutocompleteTrigger
-} from '@angular/material/autocomplete';
-import { MatIconModule } from '@angular/material/icon';
+Dans ton HTML, là où tu avais {{ row[col.nom] }}, remplace par :
 
-@Component({
-  selector: 'app-smart-multi-autocomplete-string',
-  standalone: true,
-  imports: [
-    CommonModule, ReactiveFormsModule,
-    MatFormFieldModule, MatInputModule, MatAutocompleteModule, MatIconModule
-  ],
-  // ===== TEMPLATE (Angular 20, @if/@for) =====
-  template: `
-  <mat-form-field [appearance]="appearance" class="w-full smart-multi-af">
-    <mat-label>{{ label }}</mat-label>
+<!-- Exemple pour les types “généraux” -->
+<td mat-cell class="data-table-colonne {{ col.nom }}"
+    *matCellDef="let row: any"
+    [class.col-clickable]="col.clickable"
+    (click)="col.clickable && onCellClick($event, row, col)">
+  {{ (col.valueGetter ? col.valueGetter(row) : row[col.nom]) }}
+</td>
 
-    <!-- Préfixe: valeurs sélectionnées en texte "a, b, c," -->
-    <span matPrefix class="smart-prefix">
-      {{ displayString() }}
-      @if (displayString()) { ,&nbsp; }
-    </span>
 
-    <input
-      matInput
-      [placeholder]="selected().length ? '' : placeholder"
-      [matAutocomplete]="auto"
-      [disabled]="disabled"
-      #trigger="matAutocompleteTrigger"
-      (focus)="openAll(trigger)"
-      (input)="onInput($any($event.target).value)"
-      (keydown)="handleKeydown($event)"
-      (blur)="onBlur()"
-      [value]="query()" />
+Pour tes types formatés (AMOUNT, DATE…), applique le pipe après le getter :
 
-    <mat-autocomplete #auto="matAutocomplete" (optionSelected)="onSelected($event)">
-      <!-- Sélectionnées (toujours visible) -->
-      @if (sections().selected.length > 0) {
-        <mat-optgroup label="Sélectionnées">
-          @for (item of sections().selected; track item) {
-            <mat-option (click)="toggle(item, trigger)">
-              <mat-icon class="mr-2" fontIcon="check" color="primary"></mat-icon>
-              {{ item }}
-              <span class="ml-2 smart-muted">(retirer)</span>
-            </mat-option>
-          }
-        </mat-optgroup>
+<!-- AMOUNT -->
+<td mat-cell class="data-table-colonne {{ col.nom }}" *matCellDef="let row: any">
+  {{ (col.valueGetter ? col.valueGetter(row) : row[col.nom]) | number:'1.0-0' }}
+</td>
+
+c) Gérer le tri client (MatSort) sur colonnes virtuelles
+ngAfterViewInit(): void {
+  if (this.sort) {
+    this.dataSource.sort = this.sort;
+
+    // ➕ tri sur valueGetter si présent
+    this.dataSource.sortingDataAccessor = (row: T, columnName: string) => {
+      const col = this._columns.find(c => c.nom === columnName);
+      if (col?.valueGetter) {
+        const v = col.valueGetter(row);
+        // uniformise pour MatSort
+        if (v == null) return '';
+        if (typeof v === 'string' || typeof v === 'number') return v as any;
+        return JSON.stringify(v);
       }
+      return (row as any)[columnName];
+    };
 
-      <!-- Récents -->
-      @if (sections().recents.length > 0) {
-        <mat-optgroup label="Récents">
-          @for (item of sections().recents; track item) {
-            <mat-option (click)="toggle(item, trigger)" [disabled]="isSelected(item)">
-              @if (isSelected(item)) { <mat-icon class="mr-2" fontIcon="check" color="primary"></mat-icon> }
-              {{ item }}
-            </mat-option>
-          }
-        </mat-optgroup>
-      }
-
-      <!-- Valeurs / Résultats -->
-      @if (sections().values.length > 0) {
-        <mat-optgroup [label]="query() ? 'Résultats' : 'Valeurs'">
-          @for (item of sections().values; track item) {
-            <mat-option (click)="toggle(item, trigger)" [disabled]="isSelected(item)">
-              @if (isSelected(item)) { <mat-icon class="mr-2" fontIcon="check" color="primary"></mat-icon> }
-              {{ item }}
-            </mat-option>
-          }
-        </mat-optgroup>
-      }
-
-      @if (
-        sections().selected.length === 0 &&
-        sections().recents.length === 0 &&
-        sections().values.length === 0
-      ) {
-        <mat-option disabled>Aucun résultat</mat-option>
-      }
-    </mat-autocomplete>
-  </mat-form-field>
-  `,
-  // ===== STYLES ciblés (éviter l'élargissement du champ) =====
-  styles: [`
-    /* Affixe (prefix) contraint: ne pas pousser l'input */
-    .smart-multi-af .mdc-text-field__affix.smart-prefix,
-    .smart-prefix {
-      max-width: 60%;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      display: inline-block;
-      vertical-align: middle;
-    }
-    /* forcer l'infix à se comporter en flex pour que l'input prenne l'espace restant */
-    :host ::ng-deep .smart-multi-af .mat-mdc-form-field-infix {
-      display: flex;
-      align-items: center;
-      gap: .25rem;
-    }
-    :host ::ng-deep .smart-multi-af .mat-mdc-input-element {
-      flex: 1 1 auto;
-      min-width: 0;
-    }
-    .smart-muted { font-size: 0.75rem; color: #6b7280; }
-    .mr-2 { margin-right: .5rem; } .ml-2 { margin-left: .5rem; }
-  `]
-})
-export class SmartMultiAutocompleteStringComponent implements ControlValueAccessor {
-  // --- Inputs
-  @Input({ required: true }) options: string[] = [];
-  @Input() label = 'Choisir des valeurs';
-  @Input() placeholder = 'Tapez pour filtrer...';
-  @Input() appearance: MatFormFieldAppearance = 'fill';
-
-  // Récents (facultatif)
-  @Input() recentsEnabled = false;
-  /** 'never' | 'onRefocus' | 'always' */
-  @Input() recentsMode: 'never' | 'onRefocus' | 'always' = 'onRefocus';
-  @Input() storageKey = 'smart-multi-recents';
-  @Input() maxRecents = 7;
-
-  disabled = false;
-
-  // --- État
-  private readonly _selected = signal<string[]>([]);
-  selected = this._selected.asReadonly();
-
-  private readonly _query = signal<string>('');
-  query = this._query.asReadonly();
-
-  private readonly recents = signal<string[]>(this.loadRecents());
-
-  // Affichage dans l'input
-  displayString = computed(() => this.selected().join(', '));
-
-  // Sections du panneau
-  sections = computed(() => {
-    const q = this._query().toLowerCase().trim();
-    const base = this.options ?? [];
-    const filtered = q ? base.filter(v => v.toLowerCase().includes(q)) : base;
-
-    const selSet = new Set(this.selected());
-    const values = filtered.filter(v => !selSet.has(v)); // exclut sélection
-
-    let recents: string[] = [];
-    if (this.recentsEnabled && this.recents().length) {
-      recents = this.recents().filter(r => filtered.includes(r) && !selSet.has(r));
-    }
-
-    const hasSelection = this.selected().length > 0;
-    const showRecents =
-      this.recentsEnabled &&
-      recents.length > 0 &&
-      (
-        (this.recentsMode === 'always' && !q) ||
-        (this.recentsMode === 'onRefocus' && !q && hasSelection)
-      );
-
-    return { selected: this.selected(), recents: showRecents ? recents : [], values };
-  });
-
-  constructor() {
-    // Nettoyage si jamais une valeur non listée est injectée
-    effect(() => {
-      const sel = this._selected();
-      const clean = sel.filter(v => this.options.includes(v));
-      if (clean.length !== sel.length) {
-        this._selected.set(clean);
-        this.emit(clean);
-      }
+    this.sort.sortChange.subscribe(s => {
+      if (this.serverSide) this.sortChange.emit(s);
+      this.expandedId = null;
     });
   }
-
-  // --- CVA
-  private onChange: (value: string[] | null) => void = () => {};
-  private onTouched: () => void = () => {};
-
-  writeValue(value: string[] | null): void {
-    this._selected.set(Array.isArray(value) ? value.filter(v => this.options.includes(v)) : []);
-    this._query.set('');
-  }
-  registerOnChange(fn: (value: string[] | null) => void): void { this.onChange = fn; }
-  registerOnTouched(fn: () => void): void { this.onTouched = fn; }
-  setDisabledState(isDisabled: boolean): void { this.disabled = isDisabled; }
-
-  // --- Validator (toutes les valeurs doivent venir de la liste)
-  validate(_: AbstractControl): ValidationErrors | null {
-    const ok = this.selected().every(v => this.options.includes(v));
-    return ok ? null : { mustSelectFromList: true };
-  }
-
-  // --- Handlers
-  openAll(trigger: MatAutocompleteTrigger) {
-    this._query.set('');
-    trigger.openPanel();
-  }
-
-  onInput(v: string) { this._query.set(v); }
-
-  // Angular envoie Event; on filtre la touche Backspace ici
-  handleKeydown(e: Event) {
-    const ev = e as KeyboardEvent;
-    if (ev.key === 'Backspace') {
-      this.handleBackspace();
-      ev.preventDefault();
-    }
-  }
-
-  handleBackspace() {
-    if (!this._query() && this.selected().length && !this.disabled) {
-      this.remove(this.selected()[this.selected().length - 1]);
-    }
-  }
-
-  onSelected(ev: MatAutocompleteSelectedEvent) {
-    const value = ev.option.value as string;
-    this.toggle(value);
-    this._query.set('');
-  }
-
-  toggle(value: string, reopen?: MatAutocompleteTrigger) {
-    if (this.isSelected(value)) {
-      this.remove(value);
-    } else {
-      const next = [...this.selected(), value];
-      this._selected.set(next);
-      this.pushToRecents(value);
-      this.emit(next);
-    }
-    if (reopen) setTimeout(() => reopen.openPanel());
-  }
-
-  remove(value: string) {
-    const next = this.selected().filter(v => v !== value);
-    this._selected.set(next);
-    this.emit(next);
-  }
-
-  onBlur() { this.onTouched(); }
-
-  // --- Helpers
-  isSelected = (v: string) => this.selected().includes(v);
-  private emit(arr: string[]) { this.onChange(arr.length ? arr : null); }
-
-  // --- Récents
-  private pushToRecents(item: string) {
-    if (!this.recentsEnabled) return;
-    const list = [item, ...this.recents().filter(x => x !== item)];
-    const limited = this.maxRecents > 0 ? list.slice(0, this.maxRecents) : list;
-    this.recents.set(limited);
-    try { localStorage.setItem(this.storageKey, JSON.stringify(limited)); } catch {}
-  }
-  private loadRecents(): string[] {
-    try {
-      const raw = localStorage.getItem(this.storageKey);
-      const arr = raw ? JSON.parse(raw) as string[] : [];
-      return Array.isArray(arr) ? arr : [];
-    } catch { return []; }
-  }
 }
 
-Exemple d’utilisation (FormGroup)
-import { Component } from '@angular/core';
+d) (Optionnel) Inclure les colonnes virtuelles dans la recherche client
+
+Si tu veux que la barre de recherche “voit” les colonnes virtuelles quand leur nom est présent dans filterKeys, adapte le filterPredicate :
+
+this.dataSource.filterPredicate = (row: T, filter: string) => {
+  const q = (filter || '').toLowerCase();
+
+  // si filterKeys est défini : ne cherche que dans ces clés
+  const keys = this.filterKeys?.length ? this.filterKeys : Object.keys(row);
+
+  for (const k of keys) {
+    const col = this._columns.find(c => c.nom === k);
+    let v: any;
+    if (col?.valueGetter) {
+      v = col.valueGetter(row);
+    } else {
+      v = (row as any)[k];
+    }
+    if (v == null) continue;
+    const s = (typeof v === 'object') ? JSON.stringify(v) : String(v);
+    if (s.toLowerCase().includes(q)) return true;
+  }
+  return false;
+};
+
+e) Déclare tes colonnes “Crédit/Débit” sans modifier le payload
+
+Dans ton parent :
+
+columns: ITableColonne[] = [
+  // …
+  {
+    nom: 'credit',
+    label: 'Crédit',
+    type: TableDataType.AMOUNT,
+    enableOrder: true,
+    retractable: true,
+    valueGetter: (r) => r?.type?.toLowerCase() === 'credit' ? Number(r?.amount) || 0 : null,
+  },
+  {
+    nom: 'debit',
+    label: 'Débit',
+    type: TableDataType.AMOUNT,
+    enableOrder: true,
+    retractable: true,
+    valueGetter: (r) => r?.type?.toLowerCase() === 'debit' ? Number(r?.amount) || 0 : null,
+  },
+];
+
+
+
+
+
+
+
+
+data-table.component.ts
+import {
+  AfterViewInit, ChangeDetectionStrategy, Component, EventEmitter,
+  Input, OnChanges, Output, SimpleChanges, TemplateRef, ViewChild
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { FormGroup, FormControl, ReactiveFormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
+
+import { MatTableDataSource, MatTableModule } from '@angular/material/table';
+import { MatPaginator, MatPaginatorModule, PageEvent } from '@angular/material/paginator';
+import { MatSort, MatSortModule, Sort } from '@angular/material/sort';
+import { MatCheckboxModule } from '@angular/material/checkbox';
+import { SelectionModel } from '@angular/cdk/collections';
+
+import { ReactiveFormsModule, FormControl } from '@angular/forms';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatIconModule } from '@angular/material/icon';
+import { MatMenuModule } from '@angular/material/menu';
 import { MatButtonModule } from '@angular/material/button';
-import { SmartMultiAutocompleteStringComponent } from './smart-multi-autocomplete-string.component';
+import { MatTooltipModule } from '@angular/material/tooltip';
+import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
+import { MatProgressBarModule } from '@angular/material/progress-bar';
+import { debounceTime, distinctUntilChanged, startWith } from 'rxjs/operators';
+
+export enum TableDataType {
+  STRING, NUMBER, BOOLEAN, DATE, DATETIME, TIME, JSON, OBJECT, LINK,
+  AMOUNT, PERCENT
+}
+
+export interface ITableColonne<T = any> {
+  nom: string;
+  label: string;
+  type: TableDataType;
+  enableOrder: boolean;
+  retractable: boolean;
+  link?: any;
+  clickable?: boolean;
+
+  /** ➕ Valeur calculée pour colonnes virtuelles (non présentes dans le payload) */
+  valueGetter?: (row: T) => any;
+}
+
+type IdType = string | number;
+interface DetailRow<T> { __detail: true; forId: IdType; host: T; }
 
 @Component({
-  selector: 'app-multi-city-form',
+  selector: 'lib-data-table',
   standalone: true,
-  imports: [CommonModule, ReactiveFormsModule, MatButtonModule, SmartMultiAutocompleteStringComponent],
-  template: `
-  <form [formGroup]="form" class="p-4" (ngSubmit)="submit()">
-    <app-smart-multi-autocomplete-string
-      formControlName="cities"                 <!-- string[] | null -->
-      [options]="allCities"
-      [label]="'Villes'"
-      [placeholder]="'Tapez pour filtrer...'"
-      [appearance]="'fill'"
-      [recentsEnabled]="true"
-      [recentsMode]="'always'"
-      [storageKey]="'cities-multi-recents'">
-    </app-smart-multi-autocomplete-string>
+  imports: [
+    CommonModule, RouterLink,
+    MatTableModule, MatPaginatorModule, MatSortModule,
+    MatCheckboxModule, MatFormFieldModule, MatInputModule,
+    MatIconModule, MatMenuModule, MatButtonModule, MatTooltipModule,
+    MatProgressSpinnerModule, MatProgressBarModule,
+    ReactiveFormsModule
+  ],
+  templateUrl: './data-table.component.html',
+  styleUrl: './data-table.component.scss',
+  changeDetection: ChangeDetectionStrategy.OnPush
+})
+export class DataTableComponent<T extends Record<string, any>>
+  implements AfterViewInit, OnChanges {
 
-    <div class="mt-4">
-      <button mat-raised-button color="primary" type="submit">Soumettre</button>
+  protected readonly TableDataType = TableDataType;
+
+  // ===== Données & colonnes =====
+  private _columns: ITableColonne<T>[] = [];
+  private _hidden = new Set<string>();
+
+  dataSource = new MatTableDataSource<T>([]);
+  visibleColumnDefs: ITableColonne<T>[] = [];
+  displayedColumns: string[] = [];
+
+  @Input() set data(value: T[] | null | undefined) {
+    const arr = value ?? [];
+    this._ensureStableIds(arr);
+    this.dataSource.data = arr;
+    if (!this.serverSide) this._updateClientLength();
+  }
+  @Input() set columns(value: ITableColonne<T>[] | null | undefined) {
+    this._columns = (value ?? []).map(c => ({ ...c }));
+    this._recomputeVisible();
+  }
+  @Input() set hiddenColumns(value: string[] | null | undefined) {
+    this._hidden = new Set((value ?? []).filter(Boolean));
+    this._recomputeVisible();
+    this.hiddenColumnsChange.emit([...this._hidden]);
+  }
+  @Output() hiddenColumnsChange = new EventEmitter<string[]>();
+  @Input() showColumnRetractable = true;
+
+  // ===== Sélection =====
+  @Input() selectable = true;
+  @Input() selectionMode: 'single'|'multiple' = 'multiple';
+  private selection = new SelectionModel<T>(true, []);
+
+  @Input()  selectedRows: T[] = [];
+  @Output() selectedRowsChange = new EventEmitter<T[]>();
+  @Output() selectionChange = new EventEmitter<T[]>();
+
+  // ===== Tri & Pagination =====
+  @Input() enableOrder = true;
+  @Input() serverSide = false;
+  @Input() pageSize = 10;
+  @Input() pageSizeOptions: number[] = [5,10,25,50];
+  @Input() total = 0;     // pour serverSide
+  autoLength = 0;         // pour clientSide
+
+  @Output() pageChange = new EventEmitter<PageEvent>();
+  @Output() sortChange = new EventEmitter<Sort>();
+
+  // ===== Recherche =====
+  @Input() searchable = true;
+  @Input() filterPlaceholder = 'Search…';
+  @Input() filterKeys: string[] = [];
+  @Output() filterChange = new EventEmitter<string>();
+  searchCtrl = new FormControl<string>('', { nonNullable: true });
+
+  // ===== UI / loader & highlight =====
+  @Input() stickyHeader = true;
+  @Input() loading = false;
+  @Input() loadingText: string | null = null;
+  @Input() showTopBarWhileLoading = true;
+
+  @Input() highlightSelection = false;
+  @Input() highlightColor: string = '#E6F4EA';
+  @Input() highlightBarColor: string = '#2E7D32';
+
+  // ===== Cellule cliquable =====
+  @Output() cellClick = new EventEmitter<{ row: T; column: ITableColonne<T> }>();
+  onCellClick(ev: MouseEvent, row: T, col: ITableColonne<T>) {
+    ev.stopPropagation();
+    this.cellClick.emit({ row, column: col });
+  }
+
+  // ===== Détail de ligne =====
+  @Input() rowIdKey?: keyof T;                  // optionnel si vraie clé
+  @Input() rowDetailTemplate?: TemplateRef<any>;// si absent => fallback JSON
+  expandedId: IdType | null = null;             // id de la ligne ouverte
+
+  onRowDblClick(row: T): void {
+    const id = this._rowId(row);
+    this.expandedId = (this.expandedId === id) ? null : id;
+  }
+
+  /** Données pour l’affichage (page courante + ligne de détail) */
+  get rowsForRender(): Array<T|DetailRow<T>> {
+    const baseAll = this.dataSource.filteredData?.length
+      ? this.dataSource.filteredData
+      : (this.dataSource.data ?? []);
+
+    let pageRows = baseAll;
+    if (this.paginator && !this.serverSide) {
+      const start = this.paginator.pageIndex * this.paginator.pageSize;
+      pageRows = baseAll.slice(start, start + this.paginator.pageSize);
+    }
+
+    if (this.expandedId == null) return pageRows;
+
+    const idx = pageRows.findIndex(r => this._rowId(r) === this.expandedId);
+    if (idx === -1) return pageRows;
+
+    const host = pageRows[idx];
+    const res: Array<T|DetailRow<T>> = pageRows.slice(0, idx + 1);
+    res.push({ __detail: true, forId: this.expandedId, host } as DetailRow<T>);
+    res.push(...pageRows.slice(idx + 1));
+    return res;
+  }
+
+  /** predicate pour MatTable (ligne “détail”) */
+  isDetailRow = (_i: number, row: T | DetailRow<T>) =>
+    (row as any)?.__detail === true;
+
+  // ===== Mat refs =====
+  @ViewChild(MatPaginator) paginator!: MatPaginator;
+  @ViewChild(MatSort) sort!: MatSort;
+
+  // ===== ids stables si pas de rowIdKey =====
+  private _ids = new WeakMap<T, number>();
+  private _seq = 1;
+  private _ensureStableIds(rows: T[]) {
+    if (this.rowIdKey) return;
+    for (const r of rows) if (!this._ids.has(r)) this._ids.set(r, this._seq++);
+    // si la ligne ouverte a disparu, on la ferme
+    if (this.expandedId != null && !rows.some(r => this._rowId(r) === this.expandedId)) {
+      this.expandedId = null;
+    }
+  }
+  private _rowId(row: T): IdType {
+    if (this.rowIdKey && row && (row as any)[this.rowIdKey] != null) {
+      return (row as any)[this.rowIdKey] as IdType;
+    }
+    const id = this._ids.get(row);
+    if (id != null) return id;
+    const next = this._seq++;
+    this._ids.set(row, next);
+    return next;
+  }
+
+  // ===== ctor =====
+  constructor() {
+    // recherche
+    this.searchCtrl.valueChanges
+      .pipe(startWith(''), debounceTime(300), distinctUntilChanged())
+      .subscribe(q => {
+        const query = (q ?? '').trim();
+        if (this.serverSide) this.filterChange.emit(query);
+        else this._applyClientFilter(query);
+      });
+
+    // filtre client — inclut valueGetter si la colonne est listée dans filterKeys
+    this.dataSource.filterPredicate = (row: T, filter: string) => {
+      const q = (filter || '').toLowerCase();
+      const keys = (this.filterKeys?.length ? this.filterKeys : Object.keys(row));
+      for (const k of keys) {
+        const col = this._columns.find(c => c.nom === k);
+        const v = col?.valueGetter ? col.valueGetter(row) : (row as any)[k];
+        if (v == null) continue;
+        const s = (typeof v === 'object') ? JSON.stringify(v) : String(v);
+        if (s.toLowerCase().includes(q)) return true;
+      }
+      return false;
+    };
+  }
+
+  // ===== Hooks =====
+  ngOnChanges(ch: SimpleChanges): void {
+    if (ch['selectionMode']) {
+      const multi = this.selectionMode !== 'single';
+      if (this.selection.isMultipleSelection() !== multi) {
+        this.selection = new SelectionModel<T>(multi, this.selection.selected);
+      }
+    }
+    if (ch['selectedRows']) {
+      const multi = this.selectionMode !== 'single';
+      if (this.selection.isMultipleSelection() !== multi) {
+        this.selection = new SelectionModel<T>(multi, []);
+      }
+      this.selection.clear();
+      (this.selectedRows ?? []).forEach(r => this.selection.select(r));
+    }
+  }
+
+  ngAfterViewInit(): void {
+    if (this.sort) {
+      this.dataSource.sort = this.sort;
+
+      // ➕ tri sur valueGetter si présent
+      this.dataSource.sortingDataAccessor = (row: T, columnName: string) => {
+        const col = this._columns.find(c => c.nom === columnName);
+        if (col?.valueGetter) {
+          const v = col.valueGetter(row);
+          if (v == null) return '';
+          if (typeof v === 'string' || typeof v === 'number') return v as any;
+          return JSON.stringify(v);
+        }
+        return (row as any)[columnName];
+      };
+
+      this.sort.sortChange.subscribe(s => {
+        if (this.serverSide) this.sortChange.emit(s);
+        this.expandedId = null;                 // ferme le détail au tri
+      });
+    }
+    if (this.paginator) {
+      // on ne branche PAS dataSource.paginator (pagination manuelle)
+      if (this.serverSide) {
+        this.paginator.page.subscribe(p => this.pageChange.emit(p));
+      } else {
+        this.paginator.page.subscribe(() => this.expandedId = null);
+      }
+    }
+  }
+
+  // ===== Sélection =====
+  isSelected = (row: T) => this.selection.isSelected(row);
+
+  isAllSelected(): boolean {
+    const rows = this._currentPageRows();
+    return rows.length > 0 && rows.every(r => this.selection.isSelected(r));
+  }
+  masterToggle(): void {
+    const rows = this._currentPageRows();
+    if (this.isAllSelected()) rows.forEach(r => this.selection.deselect(r));
+    else rows.forEach(r => this.selection.select(r));
+    this._emitSelection();
+  }
+  toggleRow(row: T): void {
+    if (this.selectionMode === 'single') {
+      this.selection.clear();
+      this.selection.select(row);
+    } else {
+      this.selection.toggle(row);
+    }
+    this._emitSelection();
+  }
+  checkboxLabel(row?: T): string {
+    if (!row) return `${this.isAllSelected() ? 'deselect' : 'select'} all`;
+    return `${this.selection.isSelected(row) ? 'deselect' : 'select'} row`;
+  }
+  private _emitSelection(): void {
+    this.selectedRows = this.selection.selected;
+    this.selectedRowsChange.emit(this.selectedRows);
+    this.selectionChange.emit(this.selectedRows);
+  }
+
+  // ===== Colonnes visibles =====
+  trackByCol = (_: number, c: ITableColonne<T>) => c.nom;
+  isHidden = (col: ITableColonne<T>) => col.retractable && this._hidden.has(col.nom);
+  toggleColumn(col: ITableColonne<T>): void {
+    if (!col.retractable) return;
+    if (this._hidden.has(col.nom)) this._hidden.delete(col.nom);
+    else this._hidden.add(col.nom);
+    this._recomputeVisible();
+    this.hiddenColumnsChange.emit([...this._hidden]);
+  }
+  private _recomputeVisible(): void {
+    this.visibleColumnDefs = this._columns.filter(c => !this.isHidden(c));
+    this.displayedColumns = this.visibleColumnDefs.map(c => c.nom);
+    if (this.selectable && !this.displayedColumns.includes('select')) {
+      this.displayedColumns = ['select', ...this.displayedColumns];
+    }
+    if (!this.selectable) {
+      this.displayedColumns = this.displayedColumns.filter(c => c !== 'select');
+    }
+  }
+
+  // ===== Filtre & pagination client =====
+  private _applyClientFilter(query: string) {
+    this.dataSource.filter = query.trim().toLowerCase();
+    if (this.paginator && !this.serverSide) this.paginator.firstPage();
+    this._updateClientLength();
+    const base = this.dataSource.filteredData ?? this.dataSource.data ?? [];
+    if (this.expandedId != null && !base.some(r => this._rowId(r) === this.expandedId)) {
+      this.expandedId = null;
+    }
+  }
+  private _updateClientLength() {
+    this.autoLength = this.dataSource.filteredData?.length ?? this.dataSource.data?.length ?? 0;
+  }
+  private _currentPageRows(): T[] {
+    const base = this.dataSource.filteredData?.length
+      ? this.dataSource.filteredData
+      : (this.dataSource.data ?? []);
+    if (!this.paginator || this.serverSide) return base;
+    const start = this.paginator.pageIndex * this.paginator.pageSize;
+    return base.slice(start, start + this.paginator.pageSize);
+  }
+
+  // ===== Utilitaires rendu =====
+  getCellValue(row: T, col: ITableColonne<T>): any {
+    return col.valueGetter ? col.valueGetter(row) : (row as any)[col.nom];
+  }
+}
+
+data-table.component.html
+<div class="dt-root" [class.dt-blurred]="loading">
+  <div class="dt-toolbar" *ngIf="searchable || showColumnRetractable">
+    <div class="dt-toolbar-left">
+      <ng-container *ngIf="showColumnRetractable">
+        <button mat-icon-button [matMenuTriggerFor]="colsMenu" matTooltip="Colonnes">
+          <mat-icon>view_column</mat-icon>
+        </button>
+        <mat-menu #colsMenu="matMenu">
+          <button mat-menu-item *ngFor="let c of _columns" (click)="toggleColumn(c)">
+            <mat-icon>{{ isHidden(c) ? 'check_box_outline_blank' : 'check_box' }}</mat-icon>
+            <span>{{ c.label }}</span>
+          </button>
+        </mat-menu>
+      </ng-container>
     </div>
 
-    <pre>Valeur: {{ form.value | json }}</pre>
-  </form>
-  `
-})
-export class MultiCityFormComponent {
-  allCities = ['Québec', 'Montréal', 'Ottawa', 'Toronto', 'Vancouver', 'Calgary', 'Halifax'];
-  form = new FormGroup({ cities: new FormControl<string[] | null>(null) });
+    <div class="dt-toolbar-right" *ngIf="searchable">
+      <mat-form-field appearance="outline" class="dt-search-field">
+        <mat-icon matPrefix>search</mat-icon>
+        <input matInput [placeholder]="filterPlaceholder" [formControl]="searchCtrl">
+        <button *ngIf="searchCtrl.value" matSuffix mat-icon-button (click)="searchCtrl.setValue('')">
+          <mat-icon>close</mat-icon>
+        </button>
+      </mat-form-field>
+    </div>
+  </div>
 
-  submit() { console.log(this.form.value.cities); } // null ou string[]
+  <div class="dt-table-wrap">
+    <table mat-table [dataSource]="rowsForRender"
+           matSort *ngIf="enableOrder"
+           [multiTemplateDataRows]="true"
+           class="mat-elevation-z2 dt-table">
+
+      <!-- Sélection -->
+      <ng-container matColumnDef="select" *ngIf="selectable">
+        <th mat-header-cell *matHeaderCellDef>
+          <mat-checkbox
+            (change)="$event ? masterToggle() : null"
+            [checked]="isAllSelected()"
+            [indeterminate]="selection.hasValue() && !isAllSelected()"
+            [aria-label]="checkboxLabel()">
+          </mat-checkbox>
+        </th>
+        <td mat-cell *matCellDef="let row"
+            @if="!(row as any).__detail">
+          <mat-checkbox
+            (click)="$event.stopPropagation()"
+            (change)="toggleRow(row)"
+            [checked]="isSelected(row)"
+            [aria-label]="checkboxLabel(row)">
+          </mat-checkbox>
+        </td>
+      </ng-container>
+
+      <!-- Colonnes dynamiques -->
+      <ng-container *ngFor="let col of visibleColumnDefs; trackBy: trackByCol"
+                    [matColumnDef]="col.nom">
+
+        <!-- STRING / fallback -->
+        <td mat-cell *matCellDef="let row"
+            class="data-table-colonne {{ col.nom }}"
+            @if="!(row as any).__detail"
+            [class.col-clickable]="col.clickable"
+            (click)="col.clickable && onCellClick($event, row, col)">
+          {{ getCellValue(row, col) }}
+        </td>
+
+        <th mat-header-cell *matHeaderCellDef
+            [mat-sort-header]="col.enableOrder ? col.nom : null">
+          {{ col.label }}
+        </th>
+      </ng-container>
+
+      <!-- Types spéciaux (AMOUNT, NUMBER, DATE...) -->
+      <ng-container *ngFor="let col of visibleColumnDefs" [matColumnDef]="col.nom + '-typed'"></ng-container>
+
+      <!-- Surcharges par type (AMOUNT) -->
+      <ng-container *ngFor="let col of visibleColumnDefs">
+        <td mat-cell *matCellDef="let row"
+            class="data-table-colonne {{ col.nom }}"
+            @if="!(row as any).__detail && col.type === TableDataType.AMOUNT">
+          {{ getCellValue(row, col) | number:'1.0-0' }}
+        </td>
+      </ng-container>
+
+      <!-- Ligne “détail” (colonne technique unique) -->
+      <ng-container matColumnDef="detail">
+        <td mat-cell class="detail-cell" *matCellDef="let row"
+            [attr.colspan]="displayedColumns.length"
+            @if="(row as any).__detail">
+          <div class="detail-wrapper">
+            @if (rowDetailTemplate) {
+              <ng-container
+                *ngTemplateOutlet="rowDetailTemplate; context: {$implicit: (row as any).host, row: (row as any).host}">
+              </ng-container>
+            } @else {
+              <div class="detail-fallback">
+                <strong>Détails :</strong> {{ (row as any).host | json }}
+              </div>
+            }
+          </div>
+        </td>
+      </ng-container>
+
+      <!-- Header row -->
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+
+      <!-- Data rows -->
+      <tr mat-row *matRowDef="let row; columns: displayedColumns"
+          (dblclick)="onRowDblClick(row)"
+          @if="!(row as any).__detail">
+      </tr>
+
+      <!-- Detail row -->
+      <tr mat-row *matRowDef="let row; columns: ['detail']"
+          [matRowDefWhen]="isDetailRow">
+      </tr>
+    </table>
+  </div>
+
+  <!-- Paginator -->
+  <mat-paginator *ngIf="!serverSide"
+                 [length]="autoLength"
+                 [pageSize]="pageSize"
+                 [pageSizeOptions]="pageSizeOptions">
+  </mat-paginator>
+
+  <mat-paginator *ngIf="serverSide"
+                 [length]="total"
+                 [pageSize]="pageSize"
+                 [pageSizeOptions]="pageSizeOptions">
+  </mat-paginator>
+</div>
+
+data-table.component.scss (mini)
+.dt-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-bottom: 1px solid #e0e0e0;
+  background: #fafafa;
 }
+.dt-toolbar-right { display: flex; align-items: center; gap: 8px; }
+.dt-search-field { width: 260px; }
+
+.dt-table { width: 100%; }
+.detail-cell { padding: 0 !important; background: transparent; }
+.detail-wrapper {
+  padding: 12px 16px 16px 28px;
+  background: rgba(0,0,0,0.03);
+  border-left: 4px solid #2e7d32;
+  border-radius: 4px;
+}
+.detail-fallback { font-family: monospace; white-space: pre-wrap; }
