@@ -626,3 +626,162 @@ data-table.component.scss (mini)
   border-radius: 4px;
 }
 .detail-fallback { font-family: monospace; white-space: pre-wrap; }
+
+
+
+
+----------
+
+transactions-search.component.ts (MAJ)
+import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
+import { AbstractControl, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
+import { MatCardModule } from '@angular/material/card';
+import { MatFormFieldModule } from '@angular/material/form-field';
+import { MatInputModule } from '@angular/material/input';
+import { MatDatepickerModule, MatDatepickerInputEvent } from '@angular/material/datepicker';
+import { MatButtonModule } from '@angular/material/button';
+import { MatButtonToggleModule } from '@angular/material/button-toggle';
+import { CommonModule } from '@angular/common';
+
+export type MatchingStatus = 'NoMatched' | 'Matched';
+
+export interface SearchFormValue {
+  startDate: Date | null;
+  endDate: Date | null;
+  matchingStatus: MatchingStatus;    // ← switch
+  matchTag: string | null;           // ← champ texte (visible seulement si NoMatched)
+  matchAccount: string | null;
+  limit: number;
+  offset: number;
+}
+
+@Component({
+  standalone: true,
+  selector: 'app-transactions-search',
+  imports: [
+    CommonModule, ReactiveFormsModule,
+    MatCardModule, MatFormFieldModule, MatInputModule, MatDatepickerModule,
+    MatButtonModule, MatButtonToggleModule
+  ],
+  templateUrl: './transactions-search.component.html'
+})
+export class TransactionsSearchComponent {
+  private fb = inject(FormBuilder);
+
+  @Input() disabled = false;
+  @Output() search = new EventEmitter<SearchFormValue>();
+
+  form = this.fb.group({
+    startDate: this.fb.control<Date | null>(null, { validators: [Validators.required] }),
+    endDate:   this.fb.control<Date | null>(null, { validators: [Validators.required] }),
+    matchingStatus: this.fb.control<MatchingStatus>('NoMatched', { nonNullable: true }),
+    matchTag: this.fb.control<string | null>(null),          // ← pas required
+    matchAccount: this.fb.control<string | null>(null, { validators: [Validators.required] }),
+    limit:  this.fb.control<number>(50, { nonNullable: true, validators: [Validators.required, Validators.min(1)] }),
+    offset: this.fb.control<number>(0,  { nonNullable: true, validators: [Validators.required, Validators.min(0)] }),
+  }, { validators: [dateRangeValidator] });
+
+  // util: préserver l'heure courante
+  onDatePick(ctrl: 'startDate' | 'endDate', ev: MatDatepickerInputEvent<Date>) {
+    const val = ev.value;
+    if (!val) return;
+    const now = new Date();
+    const withTime = new Date(
+      val.getFullYear(), val.getMonth(), val.getDate(),
+      now.getHours(), now.getMinutes(), now.getSeconds()
+    );
+    this.form.get(ctrl)?.setValue(withTime);
+  }
+
+  submit() {
+    if (this.form.invalid || this.disabled) {
+      this.form.markAllAsTouched();
+      return;
+    }
+    this.search.emit(this.form.getRawValue() as SearchFormValue);
+  }
+}
+
+function dateRangeValidator(group: AbstractControl) {
+  const s = group.get('startDate')?.value as Date | null;
+  const e = group.get('endDate')?.value as Date | null;
+  if (s && e && e.getTime() < s.getTime()) {
+    return { range: 'endBeforeStart' };
+  }
+  return null;
+}
+
+transactions-search.component.html (MAJ)
+<mat-card class="search-card" [class.is-disabled]="disabled">
+  <form [formGroup]="form" (ngSubmit)="submit()">
+    <div class="row">
+      <mat-form-field appearance="fill">
+        <mat-label>Start Date</mat-label>
+        <input matInput [matDatepicker]="pickerStart"
+               formControlName="startDate"
+               placeholder="dd/MM/yyyy HH:mm:ss"
+               (dateChange)="onDatePick('startDate', $event)">
+        <mat-datepicker-toggle matSuffix [for]="pickerStart"></mat-datepicker-toggle>
+        <mat-datepicker #pickerStart></mat-datepicker>
+      </mat-form-field>
+
+      <mat-form-field appearance="fill">
+        <mat-label>End Date</mat-label>
+        <input matInput [matDatepicker]="pickerEnd"
+               formControlName="endDate"
+               placeholder="dd/MM/yyyy HH:mm:ss"
+               (dateChange)="onDatePick('endDate', $event)">
+        <mat-datepicker-toggle matSuffix [for]="pickerEnd"></mat-datepicker-toggle>
+        <mat-datepicker #pickerEnd></mat-datepicker>
+      </mat-form-field>
+
+      <mat-form-field appearance="fill" class="grow">
+        <mat-label>Match Account</mat-label>
+        <input matInput formControlName="matchAccount" />
+      </mat-form-field>
+
+      <mat-form-field appearance="fill" class="w-120">
+        <mat-label>Limit</mat-label>
+        <input matInput type="number" min="1" formControlName="limit" />
+      </mat-form-field>
+
+      <mat-form-field appearance="fill" class="w-120">
+        <mat-label>Offset</mat-label>
+        <input matInput type="number" min="0" formControlName="offset" />
+      </mat-form-field>
+
+      <button mat-raised-button color="primary" type="submit" [disabled]="disabled || form.invalid">
+        Search
+      </button>
+    </div>
+
+    <!-- Switch MatchingStatus -->
+    <div class="row align">
+      <span class="mr">Matching:</span>
+      <mat-button-toggle-group formControlName="matchingStatus" aria-label="Matching status">
+        <mat-button-toggle value="NoMatched">No matched yet</mat-button-toggle>
+        <mat-button-toggle value="Matched">Matched</mat-button-toggle>
+      </mat-button-toggle-group>
+    </div>
+
+    <!-- Match Tag (n'apparaît que si NoMatched) -->
+    @if (form.get('matchingStatus')?.value === 'NoMatched') {
+      <div class="row">
+        <mat-form-field appearance="fill" class="grow">
+          <mat-label>Match tag</mat-label>
+          <input matInput formControlName="matchTag" placeholder="ex: TAG_ABC_2025" />
+        </mat-form-field>
+      </div>
+    }
+  </form>
+</mat-card>
+
+<style>
+  .search-card { padding: 12px; border-radius: 10px; }
+  .is-disabled { opacity: .6; pointer-events: none; }
+  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+  .align { align-items: center; margin-top: 8px; }
+  .grow { flex: 1 1 260px; }
+  .w-120 { width: 120px; }
+  mat-form-field { width: 240px; min-width: 200px; }
+</style>
