@@ -1,85 +1,3 @@
-<mat-card class="search-card">
-  <form [formGroup]="form" (ngSubmit)="onSubmit()" class="search-form">
-    <div class="toolbar-row">
-      <app-date-time-picker class="field" label="Start Date" formControlName="startDate" [withTimeOnPick]="true"></app-date-time-picker>
-
-      <app-date-time-picker class="field" label="End Date" formControlName="endDate" [withTimeOnPick]="true"></app-date-time-picker>
-
-      <mat-form-field appearance="fill" class="field">
-        <mat-label>Match Account</mat-label>
-        <input matInput formControlName="matchAccount" />
-      </mat-form-field>
-
-      <mat-form-field appearance="fill" class="field narrow">
-        <mat-label>Limit</mat-label>
-        <input matInput type="number" formControlName="limit" min="1" />
-      </mat-form-field>
-
-      <mat-form-field appearance="fill" class="field narrow">
-        <mat-label>Offset</mat-label>
-        <input matInput type="number" formControlName="offset" min="0" />
-      </mat-form-field>
-
-      <div class="toggle-wrap">
-        <span class="toggle-label">Matching:</span>
-        <mat-button-toggle-group formControlName="matchingStatus" class="toggle-group">
-          <mat-button-toggle value="NoMatched">No matched yet</mat-button-toggle>
-          <mat-button-toggle value="Matched">Matched</mat-button-toggle>
-        </mat-button-toggle-group>
-      </div>
-
-      <mat-form-field
-        *ngIf="form.get('matchingStatus')?.value === 'NoMatched'"
-        appearance="fill"
-        class="field tag"
-      >
-        <mat-label>Match Tag</mat-label>
-        <input matInput formControlName="matchTag" placeholder="ex: TAG_ABC_2025_001" />
-      </mat-form-field>
-
-      <button
-        mat-raised-button
-        color="primary"
-        type="submit"
-        class="btn"
-        [disabled]="form.invalid || disabled"
-      >
-        Search
-      </button>
-    </div>
-  </form>
-</mat-card>
-css
-Copier le code
-.search-card { padding: 12px; }
-
-/* Une seule ligne, scroll horizontal si ça déborde */
-.toolbar-row {
-  display: flex;
-  flex-wrap: nowrap;            /* pas de retour à la ligne */
-  align-items: flex-end;         /* aligne le bas des champs */
-  gap: 12px;
-  overflow-x: auto;              /* permet de scroller si trop d'éléments */
-  padding-bottom: 4px;
-}
-
-/* Largeurs cohérentes */
-.field { width: 280px; }
-.field.narrow { width: 120px; }
-.field.tag { width: 260px; }
-
-/* Toggle horizontal propre */
-.toggle-wrap { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
-.toggle-label { font-size: 12px; color: rgba(0,0,0,0.6); }
-.toggle-group ::ng-deep .mat-button-toggle-label-content { padding: 0 12px; }
-
-/* Bouton un peu plus haut pour s’aligner */
-.btn { height: 40px; }
-
-
-
-----------------------------------------------------------------
-
 smart-multi-autocomplete-string.component.ts
 import { Component, forwardRef, Input, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -108,11 +26,11 @@ import { MatIconModule } from '@angular/material/icon';
   <mat-form-field [appearance]="appearance" class="w-full smart-multi-af">
     <mat-label>{{ label }}</mat-label>
 
-    <!-- Affichage CONDENSÉ dans le champ -->
-    <span matPrefix class="smart-prefix">
-      @if (selected().length === 1) {
+    <!-- Overlay "trigger condensé" (façon mat-select-trigger) -->
+    <span class="smart-overlay" aria-hidden="true">
+      @if (!query() && selected().length === 1) {
         {{ selected()[0] }}
-      } @else if (selected().length > 1) {
+      } @else if (!query() && selected().length > 1) {
         {{ selected()[0] }} (+{{ selected().length - 1 }} autres)
       }
     </span>
@@ -123,9 +41,9 @@ import { MatIconModule } from '@angular/material/icon';
       [matAutocomplete]="auto"
       [disabled]="disabled"
       #trigger="matAutocompleteTrigger"
-      (focus)="openAll(trigger)"                     <!-- ouvre + reset filtre -->
-      (input)="onInput($any($event.target).value)"   <!-- pas de cast TS -->
-      (keydown)="handleKeydown($event)"              <!-- Backspace géré en TS -->
+      (focus)="openAll(trigger)"
+      (input)="onInput($any($event.target).value)"
+      (keydown)="handleKeydown($event)"
       (blur)="onBlur()"
       [value]="query()" />
 
@@ -178,28 +96,39 @@ import { MatIconModule } from '@angular/material/icon';
   </mat-form-field>
   `,
   styles: [`
-    /* Le champ reste à l'intérieur de sa colonne */
+    /* Le champ reste strictement dans sa colonne */
     .smart-multi-af { display: block; width: 100%; }
 
-    /* Conteneurs MDC: largeur fixe + contraction permise */
-    :host ::ng-deep .smart-multi-af .mat-mdc-text-field-wrapper,
-    :host ::ng-deep .smart-multi-af .mat-mdc-form-field-flex { width: 100%; min-width: 0; }
+    /* On positionne l'overlay dans l'infix pour ne rien pousser */
     :host ::ng-deep .smart-multi-af .mat-mdc-form-field-infix {
-      width: 100%; min-width: 0; display: flex; align-items: center; gap: .25rem;
+      position: relative;
+      width: 100%;
+      min-width: 0;
     }
 
-    /* Préfixe (condensé) : n'élargit pas le champ, ellipsis si long */
-    :host ::ng-deep .smart-multi-af .mat-mdc-form-field-prefix {
-      flex: 0 1 70%; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    /* Overlay "trigger condensé" : non interactive, ellipse, centrée verticalement */
+    .smart-overlay {
+      position: absolute;
+      inset-inline: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      pointer-events: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      color: rgba(0,0,0,.6);
+      font: inherit;
     }
-    /* Au focus: autoriser un scroll horizontal pour tout lire si besoin */
-    :host ::ng-deep .smart-multi-af:focus-within .mat-mdc-form-field-prefix {
-      overflow: auto; text-overflow: clip;
+
+    /* L'input prend 100% et peut se contracter */
+    :host ::ng-deep .smart-multi-af .mat-mdc-input-element {
+      width: 100%;
+      min-width: 0;
     }
 
     .smart-muted { font-size: .75rem; color: #6b7280; }
     .mr-2 { margin-right: .5rem; } .ml-2 { margin-left: .5rem; }
-    .check-green { color: #2e7d32; } /* Material Green 700 */
+    .check-green { color: #2e7d32; }
   `]
 })
 export class SmartMultiAutocompleteStringComponent implements ControlValueAccessor {
@@ -218,7 +147,7 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
 
   disabled = false;
 
-  /* État interne */
+  /* État */
   private readonly _selected = signal<string[]>([]);
   selected = this._selected.asReadonly();
 
@@ -227,14 +156,14 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
 
   private readonly recents = signal<string[]>(this.loadRecents());
 
-  /* Sections panneau (Sélectionnées, Récents, Valeurs) */
+  /* Sections (Sélectionnées, Récents, Valeurs) */
   sections = computed(() => {
     const q = this._query().toLowerCase().trim();
     const base = this.options ?? [];
     const filtered = q ? base.filter(v => v.toLowerCase().includes(q)) : base;
 
     const selSet = new Set(this.selected());
-    const values = filtered.filter(v => !selSet.has(v)); // exclut la sélection
+    const values = filtered.filter(v => !selSet.has(v));
 
     let recents: string[] = [];
     if (this.recentsEnabled && this.recents().length) {
@@ -253,7 +182,7 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
   });
 
   constructor() {
-    /* Nettoyage si des valeurs hors liste sont injectées */
+    /* Nettoie toute valeur hors liste si injectée */
     effect(() => {
       const sel = this._selected();
       const clean = sel.filter(v => this.options.includes(v));
@@ -283,13 +212,12 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
 
   /* ---- Handlers ---- */
   openAll(trigger: MatAutocompleteTrigger) {
-    this._query.set('');      // reset filtre
-    trigger.openPanel();      // montre toute la liste
+    this._query.set('');           // reset filtre
+    trigger.openPanel();           // liste complète visible
   }
 
   onInput(v: string) { this._query.set(v); }
 
-  // Angular 20 : Event générique, on filtre Backspace ici
   handleKeydown(e: Event) {
     const ev = e as KeyboardEvent;
     if (ev.key === 'Backspace' && !this._query() && this.selected().length && !this.disabled) {
@@ -324,7 +252,6 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
 
   onBlur() { this.onTouched(); }
 
-  /* Helpers */
   isSelected = (v: string) => this.selected().includes(v);
   private emit(arr: string[]) { this.onChange(arr.length ? arr : null); }
 
@@ -345,8 +272,7 @@ export class SmartMultiAutocompleteStringComponent implements ControlValueAccess
   }
 }
 
-Exemple d’utilisation (parent)
-// parent.ts
+Utilisation (parent)
 form = new FormGroup({
   accounts: new FormControl<string[] | null>(null)
 });
@@ -362,3 +288,6 @@ options = ['MFI81559500000EUR9','MFI81559500000CAD4','MFI81559500000GBP8','O2050
     [recentsMode]="'always'">
   </app-smart-multi-autocomplete-string>
 </form>
+
+
+Cette fusion te donne le rendu “Sausage (+1 other)” directement dans ton autocomplete existant, sans matPrefix (donc plus de chevauchement), tout en gardant récents et filtre.
