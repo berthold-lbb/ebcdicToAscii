@@ -476,3 +476,24 @@ Pour ouvrir/fermer un groupe, j’utilise Set<string> (_groupOpen) avec la clé 
     <!-- ton champ de recherche -->
   </div>
 </div>
+
+
+colLabel = (key: string) =>
+  this._columns.find(c => c.nom === key)?.label ?? key;
+
+
+dt-grouping { display: flex; align-items: center; gap: 10px; }
+.dt-group-target {
+  min-width: 260px; min-height: 38px; padding: 6px 8px;
+  border: 1px dashed #bdbdbd; border-radius: 8px; background: #fff;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+}
+.dt-group-placeholder { color: #888; font-size: .9rem; }
+.dt-group-source { display: flex; gap: 6px; flex-wrap: wrap; }
+.dt-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 8px; border-radius: 16px; background: #e8f0fe; color: #1a73e8;
+  cursor: grab;
+  &.ghost { background: #f3f6fc; color: #5f6368; }
+  button { width: 24px; height: 24px; }
+}
