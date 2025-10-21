@@ -423,3 +423,56 @@ En mode serveur, tu continues d’émettre pageChange comme avant.
 Les rowDefs “when” coexistent maintenant pour 3 types: group, detail, data.
 
 Pour ouvrir/fermer un groupe, j’utilise Set<string> (_groupOpen) avec la clé hiérarchique construite depuis le chemin du groupe. Le petit bouton de l’en-tête appelle toggleGroup(key).
+
+
+-----------
+<div class="dt-toolbar">
+  <!-- ============ GAUCHE : Grouping panel ============ -->
+  <div class="dt-toolbar-left">
+    @if (enableGrouping) {
+      <div class="dt-grouping">
+        <!-- Zone « cible » : on dépose ici les colonnes groupées -->
+        <div class="dt-group-target"
+             cdkDropList
+             [cdkDropListData]="groupedBy"
+             (cdkDropListDropped)="onDropGrouping($event)"
+             aria-label="Zone de groupement">
+
+          @if (groupedBy.length > 0) {
+            @for (f of groupedBy; track f; let i = $index) {
+              <div class="dt-chip" cdkDrag [cdkDragData]="f">
+                <span class="dt-chip-label">{{ colLabel(f) }}</span>
+                <button mat-icon-button class="dt-chip-remove"
+                        (click)="removeGroupAt(i)" matTooltip="Retirer">
+                  <mat-icon>close</mat-icon>
+                </button>
+              </div>
+            }
+          } @else {
+            <span class="dt-group-placeholder">
+              Glissez une colonne ici pour regrouper
+            </span>
+          }
+        </div>
+
+        <!-- Source : liste des colonnes encore disponibles pour le groupement -->
+        <div class="dt-group-source">
+          @for (col of groupableColumns; track col.nom) {
+            <div class="dt-chip ghost"
+                 cdkDrag
+                 [cdkDragData]="col.nom"
+                 (click)="addGroup(col.nom)">
+              {{ col.label }}
+            </div>
+          }
+        </div>
+      </div>
+    }
+  </div>
+
+  <!-- ============ DROITE : tes icônes + search existants ============ -->
+  <div class="dt-toolbar-right">
+    <!-- tes boutons/icônes -->
+    <!-- ton champ de recherche -->
+  </div>
+</div>
