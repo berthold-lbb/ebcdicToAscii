@@ -1,234 +1,438 @@
-1) Types “sentinelles”
+🚮 À SUPPRIMER (si présent dans ta classe)
+
+Anciennes interfaces & helpers de groupage :
+GroupHeaderRow<T> (ancienne version avec rows?, count?, collapsed?),
+groupRows(...), onDropGrouping(...), onDropGroupingReorder(...),
+moveItemInArray(...), addGroup(...), removeGroupAt(...),
+toggleGroup(...) (ancienne), isGroupHeaderRow(...).
+
+L’ancienne implémentation de rowsForRender() qui mélangeait group/détail/pagination.
+
+Garde tout le reste (tri, sélection, détail de ligne, pagination, etc.).
+
+✅ data-table.component.ts (bloc grouping complet)
+
+Ajoute les imports/animations et ce bloc dans ta classe.
+Rien d’autre de ta table n’a besoin de bouger.
+
+// ===== imports à AJOUTER tout en haut =====
+import { CdkDragDrop, DragDropModule } from '@angular/cdk/drag-drop';
+import { animate, state, style, transition, trigger } from '@angular/animations';
+
+// ===== types =====
 type IdType = string | number;
 
-export interface DetailRow<T> {
+interface DetailRow<T> {
   __detail: true;
   forId: IdType;
-  host: T;                // la vraie ligne parente
+  host: T;
 }
 
-export interface GroupHeaderRow<T> {
+interface GroupHeaderRow {
   __group: true;
-  level: number;          // 0, 1, 2… si groupBy a plusieurs champs
-  field: string;          // nom de la colonne/group-by
-  value: unknown;         // valeur du groupe
-  rows?: T[];             // optionnel (client-side)  -> rowcount = rows.length
-  count?: number;         // optionnel (server-side)  -> rowcount = count
-  collapsed?: boolean;
+  key: string;                         // clé unique (inclut le level)
+  level: number;                       // 0,1,2,… selon l’index dans groupBy
+  values: Record<string, unknown>;     // { field0: value0, field1: value1, …(jusqu'au level) }
+  count: number;                       // nombre de lignes (feuilles) dans CE sous-groupe
 }
 
+@Component({
+  // ...
+  imports: [
+    // … tes imports actuels …
+    DragDropModule
+  ],
+  animations: [
+    trigger('groupToggle', [
+      state('collapsed', style({ height: '0px', opacity: 0, overflow: 'hidden' })),
+      state('expanded',  style({ height: '*',   opacity: 1 })),
+      transition('collapsed <=> expanded', animate('180ms ease'))
+    ])
+  ],
+  changeDetection: ChangeDetectionStrategy.OnPush
+})
+export class DataTableComponent<T extends Record<string, any>> /* … */ {
 
-Si tu fais le grouping client-side, tu peux n’utiliser que rows. Si tu veux rester flexible (client/serveur), garde rows? + count? et affiche rows?.length ?? count ?? 0.
+  // … tes membres existants (dataSource, paginator, sort, selection, etc.) …
 
-2) Prédicats MatTable (type guards)
-// Est-ce une ligne de détail ?
-isDetailRow = (_: number, row: unknown): row is DetailRow<T> =>
-  !!row && typeof row === 'object' && (row as any).__detail === true;
+  // ──────────────────────────────────────────────────────────
+  // 1) API grouping
+  @Input() enableGrouping = false;
+  /** colonnes à grouper, dans l'ordre (ex: ['state', 'phone']) */
+  @Input() groupBy: string[] = [];
+  @Input() groupHint = 'Drag a column header here to group by that column';
 
-// Est-ce un en-tête de groupe ?
-isGroupHeaderRow = (_: number, row: unknown): row is GroupHeaderRow<T> =>
-  !!row && typeof row === 'object' && (row as any).__group === true;
+  private collapsedGroups = new Set<string>();      // stocke les clés pliées
 
-// Donnée “normale” (ni détail ni group header)
-isDataRow = (i: number, row: unknown): row is T =>
-  !this.isDetailRow(i, row) && !this.isGroupHeaderRow(i, row);
+  // helper : colonne déjà groupée ?
+  isColumnGrouped = (name: string) => this.groupBy.includes(name);
 
-3) Helpers de base
-/** Données après filtre/tri (sans pagination, sans grouping, sans détail) */
-private _baseRows(): T[] {
-  return this.dataSource.filteredData?.length
-    ? this.dataSource.filteredData as T[]
-    : (this.dataSource.data ?? []);
-}
+  // DnD : dépôt depuis l’entête vers le panneau de groupage
+  dropOnGroupPanel(ev: CdkDragDrop<string[]>): void {
+    const col = ev.item?.data as string;
+    if (!col || this.isColumnGrouped(col)) return;
+    this.groupBy = [...this.groupBy, col];
+    this.collapsedGroups.clear();
+  }
 
-/** Couper un tableau selon le paginator (client-side) */
-private _pageSlice<R>(arr: R[]): R[] {
-  if (!this.paginator || this.serverSide) return arr;
-  const start = this.paginator.pageIndex * this.paginator.pageSize;
-  return arr.slice(start, start + this.paginator.pageSize);
-}
-
-/** Taille d’un groupe pour le template (rows?.length ou count) */
-getGroupSize = (g: GroupHeaderRow<T>) => g.rows?.length ?? g.count ?? 0;
-
-4) Grouping simple (client-side)
-
-Ici je pars d’un groupBy: string[] (ex: ['state', 'city']).
-On insère un GroupHeaderRow à chaque changement de clé.
-
-@Input() enableGrouping = false;
-@Input() groupBy: string[] = [];  // ex. ['state'] ou ['state','city']
-
-/** Regroupe base[] en intercalant des GroupHeaderRow<T> */
-private _groupRows(base: T[]): Array<T | GroupHeaderRow<T>> {
-  if (!this.enableGrouping || !this.groupBy?.length) return base;
-
-  // ordonner par les champs groupBy pour avoir des blocs cohérents
-  const sorted = [...base].sort((a, b) => {
-    for (const f of this.groupBy) {
-      const av = (a as any)[f]; const bv = (b as any)[f];
-      if (av < bv) return -1;
-      if (av > bv) return  1;
+  // retirer une colonne du groupBy
+  ungroup(name: string): void {
+    const i = this.groupBy.indexOf(name);
+    if (i !== -1) {
+      const copy = [...this.groupBy];
+      copy.splice(i, 1);
+      this.groupBy = copy;
+      this.collapsedGroups.clear();
     }
-    return 0;
-  });
+  }
 
-  const out: Array<T | GroupHeaderRow<T>> = [];
-  let prevKey = '';
-  let currentRows: T[] = [];
-  let currentLevelValues: any[] = [];
+  // chevron
+  toggleGroup(key: string): void {
+    if (this.collapsedGroups.has(key)) this.collapsedGroups.delete(key);
+    else this.collapsedGroups.add(key);
+  }
 
-  const makeKey = (r: T) => this.groupBy.map(f => String((r as any)[f])).join('␟');
+  // ──────────────────────────────────────────────────────────
+  // 2) construction des groupes multi‐niveaux + comptage
 
-  for (const r of sorted) {
-    const key = makeKey(r);
-    if (key !== prevKey) {
-      // on clôt le groupe précédent (si on veut pousser currentRows dans le header)
-      currentRows = [];
-      currentLevelValues = [];
+  /** sépareteur rare + préfixe de level pour des clés uniques */
+  private makePrefixKey(vals: unknown[], level: number): string {
+    // exemple: "L0|Arkansas"  "L1|Arkansas␟(800) 555-2797"
+    const SEP = '␟';
+    const v = vals.slice(0, level + 1).map(x => String(x)).join(SEP);
+    return `L${level}|${v}`;
+  }
 
-      // créer les headers pour chaque niveau
+  /** trie client par les colonnes du groupBy, pour avoir des blocs contigus (si nécessaire) */
+  private sortByGroupFields(base: T[]): T[] {
+    if (!this.enableGrouping || this.groupBy.length === 0) return base;
+    const fields = [...this.groupBy];
+    // tri stable simple
+    return [...base].sort((a, b) => {
+      for (const f of fields) {
+        const av = a?.[f], bv = b?.[f];
+        if (av == null && bv == null) continue;
+        if (av == null) return -1;
+        if (bv == null) return 1;
+        if (av < bv) return -1;
+        if (av > bv) return 1;
+      }
+      return 0;
+    });
+  }
+
+  /** première passe : comptage des feuilles pour chaque préfixe (chaque level) */
+  private buildCountMap(sorted: T[]): Map<string, number> {
+    const counts = new Map<string, number>();
+    if (!this.enableGrouping || this.groupBy.length === 0) return counts;
+    for (const r of sorted) {
+      const vals = this.groupBy.map(f => r?.[f]);
       for (let lvl = 0; lvl < this.groupBy.length; lvl++) {
-        const field = this.groupBy[lvl];
-        const value = (r as any)[field];
-        // si la valeur de ce niveau a changé, on insère un header
-        if (currentLevelValues[lvl] !== value) {
-          currentLevelValues[lvl] = value;
-          out.push({
+        const key = this.makePrefixKey(vals, lvl);
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+      }
+    }
+    return counts;
+  }
+
+  /**
+   * seconde passe : émettre les en-têtes de groupe imbriqués
+   * + les lignes, en insérant un header à chaque changement de valeur au niveau considéré
+   */
+  private buildGroupedSequence(sorted: T[], counts: Map<string, number>): Array<T | GroupHeaderRow> {
+    if (!this.enableGrouping || this.groupBy.length === 0) return sorted;
+    const out: Array<T | GroupHeaderRow> = [];
+    const prev: unknown[] = new Array(this.groupBy.length).fill(Symbol('init'));
+
+    for (const row of sorted) {
+      const vals = this.groupBy.map(f => row?.[f]);
+
+      // détecte à partir de quel niveau la valeur change
+      let changedAt = -1;
+      for (let lvl = 0; lvl < vals.length; lvl++) {
+        if (vals[lvl] !== prev[lvl]) { changedAt = lvl; break; }
+      }
+      // si le premier niveau a changé (ou rien n’a encore été émis), on émet les headers
+      if (changedAt !== -1) {
+        for (let lvl = changedAt; lvl < this.groupBy.length; lvl++) {
+          const key = this.makePrefixKey(vals, lvl);
+          const header: GroupHeaderRow = {
             __group: true,
+            key,
             level: lvl,
-            field,
-            value,
-            rows: currentRows,  // on référencera les éléments suivants
-          } as GroupHeaderRow<T>);
+            values: Object.fromEntries(
+              this.groupBy.slice(0, lvl + 1).map((f, i) => [f, vals[i]])
+            ),
+            count: counts.get(key) ?? 0
+          };
+          out.push(header);
+        }
+        // met à jour les "prev"
+        for (let lvl = 0; lvl < vals.length; lvl++) prev[lvl] = vals[lvl];
+      }
+
+      out.push(row);
+    }
+
+    return out;
+  }
+
+  /** masque les blocs situés sous un header plié (parent compris) */
+  private applyCollapse(seq: Array<T | GroupHeaderRow | DetailRow<T>>): Array<T | GroupHeaderRow | DetailRow<T>> {
+    if (this.collapsedGroups.size === 0) return seq;
+
+    const out: Array<T | GroupHeaderRow | DetailRow<T>> = [];
+    // niveau actuellement masqué (si un parent est collapsed). null = rien masqué
+    let hideLevel: number | null = null;
+
+    for (const item of seq) {
+      const isHeader = !!(item as any).__group;
+      if (isHeader) {
+        const h = item as GroupHeaderRow;
+
+        // si on arrive à un header de niveau supérieur ou égal à hideLevel -> on peut réévaluer
+        if (hideLevel !== null && h.level <= hideLevel) hideLevel = null;
+
+        const collapsed = this.collapsedGroups.has(h.key);
+
+        // si un parent est masqué (hideLevel !== null) et que ce header est plus profond -> on le masque aussi
+        if (hideLevel !== null && h.level > hideLevel) {
+          // ne rien pousser (tout le sous-arbre reste caché)
+          continue;
+        }
+
+        out.push(item);
+        if (collapsed) hideLevel = h.level; // à partir d’ici on cache tout ce qui est plus profond
+        continue;
+      }
+
+      // item = data row / detail row
+      if (hideLevel !== null) continue; // sous un parent plié -> on masque
+      out.push(item);
+    }
+
+    return out;
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // 3) predicates MatTable
+  isGroupHeader = (_: number, row: any): row is GroupHeaderRow =>
+    !!row && typeof row === 'object' && (row as any).__group === true;
+
+  isDetailRow = (_: number, row: any) =>
+    !!row && typeof row === 'object' && (row as any).__detail === true;
+
+  // ──────────────────────────────────────────────────────────
+  // 4) pagination générique (après grouping + détail)
+  private pageSlice<R>(rows: R[]): R[] {
+    if (!this.paginator || this.serverSide) return rows;
+    const start = this.paginator.pageIndex * this.paginator.pageSize;
+    return rows.slice(start, start + this.paginator.pageSize);
+  }
+
+  // ──────────────────────────────────────────────────────────
+  // 5) séquence finale de rendu (REMPLACE ton ancien getter)
+  get rowsForRender(): Array<T | GroupHeaderRow | DetailRow<T>> {
+    // base (filtrée si besoin)
+    const base = this.dataSource.filteredData?.length
+      ? (this.dataSource.filteredData as T[])
+      : (this.dataSource.data ?? []);
+
+    // tri par colonnes de groupBy pour que les blocs soient contigus
+    const sorted = this.sortByGroupFields(base);
+
+    // multi-group + headers + count
+    const grouped = this.buildGroupedSequence(sorted, this.buildCountMap(sorted));
+
+    // insérer la ligne de détail juste après l’hôte
+    const withDetail: Array<T | GroupHeaderRow | DetailRow<T>> = [];
+    for (const it of grouped) {
+      withDetail.push(it as any);
+      if (!this.expandedId) continue;
+      if (!this.isGroupHeader(0, it) && !this.isDetailRow(0, it)) {
+        const id = this._rowId(it as T);
+        if (id === this.expandedId) {
+          withDetail.push({ __detail: true, forId: id, host: it as T });
         }
       }
-      prevKey = key;
     }
-    currentRows.push(r);
-    out.push(r);
+
+    // appliquer collapse
+    const collapsed = this.applyCollapse(withDetail);
+
+    // pagination
+    return this.pageSlice(collapsed);
   }
 
-  return out;
+  // … garde tes autres méthodes (_rowId, onRowDblClick, sélection, etc.) …
 }
 
+🧱 data-table.component.html (zones à ajouter)
 
-Cette version est légère et autonome (pas de lib externe).
-Si tu veux drag-&-drop des champs de grouping plus tard, on branchera CdkDragDrop sur groupBy.
+Panneau de groupage à gauche dans la toolbar.
 
-5) Insertion de la ligne de détail après grouping
+Entête draggable (drag des th vers le panneau).
 
-Insérer la ligne de détail juste après sa ligne hôte (et uniquement si elle est visible dans le tableau groupé courant).
+Ligne header de groupe avec indentation, libellé “Field: Value (count)”, chevron.
 
-6) Pagination après grouping & détail
+Les colonnes groupées sont masquées de l’entête et des cellules.
 
-Pour ne pas “casser” les entêtes de groupe, on pagine à la fin.
+<div class="dt-root">
 
-7) Version finale de rowsForRender
-/** Tableau rendu = base filtrée/triée -> groupée -> + éventuelle ligne de détail -> paginée */
-get rowsForRender(): Array<T | GroupHeaderRow<T> | DetailRow<T>> {
-  // 1) base après filtre/tri :
-  const base = this._baseRows();
+  <!-- TOOLBAR -->
+  <div class="dt-toolbar">
+    <!-- GAUCHE : panneau de groupage -->
+    <div class="dt-toolbar-left" *ngIf="enableGrouping">
+      <div class="group-panel"
+           cdkDropList cdkDropListOrientation="horizontal"
+           (cdkDropListDropped)="dropOnGroupPanel($event)">
+        <span class="group-hint" *ngIf="groupBy.length === 0">{{ groupHint }}</span>
 
-  // 2) regrouper (ou pas) :
-  const grouped = this._groupRows(base); // Array<T | GroupHeaderRow<T>>
+        <ng-container *ngFor="let g of groupBy">
+          <span class="group-chip" cdkDrag [cdkDragData]="g" cdkDragPreviewClass="drag-chip">
+            {{ (visibleColumnDefs.find(c => c.nom===g) || _columns.find(c => c.nom===g))?.label || g }}
+            <button mat-icon-button type="button" (click)="ungroup(g)" title="Remove">
+              <mat-icon>close</mat-icon>
+            </button>
+          </span>
+        </ng-container>
+      </div>
+    </div>
 
-  // 3) insérer l’éventuelle ligne de détail
-  if (this.expandedId == null) {
-    // pas de détail -> on pagine directement
-    return this._pageSlice(grouped);
-  }
+    <!-- DROITE : tes icônes / search / actions -->
+    <div class="dt-toolbar-right">
+      <ng-content select="[toolbar-actions]"></ng-content>
+    </div>
+  </div>
 
-  const withDetail: Array<T | GroupHeaderRow<T> | DetailRow<T>> = [];
-  for (const item of grouped) {
-    if (!this.isGroupHeaderRow(0, item) && !this.isDetailRow(0, item)) {
-      // data row
-      withDetail.push(item);
-      if (this._rowId(item) === this.expandedId) {
-        withDetail.push({ __detail: true, forId: this.expandedId, host: item } as DetailRow<T>);
-      }
-    } else {
-      // header de groupe (ou détail si jamais présent) -> pousser tel quel
-      withDetail.push(item as any);
-    }
-  }
+  <!-- TABLE SCROLLABLE -->
+  <div class="dt-center dt-scroll">
+    <table mat-table [dataSource]="rowsForRender" class="dt-table" multiTemplateDataRows>
 
-  // 4) pagination *après* grouping + détail
-  return this._pageSlice(withDetail);
-}
+      <!-- Colonnes dynamiques : EN-TÊTES DRAGGABLES + masquer si groupées -->
+      <ng-container *ngFor="let col of visibleColumnDefs" [matColumnDef]="col.nom">
+        <th mat-header-cell *matHeaderCellDef
+            cdkDrag [cdkDragData]="col.nom" cdkDragPreviewClass="drag-header"
+            *ngIf="!isColumnGrouped(col.nom)">
+          {{ col.label }}
+        </th>
 
+        <!-- TA cellule par défaut (tu peux garder ton switch TableDataType) -->
+        <td mat-cell *matCellDef="let row"
+            *ngIf="!isColumnGrouped(col.nom) && !(row as any).__detail && !(row as any).__group">
+          {{ row[col.nom] }}
+        </td>
+      </ng-container>
 
-Différence vs ta version sans group (écran 1) :
-– tu paginais avant d’insérer le détail ;
-– ici, pour le grouping, on pagine après avoir injecté les GroupHeaders et la DetailRow, ce qui évite d’avoir un header sans ses lignes ou l’inverse.
+      <!-- LIGNE: header de groupe -->
+      <ng-container matColumnDef="__group">
+        <th mat-header-cell *matHeaderCellDef class="invisible"></th>
+        <td mat-cell *matCellDef="let row" [attr.colspan]="displayedColumns.length" *ngIf="(row as any).__group">
+          <div class="group-header-row" [style.padding-left.px]="16 + (row as any).level * 20">
+            <button class="chev" type="button" (click)="toggleGroup((row as any).key)">
+              <mat-icon>
+                {{ collapsedGroups.has((row as any).key) ? 'chevron_right' : 'expand_more' }}
+              </mat-icon>
+            </button>
+            <strong>
+              <!-- affiche "Field: Value" du niveau courant -->
+              <!-- le champ concerné est groupBy[row.level] -->
+              {{ (visibleColumnDefs.find(x => x.nom===groupBy[(row as any).level]) || _columns.find(x => x.nom===groupBy[(row as any).level]))?.label
+                 || groupBy[(row as any).level] }}:
+              {{ (row as any).values[groupBy[(row as any).level]] }}
+              ({{ (row as any).count }})
+            </strong>
+          </div>
+        </td>
+      </ng-container>
 
-8) HTML MatTable (3 rowDefs)
+      <!-- LIGNE: détail -->
+      <ng-container matColumnDef="__detail">
+        <th mat-header-cell *matHeaderCellDef class="invisible"></th>
+        <td mat-cell *matCellDef="let row" [attr.colspan]="displayedColumns.length" *ngIf="(row as any).__detail">
+          <div class="detail-card" [@groupToggle]="'expanded'">
+            <ng-container *ngIf="rowDetailTemplate; else jsonFallback"
+              [ngTemplateOutlet]="rowDetailTemplate"
+              [ngTemplateOutletContext]="{$implicit: (row as any).host, row: (row as any).host}">
+            </ng-container>
+            <ng-template #jsonFallback>
+              <pre>{{ (row as any).host | json }}</pre>
+            </ng-template>
+          </div>
+        </td>
+      </ng-container>
 
-RowDef données : matRowDef avec displayedColumns.
+      <!-- ROW DEFS -->
+      <tr mat-header-row
+          *matHeaderRowDef="displayedColumns.filter(c => !isColumnGrouped(c)); sticky: stickyHeader"></tr>
 
-RowDef “group header” : 1 case qui s’étale sur toutes les colonnes.
+      <tr mat-row *matRowDef="let row; columns: ['__group']; when: isGroupHeader"></tr>
+      <tr mat-row *matRowDef="let row; columns: ['__detail']; when: isDetailRow"></tr>
 
-RowDef “detail” : 1 case étendue, avec le template projeté.
+      <tr mat-row
+          *matRowDef="let row; columns: displayedColumns.filter(c => !isColumnGrouped(c))"
+          (dblclick)="onRowDblClick(row)">
+      </tr>
+    </table>
+  </div>
 
-<table mat-table [dataSource]="rowsForRender" class="dt-table" matSort>
+  <!-- PAGINATEUR -->
+  <mat-paginator class="dt-paginator"
+                 [length]="serverSide ? total : autoLength"
+                 [pageSize]="pageSize"
+                 [pageSizeOptions]="pageSizeOptions"
+                 [showFirstLastButtons]="true">
+  </mat-paginator>
+</div>
 
-  <!-- Colonnes “normales” -->
-  <ng-container *ngFor="let col of visibleColumnDefs" [matColumnDef]="col.nom">
-    <th mat-header-cell *matHeaderCellDef>{{ col.label }}</th>
-    <td mat-cell *matCellDef="let row" [class.clickable]="col.clickable"
-        (click)="col.clickable && onCellClick($event, row, col)">
-      <!-- protège la ligne de détail et le group header -->
-      @if (isDataRow(0, row)) {
-        <!-- ton switch CASE actuel (STRING, NUMBER, AMOUNT, DATE, etc.) -->
-        {{ row[col.nom] }}
-      }
-    </td>
-  </ng-container>
+🎨 data-table.component.scss (ajouts utiles)
+.dt-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 10px; border-bottom:1px solid #e0e0e0; background:#fafafa; }
+.dt-toolbar-left { display:flex; align-items:center; min-width:320px; }
+.group-panel { min-height:36px; display:flex; gap:8px; align-items:center; padding:4px 8px; border:1px dashed #c7c7c7; border-radius:8px; background:#fff; }
+.group-hint { color:#888; font-style:italic; }
+.group-chip { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:16px; background:#eaeaea; cursor:grab; }
+.drag-header, .drag-chip { padding:6px 10px; border-radius:16px; background:#eaeaea; box-shadow:0 4px 12px rgba(0,0,0,.15); }
+.invisible { visibility:hidden; height:0; padding:0; margin:0; border:0; }
 
-  <!-- Colonne technique “detail” (non listée dans displayedColumns) -->
-  <ng-container matColumnDef="detail">
-    <td mat-cell class="detail-cell" [attr.colspan]="displayedColumns.length">
-      @if (isDetailRow(0, row)) {
-        <div class="detail-wrapper" [@detailToggle]>
-          @if (rowDetailTemplate) {
-            <ng-container *ngTemplateOutlet="rowDetailTemplate; context: {$implicit: row.host, row: row.host}"></ng-container>
-          } @else {
-            <div class="detail-fallback">
-              <strong>Détails :</strong> {{ row.host | json }}
-            </div>
-          }
-        </div>
-      }
-    </td>
-  </ng-container>
+.group-header-row { display:flex; align-items:center; gap:8px; padding:6px 0; }
+.group-header-row .chev { border:none; background:transparent; cursor:pointer; display:flex; align-items:center; }
 
-  <!-- Colonne technique “groupHeader” (non listée non plus) -->
-  <ng-container matColumnDef="groupHeader">
-    <td mat-cell class="group-cell" [attr.colspan]="displayedColumns.length">
-      @if (isGroupHeaderRow(0, row)) {
-        <div class="group-header" [style.padding-left.px]="8 + row.level * 12">
-          <span class="badge">Lvl {{ row.level }}</span>
-          <strong>{{ row.field }}:</strong> {{ row.value }}
-          <span class="muted">({{ getGroupSize(row) }})</span>
-        </div>
-      }
-    </td>
-  </ng-container>
+.dt-center.dt-scroll { overflow:auto; position:relative; }
+.dt-table { width:100%; }
+.dt-paginator { border-top:1px solid #e0e0e0; background:#fff; }
 
-  <!-- Row defs -->
-  <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+🧪 Exemple d’utilisation
+<lib-data-table
+  [data]="rows"
+  [columns]="columns"
+  [rowIdKey]="'id'"
+  [enableRowDetail]="true"
+  [rowDetailTemplate]="detailTpl"
 
-  <!-- Données -->
-  <tr mat-row *matRowDef="let row; columns: displayedColumns;" [matRowDefWhen]="isDataRow"
-      (dblclick)="onRowDblClick(row)"></tr>
+  [enableGrouping]="true"
+  [groupBy]="['state','phone']"
+  [groupHint]="'Drag a column header here to group by that column'">
 
-  <!-- Group header -->
-  <tr mat-row *matRowDef="let row; columns: ['groupHeader'];" [matRowDefWhen]="isGroupHeaderRow"></tr>
+  <!-- à droite de la barre (icônes/recherche) -->
+  <div toolbar-actions>
+    <!-- tes actions -->
+  </div>
+</lib-data-table>
 
-  <!-- Détail -->
-  <tr mat-row *matRowDef="let row; columns: ['detail'];" [matRowDefWhen]="isDetailRow"></tr>
-</table>
+<ng-template #detailTpl let-row>
+  <app-transaction-details [row]="row"></app-transaction-details>
+</ng-template>
 
+Points clés
 
-⚠️ displayedColumns ne doit pas contenir 'detail' ni 'groupHeader'.
-Ces deux colonnes techniques sont ciblées par leurs rowDef dédiées.
+Multi-grouping : groupBy=['col1','col2',...]. On émet des headers imbriqués (level 0, puis 1, …) à chaque changement.
+
+Compteurs : calculés via buildCountMap() et affichés (count) au niveau courant.
+
+Collapse : toggleGroup(key) sur un header cache toutes les lignes et les sous-headers jusqu’au prochain header de niveau ≤.
+
+Drag & Drop : on drag un <th> (en-tête) vers la group-panel. La colonne disparaît de l’en-tête et devient un “chip” dans la panel (comme DevExtreme).
+
+Tri pour cohérence : sortByGroupFields trie côté client par groupBy pour que les blocs soient contigus (si ton serveur ne le garantit pas).
+
+Compatibilité : aucun @if/@for — uniquement *ngIf/*ngFor. Toutes tes autres features restent intactes.
