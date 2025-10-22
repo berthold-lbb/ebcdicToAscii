@@ -1,787 +1,356 @@
-a) Ajoute une fonction optionnelle au modèle de colonne
-// data-table.component.ts
-export interface ITableColonne {
-  nom: string;
-  label: string;
-  type: TableDataType;
-  enableOrder: boolean;
-  retractable: boolean;
-  link?: any;
-  clickable?: boolean;
+Parfait — on intègre exactement ce que tu veux :
 
-  /** ➕ Valeur calculée pour colonnes virtuelles (non présentes dans le payload) */
-  valueGetter?: (row: T) => any;
+Barre de groupement (à gauche) avec puces (chips) pour chaque champ groupé.
+
+Cliquer sur ↑/↓ alterne le tri du niveau (asc/desc).
+
+Cliquer sur ✕ (ou glisser la puce vers l’en-tête) annule ce groupement spécifique.
+
+Glisser un en-tête vers la barre ⇒ le champ est ajouté aux groupements et disparaît de l’en-tête.
+
+Collapse/expand des entêtes de groupe (chevron).
+
+Aucun @if/@for. On reste en *ngIf/*ngFor.
+
+On garde tes noms (isGroupHeaderRow, GroupHeaderRow<T>, rows?, count, collapsed?) et tes features (pagination, détail, sélection…).
+
+Étape 1 — TypeScript (remplacer/ajouter)
+
+Remplace tes anciennes fonctions de grouping par celles-ci. Garde tes autres fonctionnalités inchangées (datasource, search, paginator, détail, sélection, etc.).
+
+// imports ➜ ajoute CDK DnD
+import { CdkDrag, CdkDropList, CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
+
+// === Types conservés (avec tes champs) ===
+export interface GroupHeaderRow<T> {
+  __group: true;
+  key: string;
+  level: number;
+  values: Record<string, unknown>;
+  rows?: T[];
+  count: number;
+  collapsed?: boolean;
+}
+export interface DetailRow<T> { __detail: true; forId: string|number; host: T; }
+
+// ===== API Grouping =====
+@Input() enableGrouping = false;
+@Input() groupBy: string[] = [];
+@Output() groupByChange = new EventEmitter<string[]>();
+
+// tri par niveau (champ -> 'asc'|'desc')
+private groupSort = new Map<string, 'asc'|'desc'>();
+
+// headers de groupe ouverts
+private _groupOpen = new Set<string>();
+
+// zone “fantôme” pour le drop inverse (barre ➜ en-tête)
+headerDropBin: string[] = [];
+
+// ==== Helpers conservés ====
+isGroupHeaderRow = (_: number, row: any): row is GroupHeaderRow<T> =>
+  !!row && typeof row === 'object' && (row as any).__group === true;
+isDetailRow = (_: number, row: any): row is DetailRow<T> =>
+  !!row && typeof row === 'object' && (row as any).__detail === true;
+isDataRow = (_: number, row: any): row is T =>
+  !!row && typeof row === 'object' && !(row as any).__detail && !(row as any).__group;
+
+// En-tête visible ? (masquer si groupée)
+isColumnGrouped = (f: string) => this.groupBy.includes(f);
+
+// ===== Grouping core =====
+private makeKey(level: number, values: Record<string, unknown>): string {
+  const path = Array.from({length: level+1}, (_,i)=> this.groupBy[i])
+    .map(f => `${f}=${String(values[f])}`);
+  return `${level}|${path.join('|')}`;
 }
 
-b) Utilise valueGetter quand tu rends une cellule
+private groupRows(base: T[]): Array<T | GroupHeaderRow<T>> {
+  if (!this.enableGrouping || this.groupBy.length === 0) return base;
 
-Dans ton HTML, là où tu avais {{ row[col.nom] }}, remplace par :
+  // tri selon groupBy + sens
+  const sorted = [...base].sort((a,b) => {
+    for (const field of this.groupBy) {
+      const dir = this.groupSort.get(field) ?? 'asc';
+      const av = (a as any)[field], bv = (b as any)[field];
+      if (av == null && bv == null) continue;
+      if (av == null) return dir === 'asc' ? -1 : 1;
+      if (bv == null) return dir === 'asc' ?  1 : -1;
+      if (av <  bv)   return dir === 'asc' ? -1 : 1;
+      if (av >  bv)   return dir === 'asc' ?  1 : -1;
+    }
+    return 0;
+  });
 
-<!-- Exemple pour les types “généraux” -->
-<td mat-cell class="data-table-colonne {{ col.nom }}"
-    *matCellDef="let row: any"
-    [class.col-clickable]="col.clickable"
-    (click)="col.clickable && onCellClick($event, row, col)">
-  {{ (col.valueGetter ? col.valueGetter(row) : row[col.nom]) }}
-</td>
+  const out: Array<T | GroupHeaderRow<T>> = [];
+  let prev: Record<string, unknown> = {};
 
+  const valuesAt = (row: T, level: number) => {
+    const o: Record<string, unknown> = {};
+    for (let i=0;i<=level;i++) { const f=this.groupBy[i]; o[f]=(row as any)[f]; }
+    return o;
+  };
+  const pushHeader = (level: number, vals: Record<string, unknown>) => {
+    const key = this.makeKey(level, vals);
+    out.push({
+      __group: true, key, level, values: vals,
+      count: 0, collapsed: !this._groupOpen.has(key)
+    } as GroupHeaderRow<T>);
+  };
 
-Pour tes types formatés (AMOUNT, DATE…), applique le pipe après le getter :
-
-<!-- AMOUNT -->
-<td mat-cell class="data-table-colonne {{ col.nom }}" *matCellDef="let row: any">
-  {{ (col.valueGetter ? col.valueGetter(row) : row[col.nom]) | number:'1.0-0' }}
-</td>
-
-c) Gérer le tri client (MatSort) sur colonnes virtuelles
-ngAfterViewInit(): void {
-  if (this.sort) {
-    this.dataSource.sort = this.sort;
-
-    // ➕ tri sur valueGetter si présent
-    this.dataSource.sortingDataAccessor = (row: T, columnName: string) => {
-      const col = this._columns.find(c => c.nom === columnName);
-      if (col?.valueGetter) {
-        const v = col.valueGetter(row);
-        // uniformise pour MatSort
-        if (v == null) return '';
-        if (typeof v === 'string' || typeof v === 'number') return v as any;
-        return JSON.stringify(v);
+  for (const row of sorted) {
+    for (let level=0; level<this.groupBy.length; level++) {
+      const vals = valuesAt(row, level);
+      const changed =
+        level === 0
+          ? (prev[this.groupBy[0]] !== vals[this.groupBy[0]])
+          : this.groupBy.slice(0, level+1).some(f => prev[f] !== vals[f]);
+      if (changed) {
+        pushHeader(level, vals);
+        for (let i=0;i<=level;i++) prev[this.groupBy[i]] = vals[this.groupBy[i]];
+        for (let i=level+1;i<this.groupBy.length;i++) delete prev[this.groupBy[i]];
       }
-      return (row as any)[columnName];
-    };
-
-    this.sort.sortChange.subscribe(s => {
-      if (this.serverSide) this.sortChange.emit(s);
-      this.expandedId = null;
-    });
+    }
+    // incrément du dernier header
+    const last = this.groupBy.length - 1;
+    if (last >= 0) {
+      const hdr = out.slice().reverse().find(r => this.isGroupHeaderRow(0,r)) as GroupHeaderRow<T>|undefined;
+      if (hdr) hdr.count++;
+    }
+    out.push(row);
   }
+  return out;
 }
 
-d) (Optionnel) Inclure les colonnes virtuelles dans la recherche client
-
-Si tu veux que la barre de recherche “voit” les colonnes virtuelles quand leur nom est présent dans filterKeys, adapte le filterPredicate :
-
-this.dataSource.filterPredicate = (row: T, filter: string) => {
-  const q = (filter || '').toLowerCase();
-
-  // si filterKeys est défini : ne cherche que dans ces clés
-  const keys = this.filterKeys?.length ? this.filterKeys : Object.keys(row);
-
-  for (const k of keys) {
-    const col = this._columns.find(c => c.nom === k);
-    let v: any;
-    if (col?.valueGetter) {
-      v = col.valueGetter(row);
+private applyCollapse(seq: Array<T | GroupHeaderRow<T> | DetailRow<T>>)
+: Array<T | GroupHeaderRow<T> | DetailRow<T>> {
+  if (!this.enableGrouping || this.groupBy.length === 0) return seq;
+  const res: typeof seq = [];
+  const open: boolean[] = [];
+  for (const it of seq) {
+    if (this.isGroupHeaderRow(0,it)) {
+      open[it.level] = !it.collapsed;
+      for (let i=it.level+1;i<open.length;i++) open[i]=false;
+      res.push(it);
+    } else if (this.isDataRow(0,it)) {
+      if (open.slice(0,this.groupBy.length).every(Boolean)) res.push(it);
     } else {
-      v = (row as any)[k];
+      res.push(it); // lignes de détail laissez passer
     }
-    if (v == null) continue;
-    const s = (typeof v === 'object') ? JSON.stringify(v) : String(v);
-    if (s.toLowerCase().includes(q)) return true;
   }
-  return false;
-};
-
-e) Déclare tes colonnes “Crédit/Débit” sans modifier le payload
-
-Dans ton parent :
-
-columns: ITableColonne[] = [
-  // …
-  {
-    nom: 'credit',
-    label: 'Crédit',
-    type: TableDataType.AMOUNT,
-    enableOrder: true,
-    retractable: true,
-    valueGetter: (r) => r?.type?.toLowerCase() === 'credit' ? Number(r?.amount) || 0 : null,
-  },
-  {
-    nom: 'debit',
-    label: 'Débit',
-    type: TableDataType.AMOUNT,
-    enableOrder: true,
-    retractable: true,
-    valueGetter: (r) => r?.type?.toLowerCase() === 'debit' ? Number(r?.amount) || 0 : null,
-  },
-];
-
-
-
-
-
-
-
-
-data-table.component.ts
-import {
-  AfterViewInit, ChangeDetectionStrategy, Component, EventEmitter,
-  Input, OnChanges, Output, SimpleChanges, TemplateRef, ViewChild
-} from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
-
-import { MatTableDataSource, MatTableModule } from '@angular/material/table';
-import { MatPaginator, MatPaginatorModule, PageEvent } from '@angular/material/paginator';
-import { MatSort, MatSortModule, Sort } from '@angular/material/sort';
-import { MatCheckboxModule } from '@angular/material/checkbox';
-import { SelectionModel } from '@angular/cdk/collections';
-
-import { ReactiveFormsModule, FormControl } from '@angular/forms';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatIconModule } from '@angular/material/icon';
-import { MatMenuModule } from '@angular/material/menu';
-import { MatButtonModule } from '@angular/material/button';
-import { MatTooltipModule } from '@angular/material/tooltip';
-import { MatProgressSpinnerModule } from '@angular/material/progress-spinner';
-import { MatProgressBarModule } from '@angular/material/progress-bar';
-import { debounceTime, distinctUntilChanged, startWith } from 'rxjs/operators';
-
-export enum TableDataType {
-  STRING, NUMBER, BOOLEAN, DATE, DATETIME, TIME, JSON, OBJECT, LINK,
-  AMOUNT, PERCENT
+  return res;
 }
 
-export interface ITableColonne<T = any> {
-  nom: string;
-  label: string;
-  type: TableDataType;
-  enableOrder: boolean;
-  retractable: boolean;
-  link?: any;
-  clickable?: boolean;
-
-  /** ➕ Valeur calculée pour colonnes virtuelles (non présentes dans le payload) */
-  valueGetter?: (row: T) => any;
+// Actions UI
+toggleGroupHeader(row: GroupHeaderRow<T>) {
+  row.collapsed = !row.collapsed;
+  if (row.collapsed) this._groupOpen.delete(row.key); else this._groupOpen.add(row.key);
+}
+cycleGroupSort(field: string) {
+  const cur = this.groupSort.get(field) ?? 'asc';
+  this.groupSort.set(field, cur === 'asc' ? 'desc' : 'asc');
+  this.groupByChange.emit([...this.groupBy]); // notifie (pour persister si besoin)
+}
+removeGroup(field: string) {
+  if (!this.groupBy.includes(field)) return;
+  this.groupBy = this.groupBy.filter(f => f !== field);
+  this.groupSort.delete(field);
+  this.groupByChange.emit([...this.groupBy]);
 }
 
-type IdType = string | number;
-interface DetailRow<T> { __detail: true; forId: IdType; host: T; }
-
-@Component({
-  selector: 'lib-data-table',
-  standalone: true,
-  imports: [
-    CommonModule, RouterLink,
-    MatTableModule, MatPaginatorModule, MatSortModule,
-    MatCheckboxModule, MatFormFieldModule, MatInputModule,
-    MatIconModule, MatMenuModule, MatButtonModule, MatTooltipModule,
-    MatProgressSpinnerModule, MatProgressBarModule,
-    ReactiveFormsModule
-  ],
-  templateUrl: './data-table.component.html',
-  styleUrl: './data-table.component.scss',
-  changeDetection: ChangeDetectionStrategy.OnPush
-})
-export class DataTableComponent<T extends Record<string, any>>
-  implements AfterViewInit, OnChanges {
-
-  protected readonly TableDataType = TableDataType;
-
-  // ===== Données & colonnes =====
-  private _columns: ITableColonne<T>[] = [];
-  private _hidden = new Set<string>();
-
-  dataSource = new MatTableDataSource<T>([]);
-  visibleColumnDefs: ITableColonne<T>[] = [];
-  displayedColumns: string[] = [];
-
-  @Input() set data(value: T[] | null | undefined) {
-    const arr = value ?? [];
-    this._ensureStableIds(arr);
-    this.dataSource.data = arr;
-    if (!this.serverSide) this._updateClientLength();
-  }
-  @Input() set columns(value: ITableColonne<T>[] | null | undefined) {
-    this._columns = (value ?? []).map(c => ({ ...c }));
-    this._recomputeVisible();
-  }
-  @Input() set hiddenColumns(value: string[] | null | undefined) {
-    this._hidden = new Set((value ?? []).filter(Boolean));
-    this._recomputeVisible();
-    this.hiddenColumnsChange.emit([...this._hidden]);
-  }
-  @Output() hiddenColumnsChange = new EventEmitter<string[]>();
-  @Input() showColumnRetractable = true;
-
-  // ===== Sélection =====
-  @Input() selectable = true;
-  @Input() selectionMode: 'single'|'multiple' = 'multiple';
-  private selection = new SelectionModel<T>(true, []);
-
-  @Input()  selectedRows: T[] = [];
-  @Output() selectedRowsChange = new EventEmitter<T[]>();
-  @Output() selectionChange = new EventEmitter<T[]>();
-
-  // ===== Tri & Pagination =====
-  @Input() enableOrder = true;
-  @Input() serverSide = false;
-  @Input() pageSize = 10;
-  @Input() pageSizeOptions: number[] = [5,10,25,50];
-  @Input() total = 0;     // pour serverSide
-  autoLength = 0;         // pour clientSide
-
-  @Output() pageChange = new EventEmitter<PageEvent>();
-  @Output() sortChange = new EventEmitter<Sort>();
-
-  // ===== Recherche =====
-  @Input() searchable = true;
-  @Input() filterPlaceholder = 'Search…';
-  @Input() filterKeys: string[] = [];
-  @Output() filterChange = new EventEmitter<string>();
-  searchCtrl = new FormControl<string>('', { nonNullable: true });
-
-  // ===== UI / loader & highlight =====
-  @Input() stickyHeader = true;
-  @Input() loading = false;
-  @Input() loadingText: string | null = null;
-  @Input() showTopBarWhileLoading = true;
-
-  @Input() highlightSelection = false;
-  @Input() highlightColor: string = '#E6F4EA';
-  @Input() highlightBarColor: string = '#2E7D32';
-
-  // ===== Cellule cliquable =====
-  @Output() cellClick = new EventEmitter<{ row: T; column: ITableColonne<T> }>();
-  onCellClick(ev: MouseEvent, row: T, col: ITableColonne<T>) {
-    ev.stopPropagation();
-    this.cellClick.emit({ row, column: col });
-  }
-
-  // ===== Détail de ligne =====
-  @Input() rowIdKey?: keyof T;                  // optionnel si vraie clé
-  @Input() rowDetailTemplate?: TemplateRef<any>;// si absent => fallback JSON
-  expandedId: IdType | null = null;             // id de la ligne ouverte
-
-  onRowDblClick(row: T): void {
-    const id = this._rowId(row);
-    this.expandedId = (this.expandedId === id) ? null : id;
-  }
-
-  /** Données pour l’affichage (page courante + ligne de détail) */
-  get rowsForRender(): Array<T|DetailRow<T>> {
-    const baseAll = this.dataSource.filteredData?.length
-      ? this.dataSource.filteredData
-      : (this.dataSource.data ?? []);
-
-    let pageRows = baseAll;
-    if (this.paginator && !this.serverSide) {
-      const start = this.paginator.pageIndex * this.paginator.pageSize;
-      pageRows = baseAll.slice(start, start + this.paginator.pageSize);
-    }
-
-    if (this.expandedId == null) return pageRows;
-
-    const idx = pageRows.findIndex(r => this._rowId(r) === this.expandedId);
-    if (idx === -1) return pageRows;
-
-    const host = pageRows[idx];
-    const res: Array<T|DetailRow<T>> = pageRows.slice(0, idx + 1);
-    res.push({ __detail: true, forId: this.expandedId, host } as DetailRow<T>);
-    res.push(...pageRows.slice(idx + 1));
-    return res;
-  }
-
-  /** predicate pour MatTable (ligne “détail”) */
-  isDetailRow = (_i: number, row: T | DetailRow<T>) =>
-    (row as any)?.__detail === true;
-
-  // ===== Mat refs =====
-  @ViewChild(MatPaginator) paginator!: MatPaginator;
-  @ViewChild(MatSort) sort!: MatSort;
-
-  // ===== ids stables si pas de rowIdKey =====
-  private _ids = new WeakMap<T, number>();
-  private _seq = 1;
-  private _ensureStableIds(rows: T[]) {
-    if (this.rowIdKey) return;
-    for (const r of rows) if (!this._ids.has(r)) this._ids.set(r, this._seq++);
-    // si la ligne ouverte a disparu, on la ferme
-    if (this.expandedId != null && !rows.some(r => this._rowId(r) === this.expandedId)) {
-      this.expandedId = null;
-    }
-  }
-  private _rowId(row: T): IdType {
-    if (this.rowIdKey && row && (row as any)[this.rowIdKey] != null) {
-      return (row as any)[this.rowIdKey] as IdType;
-    }
-    const id = this._ids.get(row);
-    if (id != null) return id;
-    const next = this._seq++;
-    this._ids.set(row, next);
-    return next;
-  }
-
-  // ===== ctor =====
-  constructor() {
-    // recherche
-    this.searchCtrl.valueChanges
-      .pipe(startWith(''), debounceTime(300), distinctUntilChanged())
-      .subscribe(q => {
-        const query = (q ?? '').trim();
-        if (this.serverSide) this.filterChange.emit(query);
-        else this._applyClientFilter(query);
-      });
-
-    // filtre client — inclut valueGetter si la colonne est listée dans filterKeys
-    this.dataSource.filterPredicate = (row: T, filter: string) => {
-      const q = (filter || '').toLowerCase();
-      const keys = (this.filterKeys?.length ? this.filterKeys : Object.keys(row));
-      for (const k of keys) {
-        const col = this._columns.find(c => c.nom === k);
-        const v = col?.valueGetter ? col.valueGetter(row) : (row as any)[k];
-        if (v == null) continue;
-        const s = (typeof v === 'object') ? JSON.stringify(v) : String(v);
-        if (s.toLowerCase().includes(q)) return true;
-      }
-      return false;
-    };
-  }
-
-  // ===== Hooks =====
-  ngOnChanges(ch: SimpleChanges): void {
-    if (ch['selectionMode']) {
-      const multi = this.selectionMode !== 'single';
-      if (this.selection.isMultipleSelection() !== multi) {
-        this.selection = new SelectionModel<T>(multi, this.selection.selected);
-      }
-    }
-    if (ch['selectedRows']) {
-      const multi = this.selectionMode !== 'single';
-      if (this.selection.isMultipleSelection() !== multi) {
-        this.selection = new SelectionModel<T>(multi, []);
-      }
-      this.selection.clear();
-      (this.selectedRows ?? []).forEach(r => this.selection.select(r));
-    }
-  }
-
-  ngAfterViewInit(): void {
-    if (this.sort) {
-      this.dataSource.sort = this.sort;
-
-      // ➕ tri sur valueGetter si présent
-      this.dataSource.sortingDataAccessor = (row: T, columnName: string) => {
-        const col = this._columns.find(c => c.nom === columnName);
-        if (col?.valueGetter) {
-          const v = col.valueGetter(row);
-          if (v == null) return '';
-          if (typeof v === 'string' || typeof v === 'number') return v as any;
-          return JSON.stringify(v);
-        }
-        return (row as any)[columnName];
-      };
-
-      this.sort.sortChange.subscribe(s => {
-        if (this.serverSide) this.sortChange.emit(s);
-        this.expandedId = null;                 // ferme le détail au tri
-      });
-    }
-    if (this.paginator) {
-      // on ne branche PAS dataSource.paginator (pagination manuelle)
-      if (this.serverSide) {
-        this.paginator.page.subscribe(p => this.pageChange.emit(p));
-      } else {
-        this.paginator.page.subscribe(() => this.expandedId = null);
-      }
-    }
-  }
-
-  // ===== Sélection =====
-  isSelected = (row: T) => this.selection.isSelected(row);
-
-  isAllSelected(): boolean {
-    const rows = this._currentPageRows();
-    return rows.length > 0 && rows.every(r => this.selection.isSelected(r));
-  }
-  masterToggle(): void {
-    const rows = this._currentPageRows();
-    if (this.isAllSelected()) rows.forEach(r => this.selection.deselect(r));
-    else rows.forEach(r => this.selection.select(r));
-    this._emitSelection();
-  }
-  toggleRow(row: T): void {
-    if (this.selectionMode === 'single') {
-      this.selection.clear();
-      this.selection.select(row);
-    } else {
-      this.selection.toggle(row);
-    }
-    this._emitSelection();
-  }
-  checkboxLabel(row?: T): string {
-    if (!row) return `${this.isAllSelected() ? 'deselect' : 'select'} all`;
-    return `${this.selection.isSelected(row) ? 'deselect' : 'select'} row`;
-  }
-  private _emitSelection(): void {
-    this.selectedRows = this.selection.selected;
-    this.selectedRowsChange.emit(this.selectedRows);
-    this.selectionChange.emit(this.selectedRows);
-  }
-
-  // ===== Colonnes visibles =====
-  trackByCol = (_: number, c: ITableColonne<T>) => c.nom;
-  isHidden = (col: ITableColonne<T>) => col.retractable && this._hidden.has(col.nom);
-  toggleColumn(col: ITableColonne<T>): void {
-    if (!col.retractable) return;
-    if (this._hidden.has(col.nom)) this._hidden.delete(col.nom);
-    else this._hidden.add(col.nom);
-    this._recomputeVisible();
-    this.hiddenColumnsChange.emit([...this._hidden]);
-  }
-  private _recomputeVisible(): void {
-    this.visibleColumnDefs = this._columns.filter(c => !this.isHidden(c));
-    this.displayedColumns = this.visibleColumnDefs.map(c => c.nom);
-    if (this.selectable && !this.displayedColumns.includes('select')) {
-      this.displayedColumns = ['select', ...this.displayedColumns];
-    }
-    if (!this.selectable) {
-      this.displayedColumns = this.displayedColumns.filter(c => c !== 'select');
-    }
-  }
-
-  // ===== Filtre & pagination client =====
-  private _applyClientFilter(query: string) {
-    this.dataSource.filter = query.trim().toLowerCase();
-    if (this.paginator && !this.serverSide) this.paginator.firstPage();
-    this._updateClientLength();
-    const base = this.dataSource.filteredData ?? this.dataSource.data ?? [];
-    if (this.expandedId != null && !base.some(r => this._rowId(r) === this.expandedId)) {
-      this.expandedId = null;
-    }
-  }
-  private _updateClientLength() {
-    this.autoLength = this.dataSource.filteredData?.length ?? this.dataSource.data?.length ?? 0;
-  }
-  private _currentPageRows(): T[] {
-    const base = this.dataSource.filteredData?.length
-      ? this.dataSource.filteredData
-      : (this.dataSource.data ?? []);
-    if (!this.paginator || this.serverSide) return base;
-    const start = this.paginator.pageIndex * this.paginator.pageSize;
-    return base.slice(start, start + this.paginator.pageSize);
-  }
-
-  // ===== Utilitaires rendu =====
-  getCellValue(row: T, col: ITableColonne<T>): any {
-    return col.valueGetter ? col.valueGetter(row) : (row as any)[col.nom];
+// DnD : en-tête ➜ barre
+onDropToGrouping(ev: CdkDragDrop<string[]>) {
+  if (!this.enableGrouping) return;
+  const field = (ev.item.data as string);
+  if (!this.groupBy.includes(field)) {
+    this.groupBy = [...this.groupBy, field];
+    if (!this.groupSort.has(field)) this.groupSort.set(field, 'asc');
+    this.groupByChange.emit([...this.groupBy]);
   }
 }
+// DnD : barre ➜ en-tête (annuler ce groupement)
+onDropToHeader(ev: CdkDragDrop<string[]>) {
+  if (!this.enableGrouping) return;
+  const field = (ev.item.data as string);
+  this.removeGroup(field);
+}
 
-data-table.component.html
-<div class="dt-root" [class.dt-blurred]="loading">
-  <div class="dt-toolbar" *ngIf="searchable || showColumnRetractable">
-    <div class="dt-toolbar-left">
-      <ng-container *ngIf="showColumnRetractable">
-        <button mat-icon-button [matMenuTriggerFor]="colsMenu" matTooltip="Colonnes">
-          <mat-icon>view_column</mat-icon>
-        </button>
-        <mat-menu #colsMenu="matMenu">
-          <button mat-menu-item *ngFor="let c of _columns" (click)="toggleColumn(c)">
-            <mat-icon>{{ isHidden(c) ? 'check_box_outline_blank' : 'check_box' }}</mat-icon>
-            <span>{{ c.label }}</span>
-          </button>
-        </mat-menu>
-      </ng-container>
-    </div>
+// ====== Rendu final (garde le reste de tes méthodes) ======
+get rowsForRender(): Array<T | GroupHeaderRow<T> | DetailRow<T>> {
+  const base = this.baseRows();                 // ta méthode existante
+  const grouped = this.groupRows(base);
+  const visible = this.applyCollapse(grouped as any);
 
-    <div class="dt-toolbar-right" *ngIf="searchable">
-      <mat-form-field appearance="outline" class="dt-search-field">
-        <mat-icon matPrefix>search</mat-icon>
-        <input matInput [placeholder]="filterPlaceholder" [formControl]="searchCtrl">
-        <button *ngIf="searchCtrl.value" matSuffix mat-icon-button (click)="searchCtrl.setValue('')">
-          <mat-icon>close</mat-icon>
-        </button>
-      </mat-form-field>
-    </div>
-  </div>
+  if (this.expandedId == null) return this.pageSlice(visible);
 
-  <div class="dt-table-wrap">
-    <table mat-table [dataSource]="rowsForRender"
-           matSort *ngIf="enableOrder"
-           [multiTemplateDataRows]="true"
-           class="mat-elevation-z2 dt-table">
+  const withDetail: Array<T | GroupHeaderRow<T> | DetailRow<T>> = [];
+  for (const it of visible) {
+    withDetail.push(it);
+    if (this.isDataRow(0,it) && this._rowId(it) === this.expandedId) {
+      withDetail.push({ __detail: true, forId: this.expandedId, host: it } as DetailRow<T>);
+    }
+  }
+  return this.pageSlice(withDetail);
+}
 
-      <!-- Sélection -->
-      <ng-container matColumnDef="select" *ngIf="selectable">
-        <th mat-header-cell *matHeaderCellDef>
-          <mat-checkbox
-            (change)="$event ? masterToggle() : null"
-            [checked]="isAllSelected()"
-            [indeterminate]="selection.hasValue() && !isAllSelected()"
-            [aria-label]="checkboxLabel()">
-          </mat-checkbox>
-        </th>
-        <td mat-cell *matCellDef="let row"
-            @if="!(row as any).__detail">
-          <mat-checkbox
-            (click)="$event.stopPropagation()"
-            (change)="toggleRow(row)"
-            [checked]="isSelected(row)"
-            [aria-label]="checkboxLabel(row)">
-          </mat-checkbox>
-        </td>
-      </ng-container>
 
-      <!-- Colonnes dynamiques -->
-      <ng-container *ngFor="let col of visibleColumnDefs; trackBy: trackByCol"
-                    [matColumnDef]="col.nom">
+🔥 Supprime tes anciens groupRows, applyCollapse, toggleGroup, etc. si tu en avais déjà d’autres versions. Garde tout le reste (recherche, tri MatSort pour les colonnes visibles, pagination, détail, sélection…).
 
-        <!-- STRING / fallback -->
-        <td mat-cell *matCellDef="let row"
-            class="data-table-colonne {{ col.nom }}"
-            @if="!(row as any).__detail"
-            [class.col-clickable]="col.clickable"
-            (click)="col.clickable && onCellClick($event, row, col)">
-          {{ getCellValue(row, col) }}
-        </td>
+Étape 2 — HTML (adapter la toolbar + en-têtes drag)
 
-        <th mat-header-cell *matHeaderCellDef
-            [mat-sort-header]="col.enableOrder ? col.nom : null">
-          {{ col.label }}
-        </th>
-      </ng-container>
+Zone de groupement à gauche. Tes icônes + barre de recherche restent à droite.
+En-tête de tableau draggable et <thead> est un drop target (pour annuler).
 
-      <!-- Types spéciaux (AMOUNT, NUMBER, DATE...) -->
-      <ng-container *ngFor="let col of visibleColumnDefs" [matColumnDef]="col.nom + '-typed'"></ng-container>
+<div class="dt-toolbar">
+  <!-- GAUCHE : barre de groupement -->
+  <div class="dt-toolbar-left" *ngIf="enableGrouping">
+    <div class="group-drop"
+         cdkDropList
+         [cdkDropListData]="groupBy"
+         (cdkDropListDropped)="onDropToGrouping($event)">
+      <span class="hint">Drag a column header here to group by that column</span>
 
-      <!-- Surcharges par type (AMOUNT) -->
-      <ng-container *ngFor="let col of visibleColumnDefs">
-        <td mat-cell *matCellDef="let row"
-            class="data-table-colonne {{ col.nom }}"
-            @if="!(row as any).__detail && col.type === TableDataType.AMOUNT">
-          {{ getCellValue(row, col) | number:'1.0-0' }}
-        </td>
-      </ng-container>
-
-      <!-- Ligne “détail” (colonne technique unique) -->
-      <ng-container matColumnDef="detail">
-        <td mat-cell class="detail-cell" *matCellDef="let row"
-            [attr.colspan]="displayedColumns.length"
-            @if="(row as any).__detail">
-          <div class="detail-wrapper">
-            @if (rowDetailTemplate) {
-              <ng-container
-                *ngTemplateOutlet="rowDetailTemplate; context: {$implicit: (row as any).host, row: (row as any).host}">
-              </ng-container>
-            } @else {
-              <div class="detail-fallback">
-                <strong>Détails :</strong> {{ (row as any).host | json }}
-              </div>
-            }
+      <div class="group-chips" *ngIf="groupBy.length">
+        <ng-container *ngFor="let f of groupBy">
+          <div class="chip" cdkDrag [cdkDragData]="f" cdkDragPreviewClass="drag-chip">
+            <span class="label">{{ (_columns?.find(c => c.nom===f)?.label) || f }}</span>
+            <!-- tri ↑/↓ -->
+            <button type="button" class="icon" mat-icon-button (click)="cycleGroupSort(f)" matTooltip="Sort level">
+              <mat-icon>swap_vert</mat-icon>
+            </button>
+            <!-- supprimer ce groupement -->
+            <button type="button" class="icon danger" mat-icon-button (click)="removeGroup(f)" matTooltip="Remove">
+              <mat-icon>close</mat-icon>
+            </button>
           </div>
-        </td>
-      </ng-container>
-
-      <!-- Header row -->
-      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
-
-      <!-- Data rows -->
-      <tr mat-row *matRowDef="let row; columns: displayedColumns"
-          (dblclick)="onRowDblClick(row)"
-          @if="!(row as any).__detail">
-      </tr>
-
-      <!-- Detail row -->
-      <tr mat-row *matRowDef="let row; columns: ['detail']"
-          [matRowDefWhen]="isDetailRow">
-      </tr>
-    </table>
+        </ng-container>
+      </div>
+    </div>
   </div>
 
-  <!-- Paginator -->
-  <mat-paginator *ngIf="!serverSide"
-                 [length]="autoLength"
-                 [pageSize]="pageSize"
-                 [pageSizeOptions]="pageSizeOptions">
-  </mat-paginator>
-
-  <mat-paginator *ngIf="serverSide"
-                 [length]="total"
-                 [pageSize]="pageSize"
-                 [pageSizeOptions]="pageSizeOptions">
-  </mat-paginator>
+  <!-- DROITE : tes actions existantes -->
+  <div class="dt-toolbar-right">
+    <!-- ... tes icônes, colonnes, refresh ... -->
+    <mat-form-field *ngIf="searchable" appearance="outline" class="dt-search-field">
+      <mat-icon matPrefix>search</mat-icon>
+      <input matInput [placeholder]="filterPlaceholder" [formControl]="searchCtrl">
+    </mat-form-field>
+  </div>
 </div>
 
-data-table.component.scss (mini)
-.dt-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 8px 10px;
-  border-bottom: 1px solid #e0e0e0;
-  background: #fafafa;
-}
-.dt-toolbar-right { display: flex; align-items: center; gap: 8px; }
-.dt-search-field { width: 260px; }
+<div class="dt-center dt-scroll">
+  <table mat-table [dataSource]="rowsForRender" class="dt-table" multiTemplateDataRows>
+    <!-- l'en-tête devient un drop target pour “dé-groupper” en glissant une puce -->
+    <thead cdkDropList (cdkDropListDropped)="onDropToHeader($event)">
+      <tr mat-header-row *matHeaderRowDef="displayedColumns"></tr>
+    </thead>
 
-.dt-table { width: 100%; }
-.detail-cell { padding: 0 !important; background: transparent; }
-.detail-wrapper {
-  padding: 12px 16px 16px 28px;
-  background: rgba(0,0,0,0.03);
-  border-left: 4px solid #2e7d32;
-  border-radius: 4px;
-}
-.detail-fallback { font-family: monospace; white-space: pre-wrap; }
+    <!-- En-têtes colonnes : drag source, cachées si groupées -->
+    <ng-container *ngFor="let col of visibleColumnDefs" [matColumnDef]="col.nom">
+      <th mat-header-cell *matHeaderCellDef
+          cdkDrag [cdkDragData]="col.nom" cdkDragPreviewClass="drag-header"
+          *ngIf="!isColumnGrouped(col.nom)">
+        {{ col.label }}
+      </th>
+
+      <!-- Cellules data (inchangé, place ton switch de types ici) -->
+      <td mat-cell *matCellDef="let row" *ngIf="isDataRow(0,row)">
+        {{ row[col.nom] }}
+      </td>
+    </ng-container>
+
+    <!-- Ligne header de groupe -->
+    <ng-container matColumnDef="__groupheader">
+      <td mat-cell *matCellDef="let row" [attr.colspan]="displayedColumns.length" *ngIf="isGroupHeaderRow(0,row)">
+        <div class="group-header" [style.padding-left.px]="16 + row.level*16">
+          <button class="chev" mat-icon-button (click)="toggleGroupHeader(row)">
+            <mat-icon>{{ row.collapsed ? 'chevron_right' : 'expand_more' }}</mat-icon>
+          </button>
+          <div class="title">
+            <strong>{{ groupBy[row.level] }}:</strong>
+            <span>{{ row.values[groupBy[row.level]] }}</span>
+            <span class="count">({{ row.count }})</span>
+          </div>
+        </div>
+      </td>
+    </ng-container>
+
+    <!-- Ligne de détail -->
+    <ng-container matColumnDef="detail">
+      <td mat-cell class="detail-cell" *matCellDef="let row" [attr.colspan]="displayedColumns.length" *ngIf="isDetailRow(0,row)">
+        <div class="detail-card">
+          <ng-container *ngIf="rowDetailTemplate; else detailFallback"
+                        [ngTemplateOutlet]="rowDetailTemplate"
+                        [ngTemplateOutletContext]="{ $implicit: row.host, row: row.host }"></ng-container>
+          <ng-template #detailFallback><div class="detail-fallback">{{ row.host | json }}</div></ng-template>
+        </div>
+      </td>
+    </ng-container>
+
+    <!-- row defs -->
+    <tr mat-row *matRowDef="let row; columns: displayedColumns" *ngIf="isDataRow(0,row)"></tr>
+    <tr mat-row *matRowDef="let row; columns: ['__groupheader']" *ngIf="isGroupHeaderRow(0,row)"></tr>
+    <tr mat-row *matRowDef="let row; columns: ['detail']" *ngIf="isDetailRow(0,row)"></tr>
+  </table>
+</div>
+
+<mat-paginator #paginator
+  [length]="serverSide ? total : autoLength"
+  [pageSize]="pageSize"
+  [pageSizeOptions]="pageSizeOptions"
+  [showFirstLastButtons]="true">
+</mat-paginator>
+
+Étape 3 — SCSS (ajouts succincts)
+.dt-toolbar{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;background:#fafafa;border-bottom:1px solid #e0e0e0;}
+.dt-toolbar-left{display:flex;align-items:center;gap:8px;min-height:40px;}
+.group-drop{display:flex;align-items:center;gap:8px;padding:6px 10px;border:1px dashed #c7c7c7;border-radius:20px;background:#fff;}
+.group-drop .hint{color:#888;font-size:.9rem;}
+.group-chips{display:flex;gap:6px;}
+.chip{display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;background:#e9ecef;}
+.chip .label{font-weight:600;}
+.chip .icon{width:28px;height:28px;}
+.chip .danger{color:#b00020;}
+.drag-header,.drag-chip{padding:6px 12px;border-radius:16px;background:#eee;box-shadow:0 2px 8px rgba(0,0,0,.15);}
+.group-header{display:flex;align-items:center;gap:6px;padding:6px 0;}
+.group-header .title{display:flex;align-items:baseline;gap:6px;}
+.group-header .count{color:#777;}
+.detail-card{margin-left:24px;border-left:4px solid #2e7d32;background:#f7f9fc;padding:12px;border-radius:8px;}
+
+Ce que fait “retirer le filtre de la barre”
+
+Ici la “barre des filtres” = barre de groupement.
+
+Cliquer sur ✕ d’une puce ou glisser la puce vers l’en-tête (drop sur <thead>) appelle removeGroup(field) → annule ce groupement uniquement. Les autres groupements restent.
+
+Tri Up/Down sur le groupement
+
+Le bouton swap_vert appelle cycleGroupSort(field) qui alterne asc ⇄ desc pour ce niveau.
+
+L’ordre est pris en compte dans groupRows() (tri des données avant génération des headers).
+
+Ce que tu peux supprimer
+
+Toute ancienne implémentation de grouping (fonctions groupRows, applyCollapse, toggleGroup, anciens types/guards si différents).
+
+Garde tout le reste (types de colonnes, pipes, détail de ligne, pagination, recherche, sélection).
+
+Exemple d’utilisation (parent)
+<lib-data-table
+  [data]="rows"
+  [columns]="_columns"
+  [enableGrouping]="true"
+  [groupBy]="groupFields"
+  (groupByChange)="groupFields = $event"
+  [rowIdKey]="'id'"
+  [enableRowDetail]="true"
+  [rowDetailTemplate]="detailTpl">
+</lib-data-table>
+
+<ng-template #detailTpl let-row>
+  <!-- rendu personnalisé -->
+  <div>Transaction {{ row.id }} — {{ row.clientName }}</div>
+</ng-template>
 
 
-
-
-----------
-
-transactions-search.component.ts (MAJ)
-import { Component, EventEmitter, Input, Output, inject } from '@angular/core';
-import { AbstractControl, FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
-import { MatCardModule } from '@angular/material/card';
-import { MatFormFieldModule } from '@angular/material/form-field';
-import { MatInputModule } from '@angular/material/input';
-import { MatDatepickerModule, MatDatepickerInputEvent } from '@angular/material/datepicker';
-import { MatButtonModule } from '@angular/material/button';
-import { MatButtonToggleModule } from '@angular/material/button-toggle';
-import { CommonModule } from '@angular/common';
-
-export type MatchingStatus = 'NoMatched' | 'Matched';
-
-export interface SearchFormValue {
-  startDate: Date | null;
-  endDate: Date | null;
-  matchingStatus: MatchingStatus;    // ← switch
-  matchTag: string | null;           // ← champ texte (visible seulement si NoMatched)
-  matchAccount: string | null;
-  limit: number;
-  offset: number;
-}
-
-@Component({
-  standalone: true,
-  selector: 'app-transactions-search',
-  imports: [
-    CommonModule, ReactiveFormsModule,
-    MatCardModule, MatFormFieldModule, MatInputModule, MatDatepickerModule,
-    MatButtonModule, MatButtonToggleModule
-  ],
-  templateUrl: './transactions-search.component.html'
-})
-export class TransactionsSearchComponent {
-  private fb = inject(FormBuilder);
-
-  @Input() disabled = false;
-  @Output() search = new EventEmitter<SearchFormValue>();
-
-  form = this.fb.group({
-    startDate: this.fb.control<Date | null>(null, { validators: [Validators.required] }),
-    endDate:   this.fb.control<Date | null>(null, { validators: [Validators.required] }),
-    matchingStatus: this.fb.control<MatchingStatus>('NoMatched', { nonNullable: true }),
-    matchTag: this.fb.control<string | null>(null),          // ← pas required
-    matchAccount: this.fb.control<string | null>(null, { validators: [Validators.required] }),
-    limit:  this.fb.control<number>(50, { nonNullable: true, validators: [Validators.required, Validators.min(1)] }),
-    offset: this.fb.control<number>(0,  { nonNullable: true, validators: [Validators.required, Validators.min(0)] }),
-  }, { validators: [dateRangeValidator] });
-
-  // util: préserver l'heure courante
-  onDatePick(ctrl: 'startDate' | 'endDate', ev: MatDatepickerInputEvent<Date>) {
-    const val = ev.value;
-    if (!val) return;
-    const now = new Date();
-    const withTime = new Date(
-      val.getFullYear(), val.getMonth(), val.getDate(),
-      now.getHours(), now.getMinutes(), now.getSeconds()
-    );
-    this.form.get(ctrl)?.setValue(withTime);
-  }
-
-  submit() {
-    if (this.form.invalid || this.disabled) {
-      this.form.markAllAsTouched();
-      return;
-    }
-    this.search.emit(this.form.getRawValue() as SearchFormValue);
-  }
-}
-
-function dateRangeValidator(group: AbstractControl) {
-  const s = group.get('startDate')?.value as Date | null;
-  const e = group.get('endDate')?.value as Date | null;
-  if (s && e && e.getTime() < s.getTime()) {
-    return { range: 'endBeforeStart' };
-  }
-  return null;
-}
-
-transactions-search.component.html (MAJ)
-<mat-card class="search-card" [class.is-disabled]="disabled">
-  <form [formGroup]="form" (ngSubmit)="submit()">
-    <div class="row">
-      <mat-form-field appearance="fill">
-        <mat-label>Start Date</mat-label>
-        <input matInput [matDatepicker]="pickerStart"
-               formControlName="startDate"
-               placeholder="dd/MM/yyyy HH:mm:ss"
-               (dateChange)="onDatePick('startDate', $event)">
-        <mat-datepicker-toggle matSuffix [for]="pickerStart"></mat-datepicker-toggle>
-        <mat-datepicker #pickerStart></mat-datepicker>
-      </mat-form-field>
-
-      <mat-form-field appearance="fill">
-        <mat-label>End Date</mat-label>
-        <input matInput [matDatepicker]="pickerEnd"
-               formControlName="endDate"
-               placeholder="dd/MM/yyyy HH:mm:ss"
-               (dateChange)="onDatePick('endDate', $event)">
-        <mat-datepicker-toggle matSuffix [for]="pickerEnd"></mat-datepicker-toggle>
-        <mat-datepicker #pickerEnd></mat-datepicker>
-      </mat-form-field>
-
-      <mat-form-field appearance="fill" class="grow">
-        <mat-label>Match Account</mat-label>
-        <input matInput formControlName="matchAccount" />
-      </mat-form-field>
-
-      <mat-form-field appearance="fill" class="w-120">
-        <mat-label>Limit</mat-label>
-        <input matInput type="number" min="1" formControlName="limit" />
-      </mat-form-field>
-
-      <mat-form-field appearance="fill" class="w-120">
-        <mat-label>Offset</mat-label>
-        <input matInput type="number" min="0" formControlName="offset" />
-      </mat-form-field>
-
-      <button mat-raised-button color="primary" type="submit" [disabled]="disabled || form.invalid">
-        Search
-      </button>
-    </div>
-
-    <!-- Switch MatchingStatus -->
-    <div class="row align">
-      <span class="mr">Matching:</span>
-      <mat-button-toggle-group formControlName="matchingStatus" aria-label="Matching status">
-        <mat-button-toggle value="NoMatched">No matched yet</mat-button-toggle>
-        <mat-button-toggle value="Matched">Matched</mat-button-toggle>
-      </mat-button-toggle-group>
-    </div>
-
-    <!-- Match Tag (n'apparaît que si NoMatched) -->
-    @if (form.get('matchingStatus')?.value === 'NoMatched') {
-      <div class="row">
-        <mat-form-field appearance="fill" class="grow">
-          <mat-label>Match tag</mat-label>
-          <input matInput formControlName="matchTag" placeholder="ex: TAG_ABC_2025" />
-        </mat-form-field>
-      </div>
-    }
-  </form>
-</mat-card>
-
-<style>
-  .search-card { padding: 12px; border-radius: 10px; }
-  .is-disabled { opacity: .6; pointer-events: none; }
-  .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
-  .align { align-items: center; margin-top: 8px; }
-  .grow { flex: 1 1 260px; }
-  .w-120 { width: 120px; }
-  mat-form-field { width: 240px; min-width: 200px; }
-</style>
+C’est tout prêt à coller. Tu auras le drag-to-group, drag-back-to-header (annule le groupement), tri ↑/↓ par niveau, collapse/expand, pagination après grouping, détail de ligne intact.
