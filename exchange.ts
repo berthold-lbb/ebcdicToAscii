@@ -272,36 +272,42 @@ La ligne <thead> est un drop target pour “drag back to header”.
   <!-- ========== TOOLBAR ========== -->
   <div class="dt-toolbar">
     <!-- Gauche : zone de groupement -->
-    <div class="dt-toolbar-left" *ngIf="enableGrouping">
-      <div class="group-drop"
-           cdkDropList
-           [cdkDropListData]="groupBy"
-           (cdkDropListDropped)="onDropToGrouping($event)">
-        <span class="hint">Drag a column header here to group by that column</span>
+    @if (enableGrouping) {
+      <div class="dt-toolbar-left">
+        <div class="group-drop"
+             cdkDropList
+             [cdkDropListData]="groupBy"
+             (cdkDropListDropped)="onDropToGrouping($event)">
+          <span class="hint">Drag a column header here to group by that column</span>
 
-        <div class="group-chips" *ngIf="groupBy.length">
-          <ng-container *ngFor="let f of groupBy">
-            <div class="chip" cdkDrag [cdkDragData]="f" cdkDragPreviewClass="drag-chip">
-              <span class="label">{{ (columns.find(c => c.nom===f)?.label) || f }}</span>
-              <button mat-icon-button class="icon" (click)="cycleGroupSort(f)" matTooltip="Toggle sort">
-                <mat-icon>swap_vert</mat-icon>
-              </button>
-              <button mat-icon-button class="icon danger" (click)="removeGroup(f)" matTooltip="Remove">
-                <mat-icon>close</mat-icon>
-              </button>
+          @if (groupBy.length) {
+            <div class="group-chips">
+              @for (f of groupBy; track f) {
+                <div class="chip" cdkDrag [cdkDragData]="f" cdkDragPreviewClass="drag-chip">
+                  <span class="label">{{ (columns.find(c => c.nom===f)?.label) || f }}</span>
+                  <button mat-icon-button class="icon" (click)="cycleGroupSort(f)" matTooltip="Toggle sort">
+                    <mat-icon>swap_vert</mat-icon>
+                  </button>
+                  <button mat-icon-button class="icon danger" (click)="removeGroup(f)" matTooltip="Remove">
+                    <mat-icon>close</mat-icon>
+                  </button>
+                </div>
+              }
             </div>
-          </ng-container>
+          }
         </div>
       </div>
-    </div>
+    }
 
     <!-- Droite : tes actions existantes (icônes + search) -->
     <div class="dt-toolbar-right">
       <!-- … tes boutons … -->
-      <mat-form-field appearance="outline" class="dt-search-field" *ngIf="searchable">
-        <mat-icon matPrefix>search</mat-icon>
-        <input matInput [placeholder]="filterPlaceholder" [formControl]="searchCtrl">
-      </mat-form-field>
+      @if (searchable) {
+        <mat-form-field appearance="outline" class="dt-search-field">
+          <mat-icon matPrefix>search</mat-icon>
+          <input matInput [placeholder]="filterPlaceholder" [formControl]="searchCtrl">
+        </mat-form-field>
+      }
     </div>
   </div>
 
@@ -315,25 +321,29 @@ La ligne <thead> est un drop target pour “drag back to header”.
       </thead>
 
       <!-- En-têtes : draggables uniquement si pas groupés -->
-      <ng-container *ngFor="let col of columns" [matColumnDef]="col.nom">
-        <th mat-header-cell *matHeaderCellDef
-            cdkDrag [cdkDragData]="col.nom" cdkDragPreviewClass="drag-header"
-            *ngIf="!groupBy.includes(col.nom)">
-          {{ col.label }}
-        </th>
-      </ng-container>
+      @for (col of columns; track col.nom) {
+        <ng-container [matColumnDef]="col.nom">
+          @if (!groupBy.includes(col.nom)) {
+            <th mat-header-cell *matHeaderCellDef
+                cdkDrag [cdkDragData]="col.nom" cdkDragPreviewClass="drag-header">
+              {{ col.label }}
+            </th>
+          }
+        </ng-container>
+      }
 
       <!-- Cells data (ton switch/type formatting actuel) -->
-      <ng-container *ngFor="let col of columns" [matColumnDef]="col.nom">
-        <td mat-cell *matCellDef="let row" *ngIf="isDataRow(0,row)">
-          {{ row[col.nom] }}
-        </td>
-      </ng-container>
+      @for (col of columns; track col.nom) {
+        <ng-container [matColumnDef]="col.nom">
+          <td mat-cell *matCellDef="let row" @if (isDataRow(0,row))>
+            {{ row[col.nom] }}
+          </td>
+        </ng-container>
+      }
 
       <!-- Group header row -->
       <ng-container matColumnDef="__groupheader">
-        <td mat-cell *matCellDef="let row" [attr.colspan]="displayedColumns.length"
-            *ngIf="isGroupHeaderRow(0,row)">
+        <td mat-cell *matCellDef="let row" [attr.colspan]="displayedColumns.length" @if (isGroupHeaderRow(0,row))>
           <div class="group-header" [style.padding-left.px]="16 + row.level*16">
             <button mat-icon-button class="chev" (click)="toggleGroupHeader(row)">
               <mat-icon>{{ row.collapsed ? 'chevron_right' : 'expand_more' }}</mat-icon>
@@ -349,24 +359,28 @@ La ligne <thead> est un drop target pour “drag back to header”.
 
       <!-- Detail row -->
       <ng-container matColumnDef="detail">
-        <td mat-cell class="detail-cell" *matCellDef="let row" [attr.colspan]="displayedColumns.length"
-            *ngIf="isDetailRow(0,row)">
+        <td mat-cell class="detail-cell"
+            *matCellDef="let row"
+            [attr.colspan]="displayedColumns.length"
+            @if (isDetailRow(0,row))>
           <div class="detail-card">
-            <ng-container *ngIf="rowDetailTemplate; else detailFallback"
-                          [ngTemplateOutlet]="rowDetailTemplate"
-                          [ngTemplateOutletContext]="{ $implicit: row.host, row: row.host }">
-            </ng-container>
-            <ng-template #detailFallback>
-              <div class="detail-fallback"><strong>Détails:</strong> {{ row.host | json }}</div>
-            </ng-template>
+            @if (rowDetailTemplate) {
+              <ng-container [ngTemplateOutlet]="rowDetailTemplate"
+                            [ngTemplateOutletContext]="{ $implicit: row.host, row: row.host }">
+              </ng-container>
+            } @else {
+              <div class="detail-fallback">
+                <strong>Détails:</strong> {{ row.host | json }}
+              </div>
+            }
           </div>
         </td>
       </ng-container>
 
       <!-- Row defs -->
-      <tr mat-row *matRowDef="let row; columns: displayedColumns" *ngIf="isDataRow(0,row)"></tr>
-      <tr mat-row *matRowDef="let row; columns: ['__groupheader']" *ngIf="isGroupHeaderRow(0,row)"></tr>
-      <tr mat-row *matRowDef="let row; columns: ['detail']" *ngIf="isDetailRow(0,row)"></tr>
+      <tr mat-row *matRowDef="let row; columns: displayedColumns" @if (isDataRow(0,row))></tr>
+      <tr mat-row *matRowDef="let row; columns: ['__groupheader']" @if (isGroupHeaderRow(0,row))></tr>
+      <tr mat-row *matRowDef="let row; columns: ['detail']" @if (isDetailRow(0,row))></tr>
     </table>
   </div>
 
@@ -378,6 +392,7 @@ La ligne <thead> est un drop target pour “drag back to header”.
     [showFirstLastButtons]="true">
   </mat-paginator>
 </div>
+
 
 4) data-table.component.scss (ajouts)
 .dt-toolbar{ display:flex; align-items:center; justify-content:space-between; padding:8px 10px; background:#fafafa; border-bottom:1px solid #e0e0e0; }
