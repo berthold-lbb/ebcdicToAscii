@@ -1,266 +1,124 @@
-1) Changements dans le TS (ajouts uniquement)
+B (éditeur) — émet juste le patch
+// bulk-editor.component.ts (B)
+import { Component, EventEmitter, Output } from '@angular/core';
+import { FormControl } from '@angular/forms';
 
-Colle ces morceaux dans ton composant DataTableComponent<T> (ou le nom réel). Rien à supprimer de ta logique de regroupement/détail.
-
-// imports à ajouter
-import { CdkDragDrop, moveItemInArray } from '@angular/cdk/drag-drop';
-import { ChangeDetectorRef } from '@angular/core';
-
-// ===== API regroupement (tu as déjà enableGrouping/groupBy/groupByChange) =====
-@Input() enableGrouping = false;
-@Input() groupBy: string[] = [];
-@Output() groupByChange = new EventEmitter<string[]>();
-
-// Tri par niveau de groupement (facultatif si tu as déjà quelque chose)
-groupSort: Record<string, 'asc' | 'desc'> = {};
-
-// ===== Labels sûrs (évite columns.find() dans le template) =====
-private _labelMap = new Map<string, string>();
-ngOnInit() {
-  const cols = Array.isArray(this.columns) ? this.columns : [];
-  this._labelMap = new Map(cols.map(c => [c.nom, c.label]));
-}
-labelOf = (field: string) => this._labelMap.get(field) ?? field;
-
-// ===== Utilitaires regroupement UI =====
-isColumnGrouped = (f: string) => this.groupBy.includes(f);
-
-get availableHeaderFields(): string[] {
-  const cols = Array.isArray(this.columns) ? this.columns : [];
-  return cols.map(c => c.nom).filter(n => !this.groupBy.includes(n));
-}
-
-// si tu utilises mat-sort-header : permet de “prendre” toute la cellule
-useSortHandle = true;
-
-// tri ↑/↓ sur un niveau (exemple minimal ; adapte si tu as déjà un store de tri)
-cycleGroupSort(field: string) {
-  this.groupSort[field] = this.groupSort[field] === 'asc' ? 'desc' : 'asc';
-  this.refreshAfterGrouping();
-}
-
-// ===== DnD predicates/handlers =====
-canEnterGrouping = (drag: any): boolean => {
-  const field: string | undefined = drag?.data;
-  return !!field && !this.groupBy.includes(field);
+export type BulkPatchEvent = {
+  patch: Record<string, any>;
+  color?: string;     // pour ngStyle
+  cssClass?: string;  // pour ngClass (optionnel)
 };
 
-onDropToGrouping(ev: CdkDragDrop<string[]>) {
-  const field = ev.item?.data as string;
-  if (!field) return;
+@Component({
+  selector: 'app-bulk-editor',
+  template: `
+    <input class="form-control" [formControl]="tag"    placeholder="tag">
+    <input class="form-control" [formControl]="owner"  placeholder="owner">
+    <select class="form-select" [formControl]="score">
+      <option value="">score ?</option>
+      <option *ngFor="let s of ['20%','30%','40%','50%','60%','70%','80%','90%','100%']" [value]="s">{{s}}</option>
+    </select>
+    <input type="color" class="form-control form-control-color" [formControl]="color">
+    <input class="form-control" [formControl]="klass" placeholder="cssClass (ex: row-edited)">
+    <button class="btn btn-primary mt-2" (click)="emit()">Appliquer aux lignes sélectionnées</button>
+  `
+})
+export class BulkEditorComponent {
+  @Output() applyPatch = new EventEmitter<BulkPatchEvent>();
+  tag = new FormControl<string>(''); owner = new FormControl<string>(''); score = new FormControl<string>('');
+  color = new FormControl<string>('#fffbd6'); klass = new FormControl<string>('');
 
-  // Drag depuis header vers la barre => insertion au bon index
-  if (ev.previousContainer.id === 'headerList' && ev.container.id === 'groupList') {
-    if (!this.groupBy.includes(field)) {
-      const copy = [...this.groupBy];
-      copy.splice(ev.currentIndex, 0, field);
-      this.groupBy = copy;
-      this.groupByChange.emit(copy);
-      this.refreshAfterGrouping(); // recalculs + colonnes visibles
-    }
-    return;
-  }
-
-  // Ré-ordonnancement à l’intérieur de la barre
-  if (ev.previousContainer === ev.container) {
-    moveItemInArray(this.groupBy, ev.previousIndex, ev.currentIndex);
-    this.groupBy = [...this.groupBy];
-    this.groupByChange.emit(this.groupBy);
-    this.refreshAfterGrouping();
-  }
-}
-
-onDropToHeader(ev: CdkDragDrop<string[]>) {
-  const field = ev.item?.data as string;
-  if (!field) return;
-
-  // Depuis la barre vers le header => on retire ce niveau
-  if (ev.previousContainer.id === 'groupList' && ev.container.id === 'headerList') {
-    const idx = this.groupBy.indexOf(field);
-    if (idx >= 0) {
-      const copy = [...this.groupBy];
-      copy.splice(idx, 1);
-      this.groupBy = copy;
-      this.groupByChange.emit(copy);
-      this.refreshAfterGrouping(); // annule le groupement spécifique
-    }
+  emit() {
+    const p: Record<string, any> = {};
+    if (this.tag.value?.trim())   p['tag'] = this.tag.value.trim();
+    if (this.owner.value?.trim()) p['owner'] = this.owner.value.trim();
+    if (this.score.value?.trim()) p['score'] = this.score.value.trim();
+    if (!Object.keys(p).length) return;
+    this.applyPatch.emit({ patch: p, color: this.color.value || undefined, cssClass: this.klass.value || undefined });
   }
 }
 
-// ====== MAJ affichage après changement de grouping ======
-constructor(private _cdr: ChangeDetectorRef) {}
+A (contient lib-data-table) — datasource: T[]
 
-private refreshAfterGrouping(): void {
-  // 1) mettre à jour les colonnes visibles si tu caches les colonnes groupées
-  // (si TU calcules déjà displayedColumns ailleurs, conserve ta version)
-  const cols = Array.isArray(this.columns) ? this.columns : [];
-  this.displayedColumns = cols
-    .filter(c => !this.groupBy.includes(c.nom))
-    .map(c => c.nom);
+Ici on travaille par référence d’objet (puisque (selectedROWSChange) te renvoie T[]).
+On mute les objets sélectionnés (pas leurs ids), puis on republie le tableau pour déclencher CD.
+On mémorise la couleur/la classe dans des WeakMap<T, string>.
 
-  // 2) recalculer la liste rendue si besoin (si ton getter rowsForRender()
-  // dépend déjà de this.groupBy, rien d’autre à faire).
-  // Ex. si tu as une méthode interne :
-  // this._rowsForRender = this.pageSlice(this.groupRows(this.baseRows()));
+// host.component.ts (A)
+import { Component, signal } from '@angular/core';
+import type { BulkPatchEvent } from '../bulk-editor/bulk-editor.component';
 
-  // 3) déclenche la CD
-  this._cdr.markForCheck();
-}
+@Component({
+  selector: 'app-transactions-table',
+  templateUrl: './host.component.html'
+})
+export class HostComponent<T extends object = any> {
+  rowIdKey = 'idTransaction';            // déjà utilisé par ton lib
+  datasource = signal<T[]>([]);          // <= T[]
+  selectedROWS: T[] = [];                // <= T[]
 
+  // coloration: T -> couleur / classe
+  private editedBg = new WeakMap<T, string>();
+  private editedClass = new WeakMap<T, string>();
 
-✅ Rien d’autre à supprimer côté TS. Tes méthodes/guards existants :
-isGroupHeaderRow, isDetailRow, isDataRow, rowsForRender(), groupRows(), applyCollapse(), pageSlice() — on les garde.
-
-2) HTML (avec @if / @for)
-
-Remplace uniquement la toolbar et le header par ce qui suit.
-(Le reste de ta table — cellules, @switch des types, lignes de groupe, lignes détail — on ne touche pas.)
-
-<div class="dt-toolbar">
-  <!-- Gauche : zone de groupement -->
-  @if (enableGrouping) {
-    <div class="dt-toolbar-left">
-      <div class="group-drop"
-           cdkDropList
-           id="groupList"
-           cdkDropListOrientation="horizontal"
-           [cdkDropListData]="groupBy"
-           [cdkDropListConnectedTo]="['headerList']"
-           [cdkDropListEnterPredicate]="canEnterGrouping"
-           (cdkDropListDropped)="onDropToGrouping($event)">
-
-        @if (groupBy.length === 0) {
-          <span class="hint">Drag a column header here to group by that column</span>
-        }
-
-        @if (groupBy.length > 0) {
-          <div class="group-chips">
-            @for (f of groupBy; track f) {
-              <div class="chip"
-                   cdkDrag
-                   [cdkDragData]="f"
-                   cdkDragPreviewClass="drag-chip">
-                <span class="label">{{ labelOf(f) }}</span>
-                <button mat-icon-button class="icon" (click)="cycleGroupSort(f)" matTooltip="Toggle sort">
-                  <mat-icon>swap_vert</mat-icon>
-                </button>
-                <button mat-icon-button class="icon danger" (click)="removeGroup(f)" matTooltip="Remove">
-                  <mat-icon>close</mat-icon>
-                </button>
-              </div>
-            }
-          </div>
-        }
-      </div>
-    </div>
+  onSelectedROWSChange(rows: T[]) {
+    this.selectedROWS = rows ?? [];
   }
 
-  <!-- Droite : tes actions existantes (icônes + search) -->
-  <div class="dt-toolbar-right">
-    <!-- … tes boutons … -->
-    @if (searchable) {
-      <mat-form-field appearance="outline" class="dt-search-field">
-        <mat-icon matPrefix>search</mat-icon>
-        <input matInput [placeholder]="filterPlaceholder" [formControl]="searchCtrl">
-      </mat-form-field>
-    }
-  </div>
-</div>
+  // Reçoit le patch depuis B
+  onApplyPatchFromB(evt: BulkPatchEvent) {
+    if (!this.selectedROWS.length) return;
 
-<div class="dt-center dt-scroll">
-  <table mat-table [dataSource]="rowsForRender" class="dt-table" multiTemplateDataRows>
-    <thead>
-      <!-- Le TR header lui-même est une dropList connectée à la barre -->
-      <tr mat-header-row *matHeaderRowDef="displayedColumns"
-          cdkDropList
-          id="headerList"
-          cdkDropListOrientation="horizontal"
-          [cdkDropListData]="availableHeaderFields"
-          [cdkDropListConnectedTo]="['groupList']"
-          (cdkDropListDropped)="onDropToHeader($event)">
-      </tr>
-    </thead>
+    const { patch, color, cssClass } = evt;
+    const arr = this.datasource();
 
-    <!-- En-têtes : draggables, masqués s’ils sont groupés -->
-    @for (col of columns; track col.nom) {
-      <ng-container [matColumnDef]="col.nom">
-        @if (!isColumnGrouped(col.nom)) {
-          <th mat-header-cell *matHeaderCellDef
-              cdkDrag
-              [cdkDragData]="col.nom"
-              cdkDragPreviewClass="drag-header"
-              [cdkDragRootElement]="useSortHandle ? '.mat-sort-header-container' : null">
-            <span [mat-sort-header]="col.nom">{{ col.label }}</span>
-          </th>
-        }
-      </ng-container>
+    // 1) muter chaque objet sélectionné (référence conservée => sélection intacte)
+    for (const row of arr) {
+      if (this.selectedROWS.includes(row)) {
+        Object.assign(row, patch);
+        if (color)    this.editedBg.set(row, color);
+        if (cssClass) this.editedClass.set(row, cssClass);
+      }
     }
 
-    <!-- ⚠️ ici tu gardes TOUT ton existant : cellules data, group header row, detail row, row defs, etc. -->
-  </table>
-</div>
-
-3) CSS utile (léger)
-.group-drop {
-  min-height: 40px;
-  border: 1px dashed #d0d0d0;
-  border-radius: 8px;
-  padding: 6px 8px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.group-chips .chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: 16px;
-  background: #eee;
-  cursor: move;
-}
-
-.drag-header, .drag-chip {
-  padding: 6px 12px;
-  border-radius: 16px;
-  background: #f3f3f3;
-  box-shadow: 0 4px 16px rgba(0,0,0,.15);
-}
-
-.dt-center.dt-scroll { overflow: auto; position: relative; }
-.cdk-drag-preview { z-index: 1000; }
-
-Ce que ça règle (et pourquoi ça n’allait pas avant)
-
-Drag Header ⇄ Group Bar fonctionne car les deux côtés sont des cdkDropList connectées ([cdkDropListConnectedTo]).
-
-Les <th> sont draggables et on contourne mat-sort-header avec [cdkDragRootElement]="'.mat-sort-header-container'".
-
-On n’évalue plus columns.find(...) dans le template : labelOf() + Map ➜ plus d’erreur.
-
-refreshAfterGrouping() met à jour displayedColumns (les colonnes groupées disparaissent bien de l’en-tête), relance ta pipeline si nécessaire, et force CD.
-
-À supprimer / à garder
-
-Garder : toute ta mécanique de data (rowsForRender(), groupRows(), applyCollapse, isGroupHeaderRow, isDetailRow, pagination, détail…).
-
-Supprimer : rien d’obligatoire. Si tu avais une ancienne tentative de DnD non connectée, retire-la pour éviter les conflits.
-
-Bonus — retirer un groupement lorsqu’on enlève le « chip »
-
-Tu as déjà removeGroup(f) ; assure-toi qu’elle fait :
-
-removeGroup(field: string) {
-  const idx = this.groupBy.indexOf(field);
-  if (idx >= 0) {
-    const copy = [...this.groupBy];
-    copy.splice(idx, 1);
-    this.groupBy = copy;
-    this.groupByChange.emit(copy);
-    this.refreshAfterGrouping(); // annule le groupement spécifique
+    // 2) republier le tableau (nouvelle référence d'array, mêmes objets)
+    this.datasource.set([...arr]);
   }
+
+  // Hooks de style/classe consommés par le lib (écran 4)
+  rowStyleFn = (row: T) => {
+    const bg = this.editedBg.get(row);
+    return bg ? { backgroundColor: bg } : null;
+  };
+
+  rowClassFn = (row: T) => this.editedClass.get(row) ?? null;
 }
 
+<!-- host.component.html (A) -->
+<app-bulk-editor (applyPatch)="onApplyPatchFromB($event)"></app-bulk-editor>
 
-Si tu colles ces ajouts exactement comme ci-dessus, tu conserves tout l’existant et tu obtiens le comportement DevExtreme que tu veux : drag-to-group, drag-back-to-header (qui annule le groupement), tri ↑/↓ par niveau, colonnes groupées masquées du header, et rien ne casse côté détail/expand/collapse/pagination.
+<lib-data-table
+  [data]="datasource()"
+  [rowIdKey]="rowIdKey"
+  [selectedROWS]="selectedROWS"
+  (selectedROWSChange)="onSelectedROWSChange($event)"
+  [pageSize]="5"
+  [pageSizeOptions]="[5,10,25,50]"
+  [enableOrder]="true"
+
+  <!-- Choisis l’un ou l’autre, selon ce que tu exposes dans ton lib -->
+  [rowStyleFn]="rowStyleFn"
+  [rowClassFn]="rowClassFn">
+</lib-data-table>
+
+Côté lib-data-table (si pas déjà fait)
+// lib-data-table.component.ts
+@Input() rowStyleFn?: (row: any) => Record<string, string> | null;
+@Input() rowClassFn?: (row: any) => string | string[] | Set<string> | null;
+
+<!-- lib-data-table.template.html -->
+<tr *ngFor="let row of view; trackBy: trackById"
+    [ngStyle]="rowStyleFn?.(row) || null"
+    [ngClass]="rowClassFn?.(row) || null">
+  <!-- cells -->
+</tr>
