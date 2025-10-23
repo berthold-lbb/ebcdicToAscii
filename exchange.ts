@@ -1,65 +1,22 @@
-1) Déclaration du form (pas de subscribe)
-this.form = this.fb.group(
-  {
-    matchMode: this.fb.control<MatchingMode | null>('No matched yet'),
-    matchTag:  this.fb.control<string | null>(null), // reste ENABLED
-    // ...
-  },
-  { validators: [this.matchTagRequiredIfMatched()] }
-);
+Si tu préfères ne rien enregistrer et rester autonome dans ta lib, utilise un pipe custom basé sur Intl (du navigateur) :
 
-2) Validateur de groupe robuste
-private matchTagRequiredIfMatched(): ValidatorFn {
-  return (group: AbstractControl): ValidationErrors | null => {
-    const mode = group.get('matchMode')?.value;
-    const tagCtrl = group.get('matchTag');
-    if (!tagCtrl) return null;
+import { Pipe, PipeTransform } from '@angular/core';
 
-    const hasTag = tagCtrl.value !== null && tagCtrl.value !== '';
-
-    if (mode === 'Matched' && !hasTag) {
-      // ajoute uniquement NOTRE erreur
-      const prev = tagCtrl.errors ?? {};
-      if (!prev['requiredWhenMatched']) {
-        tagCtrl.setErrors({ ...prev, requiredWhenMatched: true });
-      }
-      return { requiredWhenMatched: true }; // rend aussi le form invalide
-    } else {
-      // retire uniquement NOTRE erreur, garde le reste
-      if (tagCtrl.errors?.['requiredWhenMatched']) {
-        const { requiredWhenMatched, ...rest } = tagCtrl.errors!;
-        tagCtrl.setErrors(Object.keys(rest).length ? rest : null);
-      }
-      return null;
-    }
-  };
-}
-
-3) Template (tu peux continuer à cacher le champ)
-<!-- affiché seulement en mode Matched -->
-@if (form.get('matchMode')?.value === 'Matched') {
-  <mat-form-field appearance="fill" class="w-300">
-    <mat-label>Match tag</mat-label>
-    <input matInput formControlName="matchTag" placeholder="ex: TX-2025" />
-    @if (form.get('matchTag')?.hasError('requiredWhenMatched') && form.get('matchTag')?.touched) {
-      <mat-error>Le tag est requis en mode “Matched”.</mat-error>
-    }
-  </mat-form-field>
-}
-
-4) Ton pipe d’émission peut rester
-value$
-  .pipe(debounceTime(700), filter(() => this.form.valid))
-  .subscribe(() => this.autoChange.emit(this.form.getRawValue() as SearchFormValue));
-
-
-Si malgré tout tu veux vider le tag en repassant à “No matched yet” (pour éviter une valeur résiduelle cachée), ajoute juste une ligne dans un endroit où tu gères le switch (ex. bouton/toggle) :
-
-if (this.form.get('matchMode')?.value !== 'Matched') {
-  this.form.get('matchTag')?.setValue(null);
+@Pipe({ name: 'moneyCA', standalone: true })
+export class MoneyCAPipe implements PipeTransform {
+  transform(value: number | string | null | undefined): string {
+    if (value == null) return '';
+    const n = Number(value);
+    if (isNaN(n)) return String(value);
+    return n.toLocaleString('fr-CA', { maximumFractionDigits: 0 });
+  }
 }
 
 
-(Pas besoin de subscribe global.)
+Puis dans ton template lib-datatable :
 
-Avec ça, quand tu passes à Matched sans matchTag, form.valid devient false → rien n’est émis. Quand tu repasses à No matched yet, l’erreur est retirée et le form peut redevenir valide.
+{{ getCellValue(row, col) | moneyCA }} $
+
+
+Avantage : pas besoin de registerLocaleData.
+Inconvénient : c’est indépendant de LOCALE_ID Angular (mais souvent suffisant).
