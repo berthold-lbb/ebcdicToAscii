@@ -1,122 +1,66 @@
-✅ Voici le layout HTML/CSS corrigé
-🧱 HTML
-<mat-card class="search-card">
-  <form [formGroup]="form" (ngSubmit)="onSubmit()" [class.is-disabled]="disabled">
-    <!-- Ligne 1 -->
-    <div class="toolbar-row top-row">
-      <app-date-time-picker class="field" formControlName="startDate" label="Start Date"
-        [withTimeOnPick]="true" [injectNowOnFocus]="true" [required]="true">
-      </app-date-time-picker>
-
-      <app-date-time-picker class="field" formControlName="endDate" label="End Date"
-        [withTimeOnPick]="true" [injectNowOnFocus]="true" [required]="true">
-      </app-date-time-picker>
-
-      <mat-form-field appearance="fill" class="field">
-        <mat-label>Match Account</mat-label>
-        <input matInput formControlName="matchAccount">
-      </mat-form-field>
-
-      <mat-form-field appearance="fill" class="field narrow">
-        <mat-label>Limit</mat-label>
-        <input matInput type="number" formControlName="limit" min="1">
-      </mat-form-field>
-
-      <mat-form-field appearance="fill" class="field narrow">
-        <mat-label>Offset</mat-label>
-        <input matInput type="number" formControlName="offset" min="0">
-      </mat-form-field>
-    </div>
-
-    <!-- Ligne 2 -->
-    <div class="toolbar-row bottom-row">
-      <div class="toggle-wrap">
-        <span class="toggle-label">Matching:</span>
-        <mat-button-toggle-group formControlName="matchMode" aria-label="Matching status">
-          <mat-button-toggle value="NoMatched">No matched yet</mat-button-toggle>
-          <mat-button-toggle value="Matched">Matched</mat-button-toggle>
-        </mat-button-toggle-group>
-      </div>
-
-      <div class="btn">
-        <button mat-raised-button color="primary" type="submit" [disabled]="disabled || form.invalid">
-          Search
-        </button>
-
-        <button mat-stroked-button color="accent" type="button" (click)="saveFilter()">
-          <mat-icon>save</mat-icon> Save Filter
-        </button>
-
-        <button mat-stroked-button color="accent" [matMenuTriggerFor]="filterMenu">
-          <mat-icon>list</mat-icon> My Filters
-        </button>
-
-        <mat-menu #filterMenu="matMenu">
-          <button mat-menu-item *ngFor="let f of filters">
-            {{ f.name }}
-            <button mat-icon-button color="warn" (click)="deleteFilter(f)">
-              <mat-icon>delete</mat-icon>
-            </button>
-          </button>
-        </mat-menu>
-      </div>
-    </div>
-  </form>
-</mat-card>
-
-🎨 CSS (Angular styles)
-.search-card {
-  padding: 12px;
+// Exemple de modèle (adapte les noms si besoin)
+type TxType = 'CREDIT' | 'DEBIT';
+interface InfoTransactionModel {
+  idTransaction: string;
+  entryDate: string;   // ISO string
+  amount: number;
+  transactionType: TxType; // 'CREDIT' | 'DEBIT'
+  // ... autres champs
 }
 
-.toolbar-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px;
-  padding-bottom: 8px;
+interface Page<T> { content: T[]; totalElements: number; }
+
+private toPayload(f: SearchFormValue) {
+  return {
+    startDate: f.startDate,
+    endDate: f.endDate,
+    matchAccount: f.matchAccount,
+    matchMode: f.matchMode,        // 'NoMatched' | 'Matched'
+    matchTag: f.matchTag ?? null,  // seulement si NoMatched
+    limit: f.limit ?? 50,
+    offset: f.offset ?? 0
+  };
 }
 
-.top-row {
-  justify-content: flex-start;
+// ---- NOUVEAU: un seul appel REST
+private getTransactions(payload: any) {
+  return this.transactionsService.search(payload).pipe(
+    // ton API peut renvoyer Page<T> ou directement T[] ; on normalise
+    map((res: Page<InfoTransactionModel> | InfoTransactionModel[]) =>
+      Array.isArray(res) ? res : (res?.content ?? [])
+    )
+  );
 }
 
-.bottom-row {
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 4px;
+// ---- NOUVEAU: charge, trie, calcule les totaux
+private loadTransactions(f: SearchFormValue) {
+  const payload = this.toPayload(f);
+
+  return this.getTransactions(payload).pipe(
+    map(list => {
+      // tri du plus récent au plus ancien
+      list.sort((a, b) => Date.parse(b.entryDate) - Date.parse(a.entryDate));
+
+      // totaux
+      const totalCredit = list
+        .filter(x => x.transactionType === 'CREDIT')
+        .reduce((s, x) => s + (Number(x.amount) || 0), 0);
+
+      const totalDebit = list
+        .filter(x => x.transactionType === 'DEBIT')
+        .reduce((s, x) => s + (Number(x.amount) || 0), 0);
+
+      // expose ce dont tu as besoin dans le composant
+      this.total = list.length;
+      this.totalCredit = totalCredit;
+      this.totalDebit = totalDebit;
+      this.residual = totalCredit - totalDebit;   // si tu l’utilises
+
+      return list; // ← renvoie la liste pour l’affichage (lib-data-table)
+    }),
+    catchError(() => {
+      this.total = this.totalCredit = this.totalDebit = this.residual = 0;
+      return of<InfoTransactionModel[]>([]);
+    })
+  );
 }
-
-.field {
-  width: 280px;
-}
-
-.field.narrow {
-  width: 120px;
-}
-
-.toggle-wrap {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.toggle-label {
-  font-size: 13px;
-  color: rgba(0, 0, 0, 0.6);
-}
-
-.btn {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-}
-
-💡 Résultat attendu
-
-📸 L’interface aura deux bandes horizontales :
-
-En haut → le formulaire principal avec les date pickers + inputs alignés.
-
-En bas → le toggle “Matching” à gauche et les boutons Search, Save Filter, My Filters alignés à droite.
