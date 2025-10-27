@@ -624,3 +624,34 @@ HTML — plus de *ngIf (un seul *ngFor)
     </div>
   </div>
 </mat-card>
+
+
+// … à mettre dans ta classe TransactionsSearchComponent
+
+type MenuRow =
+  | { kind: 'loading'; label: string }
+  | { kind: 'empty'; label: string }
+  | { kind: 'item'; name: string }
+  | { kind: 'divider' };
+
+get menuView(): MenuRow[] {
+  // Cas 1 — en cours de chargement
+  if (this.loadingFilters) {
+    return [{ kind: 'loading', label: 'Chargement…' }];
+  }
+
+  // Cas 2 — aucun filtre
+  const keys = Object.keys(this.filters ?? {});
+  if (keys.length === 0) {
+    return [{ kind: 'empty', label: 'Aucun filtre' }];
+  }
+
+  // Cas 3 — filtres disponibles
+  const rows: MenuRow[] = [];
+  keys.forEach((k, idx) => {
+    rows.push({ kind: 'item', name: k });
+    if (idx < keys.length - 1) rows.push({ kind: 'divider' });
+  });
+  return rows;
+}
+
