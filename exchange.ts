@@ -514,3 +514,113 @@ HTML — plus de *ngIf (un seul *ngFor)
     </div>
   </div>
 </mat-card>
+
+
+
+
+<mat-card class="search-card" [class.is-disabled]="form.invalid">
+  <!-- LIGNE 1 : critères principaux -->
+  <div class="toolbar-row">
+    <app-date-time-picker
+      class="field"
+      formControlName="startDate"
+      label="Start Date"
+      [required]="true"
+      [withTimeOnPick]="true"
+      [injectNowOnFocus]="true">
+    </app-date-time-picker>
+
+    <app-date-time-picker
+      class="field"
+      formControlName="endDate"
+      label="End Date"
+      [required]="true"
+      [withTimeOnPick]="true"
+      [injectNowOnFocus]="true">
+    </app-date-time-picker>
+
+    <mat-form-field class="field" appearance="fill">
+      <mat-label>Compte</mat-label>
+      <input matInput formControlName="matchAccount" [matAutocomplete]="autoAcc">
+    </mat-form-field>
+    <mat-autocomplete #autoAcc="matAutocomplete">
+      @for (a of accountOptions; track a) {
+        <mat-option [value]="a">{{ a }}</mat-option>
+      }
+    </mat-autocomplete>
+
+    <mat-form-field class="field narrow" appearance="fill">
+      <mat-label>Limit*</mat-label>
+      <input matInput type="number" min="1" formControlName="limit">
+    </mat-form-field>
+
+    <mat-form-field class="field narrow" appearance="fill">
+      <mat-label>Offset*</mat-label>
+      <input matInput type="number" min="0" formControlName="offset">
+    </mat-form-field>
+  </div>
+
+  <!-- LIGNE 2 : switch + matchTag + actions -->
+  <div class="toolbar-row two">
+    <div class="toggle-wrap">
+      <span class="toggle-label">Matching:</span>
+      <mat-button-toggle-group formControlName="matchMode" aria-label="Matching status">
+        <mat-button-toggle value="No matched yet">No matched yet</mat-button-toggle>
+        <mat-button-toggle value="Matched">Matched</mat-button-toggle>
+      </mat-button-toggle-group>
+    </div>
+
+    @if (isNoMatched) {
+      <mat-form-field class="field tag" appearance="fill">
+        <mat-label>Match Tag</mat-label>
+        <input matInput formControlName="matchTag" placeholder="ex: TAG_ABC_2025">
+      </mat-form-field>
+    }
+
+    <div class="btn">
+      <button mat-raised-button color="primary" type="button" (click)="submit()" [disabled]="form.invalid">
+        Recherche
+      </button>
+
+      <button mat-stroked-button color="accent" type="button" (click)="saveCurrentFilter()" [disabled]="form.invalid || saving">
+        <mat-icon>save</mat-icon> Enregistrer mon filtre
+      </button>
+
+      <button mat-stroked-button color="accent" [matMenuTriggerFor]="filterMenu" type="button">
+        <mat-icon>list</mat-icon> Mes filtres
+      </button>
+
+      <mat-menu #filterMenu="matMenu" xPosition="after">
+        @for (row of menuView; track $index) {
+          @switch (row.kind) {
+            @case ('loading') {
+              <button mat-menu-item disabled>
+                <mat-icon>hourglass_top</mat-icon>
+                <span>Chargement…</span>
+              </button>
+            }
+            @case ('empty') {
+              <button mat-menu-item disabled>
+                <mat-icon>info</mat-icon>
+                <span>Aucun filtre</span>
+              </button>
+            }
+            @case ('item') {
+              <button mat-menu-item (click)="applyFilter(row.name)">
+                <mat-icon>check_circle</mat-icon>
+                <span>{{ row.name }}</span>
+              </button>
+              <button mat-menu-item (click)="deleteFilter(row.name)" [disabled]="deleting">
+                <mat-icon color="warn">delete</mat-icon>
+                <span>Supprimer "{{ row.name }}"</span>
+              </button>
+            }
+            @case ('divider') {
+              <mat-divider></mat-divider>
+            }
+          }
+        }
+      </mat-menu>
+    </div>
+  </div>
+</mat-card>
