@@ -60,3 +60,34 @@ export class TransactionSearchComponent implements OnInit {
     console.log('Submit:', this.form.getRawValue());
   }
 }
+----------------------------------------------------------
+<form [formGroup]="form" (ngSubmit)="onSearch()">
+
+  <!-- Autocomplete multi sélection -->
+  <app-smart-multi-autocomplete-string
+    formControlName="matchAccount"
+    [label]="'Compte'"
+    [placeholder]="'Rechercher un compte...'"
+    [options]="accountOptions"
+    [recentsEnabled]="true"
+    [recentsMode]="'onRefocus'"
+    [maxRecents]="5">
+  </app-smart-multi-autocomplete-string>
+
+  <!-- Match Tag visible uniquement si le mode est 'Matched' (async) -->
+  @if ((matchMode$ | async) === 'Matched') {
+    <mat-form-field appearance="fill" class="w-300">
+      <mat-label>Match tag</mat-label>
+      <input matInput formControlName="matchTag" placeholder="ex: TAG_ABC_2025" />
+    </mat-form-field>
+  }
+
+  <!-- Autres champs… (limit, offset, etc.) -->
+
+  <div class="mt-3">
+    <button type="submit" [disabled]="!(valid$ | async)">Rechercher</button>
+  </div>
+
+  <!-- Debug asynchrone (évite NG0100) -->
+  <pre>Comptes: {{ (accounts$ | async) | json }}</pre>
+</form>
