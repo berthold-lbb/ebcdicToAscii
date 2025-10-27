@@ -91,3 +91,79 @@ export class TransactionSearchComponent implements OnInit {
   <!-- Debug asynchrone (évite NG0100) -->
   <pre>Comptes: {{ (accounts$ | async) | json }}</pre>
 </form>
+
+
+
+----------------------
+
+3) Flux publics pour le template
+import { map, startWith, distinctUntilChanged, shareReplay } from 'rxjs/operators';
+import { Observable, Subject } from 'rxjs';
+
+readonly matchMode$: Observable<MatchingMode> =
+  this.modeCtrl.valueChanges.pipe(
+    startWith(this.modeCtrl.value as MatchingMode),
+    distinctUntilChanged(),
+    shareReplay(1)
+  );
+
+readonly isMatched$ = this.matchMode$.pipe(map(m => m === 'Matched'));
+
+readonly valid$ = this.form.statusChanges.pipe(
+  map(s => s === 'VALID'),
+  startWith(this.form.valid),
+  shareReplay(1)
+);
+
+readonly accounts$ = this.form.get('matchAccount')!.valueChanges.pipe(
+  startWith(this.form.get('matchAccount')!.value),
+  shareReplay(1)
+);
+
+4) Output (compat rétro) + wiring
+@Output() matchModeChange = new EventEmitter<MatchingMode>();
+
+private readonly destroy$ = new Subject<void>();
+
+ngOnInit(): void {
+  // Émettre vers l’Output sans NG0100
+  this.matchMode$
+    .pipe(/* takeUntil(this.destroy$) si tu veux */)
+    .subscribe(mode => queueMicrotask(() => this.matchModeChange.emit(mode)));
+}
+
+ngOnDestroy(): void {
+  this.destroy$.next(); this.destroy$.complete();
+}
+
+5) API claire pour changer le mode (si besoin depuis le code)
+setMatchMode(mode: MatchingMode) {
+  if (this.modeCtrl.value !== mode) {
+    this.modeCtrl.setValue(mode); // déclenche matchMode$ + matchModeChange
+  }
+}
+
+toggleMatchMode() {
+  this.setMatchMode(this.modeCtrl.value === 'Matched' ? 'No matched yet.' : 'Matched');
+}
+
+Template (remplacements sûrs)
+<!-- AVANT (à éviter) -->
+<!-- @if (form.get('matchMode')?.value == 'Matched') { ... } -->
+
+<!-- APRÈS -->
+@if ((isMatched$ | async)) {
+  <mat-form-field appearance="fill" class="w-300">
+    <mat-label>Match tag</mat-label>
+    <input matInput formControlName="matchTag" placeholder="ex: TAG_ABC_2025" />
+  </mat-form-field>
+}
+
+<button type="submit" [disabled]="!(valid$ | async)">Rechercher</button>
+
+<!-- debug non-bloquant -->
+<pre>Comptes: {{ (accounts$ | async) | json }}</pre>
+
+
+Tu peux aussi afficher le mode si besoin :
+Mode: {{ (matchMode$ | async) }}
