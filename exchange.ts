@@ -112,3 +112,38 @@ triggerSearchProgrammatically(): void {
     });
   });
 }
+----------------------------------------------------------------
+-----------------------------------------------------------------
+
+unMatcherTransactions(): void {
+  if (this.transactionLoading) return;
+
+  const ids = this.selectedFromTable.map(t => t.idTransaction);
+  if (!ids.length) return;
+
+  this.transactionLoading = true;                // ON
+
+  const sub = this.worktableService.unMatchBatch(ids).subscribe({
+    next: (msg: string) => {
+      this.log.success(`Désassociation terminée : ${msg}`);
+      // Lancer la recherche APRÈS que [disabled] ait été recalculé :
+      queueMicrotask(() => this.searchTransactionsComponent.submit('unmatch'));
+      this.tableTransactionsComponent.clearSelection();
+    },
+    error: (err) => {
+      this.log.error(`Erreur lors de la désassociation : ${err?.message ?? err}`);
+    },
+    complete: () => {
+      // si l’Observable complète (delete/POST single shot), pas obligatoire mais OK
+    }
+  });
+
+  // cleanup *toujours* exécuté (succès, erreur ou unsubscribe)
+  sub.add(() => {
+    this.transactionLoading = false;             // OFF
+    // si ton parent est en OnPush ET que le template lit [disabled],
+    // décommente la ligne suivante :
+    // this.cdr.markForCheck();
+  });
+}
+Même pattern pour saveMatch :
