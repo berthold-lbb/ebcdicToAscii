@@ -1,58 +1,20 @@
-Voici une version qui rafraîchit immédiatement, annule la requête en cours, et notifie OnPush :
+⚙️ Ce que fait outputHashing: "all"
 
-import { ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
-import { Subject, of } from 'rxjs';
-import { map, distinctUntilChanged, switchMap, catchError, finalize } from 'rxjs/operators';
+Quand tu ajoutes dans ton angular.json :
 
-@Component({
-  // ...
-  changeDetection: ChangeDetectionStrategy.OnPush
-})
-export class TransactionDetailsCard {
-  private reload$ = new Subject<number[]>();
-  items: any[] = [];
-  loading = false;
-  error: string | null = null;
-
-  constructor(private tx: TransactionDetailsService, private cdr: ChangeDetectorRef) {}
-
-  // à appeler quand les ids changent (ngOnChanges) ou via un bouton
-  triggerReload(ids: number[]) { this.reload$.next(ids ?? []); }
-
-  ngOnInit() {
-    this.reload$
-      .pipe(
-        // clé stable sans délai pour démarrer immédiatement
-        map(ids => Array.from(new Set(ids)).join(',')),
-        distinctUntilChanged(),
-
-        // 👉 démarre tout de suite et ANNULE l'appel précédent si on re-clique
-        switchMap(key => {
-          const ids = key ? key.split(',').map(Number) : [];
-          if (!ids.length) return of([] as any[]);
-
-          this.loading = true; this.error = null;
-          this.cdr.markForCheck();                    // notifie OnPush
-
-          return this.tx.getMany(ids).pipe(
-            catchError(err => { this.error = err?.message ?? 'Erreur'; return of([] as any[]); }),
-            finalize(() => { this.loading = false; this.cdr.markForCheck(); })
-          );
-        })
-      )
-      .subscribe(results => {
-        // ⚠️ re-crée la référence pour OnPush
-        this.items = [...results];
-        this.cdr.markForCheck();
-      });
+"configurations": {
+  "production": {
+    "outputHashing": "all"
   }
 }
 
-Dans ngOnChanges
-ngOnChanges(ch: SimpleChanges) {
-  if (ch['row']) {
-    const prev = (ch['row'].previousValue?.transactions ?? []).join(',');
-    const curr = (ch['row'].currentValue?.transactions ?? []).join(',');
-    if (curr && prev !== curr) this.triggerReload(this.row.transactions);
-  }
-}
+
+Angular génère des fichiers avec un hash de contenu dans leur nom :
+
+main.62be4b8f54a3b2b1.js
+polyfills.38b2df32f67a91b4.js
+styles.cfd4f77e9cc123a1.css
+runtime.2a33f9be9f7d8b78.js
+
+
+Ce hash change dès que le contenu du fichier change.
