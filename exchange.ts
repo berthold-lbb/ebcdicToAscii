@@ -1,56 +1,95 @@
-@Injectable({ providedIn: 'root' })
-export class TransactionDetailsService {
-  private readonly BASE_API = `${environment.API}/transactions`;
+Composant — version “drop-in”
+import { Component, Input, OnChanges, OnDestroy, OnInit, SimpleChanges, ChangeDetectionStrategy } from '@angular/core';
+import { Subject, of } from 'rxjs';
+import { debounceTime, map, distinctUntilChanged, switchMap, exhaustMap, tap, catchError, takeUntil, filter } from 'rxjs/operators';
+import { TransactionDetailsService } from './transaction-details.service';
 
-  // 1️⃣ Dictionnaire de cache : "id" → { date d’enregistrement, résultat partagé }
-  private cache = new Map<number, { at: number; obs$: Observable<any> }>();
+type Tx = any;
 
-  // 2️⃣ Durée de vie du cache (ici 5 minutes)
-  private readonly TTL_MS = 5 * 60 * 1000;
+@Component({
+  selector: 'app-transaction-details-card',
+  templateUrl: './transaction-details-card.html',
+  styleUrls: ['./transaction-details-card.scss'],
+  changeDetection: ChangeDetectionStrategy.OnPush
+})
+export class TransactionDetailsCard implements OnInit, OnChanges, OnDestroy {
+  @Input({ required: true }) row!: { transactions: number[] };
 
-  constructor(private http: HttpClient) {}
+  items: Tx[] = [];
+  loading = false;
+  error: string | null = null;
 
-  // 3️⃣ Méthode principale : récupère une transaction (avec cache)
-  getById(id: number, opts?: { force?: boolean }): Observable<any> {
-    const force = !!opts?.force;
-    const cached = this.cache.get(id);
+  private reload$  = new Subject<number[]>();
+  private destroy$ = new Subject<void>();
 
-    // 🟢 Étape 1 : si on a déjà la donnée et qu’elle n’a pas expiré → on la renvoie directement
-    if (!force && cached && this.isFresh(cached.at)) {
-      return cached.obs$;
+  constructor(private tx: TransactionDetailsService) {}
+
+  /** ---- RELOAD PIPELINE ---- */
+  ngOnInit(): void {
+    this.reload$
+      .pipe(
+        debounceTime(120),                                // lisse double-clics
+        map(ids => Array.from(new Set(ids ?? []))),       // déduplique
+        filter(ids => ids.length > 0),                    // ignore vide
+        map(ids => ids.join(',')),                        // clé stable
+        distinctUntilChanged(),                           // évite re-charges identiques
+        tap(() => { this.loading = true; this.error = null; }),
+
+        // 👉 Choisis ta stratégie :
+        // 1) exhaustMap = ignore les nouvelles demandes tant que la précédente n’est pas finie
+        exhaustMap(key =>
+          this.tx.getMany(key.split(',').map(Number)).pipe(
+            catchError(err => { this.error = err?.message ?? 'Erreur inconnue'; return of([] as Tx[]); })
+          )
+        ),
+        // 2) (Alternative) switchMap = annule la précédente pour garder la plus récente
+        // switchMap(key => this.tx.getMany(key.split(',').map(Number)).pipe(
+        //   catchError(err => { this.error = err?.message ?? 'Erreur inconnue'; return of([] as Tx[]); })
+        // )),
+
+        takeUntil(this.destroy$)
+      )
+      .subscribe(results => {
+        this.items = results;
+        this.loading = false;
+      });
+
+    // premier affichage si l'input est déjà là
+    if (this.row?.transactions?.length) this.reload$.next(this.row.transactions);
+  }
+
+  /** ---- TRIGGER venant d’un bouton "Recharger" ---- */
+  reload(): void {
+    this.reload$.next(this.row?.transactions ?? []);
+  }
+
+  /** ---- Ne pousse que si la liste d’IDs a réellement changé ---- */
+  ngOnChanges(ch: SimpleChanges): void {
+    if (ch['row']) {
+      const prev = (ch['row'].previousValue?.transactions ?? []).join(',');
+      const curr = (ch['row'].currentValue?.transactions ?? []).join(',');
+      if (curr && prev !== curr) this.reload$.next(this.row.transactions);
     }
-
-    // 🔵 Étape 2 : sinon on refait l’appel HTTP
-    const obs$ = this.http.get<any>(`${this.BASE_API}/${id}`).pipe(
-      // ✅ shareReplay garde la dernière valeur en mémoire pour tous les abonnés
-      shareReplay({ bufferSize: 1, refCount: false }),
-
-      // ❌ en cas d’erreur, on supprime du cache (on ne garde pas une erreur)
-      catchError(err => {
-        this.cache.delete(id);
-        return throwError(() => err);
-      })
-    );
-
-    // 🟣 Étape 3 : on stocke la nouvelle réponse dans le cache
-    this.cache.set(id, { at: Date.now(), obs$ });
-    return obs$;
   }
 
-  // 4️⃣ Méthode utilitaire : récupère plusieurs ids en une fois
-  getMany(ids: number[]): Observable<any[]> {
-    const unique = [...new Set(ids)];
-    return forkJoin(unique.map(id => this.getById(id)));
+  /** ---- Nettoyage ---- */
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
-  // 5️⃣ Vide le cache (partiellement ou totalement)
-  invalidate(ids?: number[]) {
-    if (!ids || ids.length === 0) this.cache.clear();
-    else ids.forEach(id => this.cache.delete(id));
+  /** ---- Helpers d’affichage ---- */
+  private isCredit = (t: Tx) => t?.side ? t.side === 'CREDIT' : Number(t?.xAmountValue ?? t?.amount) >= 0;
+  get credits(): Tx[] { return this.items.filter(this.isCredit); }
+  get debits():  Tx[] { return this.items.filter(t => !this.isCredit(t)); }
+
+  get computedLayout(): 'grid'|'stack' {
+    return (this.items?.length ?? 0) < 2 ? 'stack' : 'grid';
   }
 
-  // 6️⃣ Vérifie si la donnée est encore "fraîche"
-  private isFresh(at: number): boolean {
-    return Date.now() - at < this.TTL_MS;
+  trackById(index: number, item: Tx): string|number {
+    // Clé unique et stable même si ids en double
+    const side = item?.side ?? (this.isCredit(item) ? 'C' : 'D');
+    return item?.id != null ? `${side}:${item.id}` : `${side}:idx:${index}`;
   }
 }
