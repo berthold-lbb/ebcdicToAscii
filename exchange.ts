@@ -1,36 +1,144 @@
-➡️ Voici la version corrigée avec le moins de changement possible, mais qui règle le problème :
+Pensé pendant24s
 
-app.get(/.*/, (req, res) => {
-  // ✅ 1. Ne pas bloquer les fichiers JS/CSS/images
-  // On laisse Express.static() s'en charger
-  if (req.path.includes('.') && !req.path.endsWith('.html')) {
-    return res.status(404).send('File not found');
+Parfait Kaneki. Voici un angular.json prêt pour Angular 20, en ESM (par défaut avec le builder application), avec un baseHref pointant sur http://localhost:4510/ et en reprenant l’esprit de tes anciennes configs (outputPath, budgets, ssl, CommonJS autorisé, styles externes, etc.).
+
+Remarque : Angular 20 émet ESM nativement — pas besoin d’option spéciale. Il suffit d’utiliser le builder @angular-devkit/build-angular:application.
+
+{
+  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
+  "version": 1,
+  "projects": {
+    "conciliation": {
+      "projectType": "application",
+      "root": "",
+      "sourceRoot": "src",
+      "schematics": {
+        "@schematics/angular:application": { "strict": true },
+        "@schematics/angular:component": { "style": "scss" }
+      },
+      "architect": {
+        "build": {
+          "builder": "@angular-devkit/build-angular:application",
+          "options": {
+            "outputPath": "dist/csp-conciliation/spa",
+            "index": "src/index.html",
+            "main": "src/main.ts",
+            "polyfills": ["zone.js"],
+            "tsConfig": "tsconfig.app.json",
+            "inlineStyleLanguage": "scss",
+            "assets": [
+              "src/favicon.ico",
+              "src/assets"
+            ],
+            "styles": [
+              "src/styles.scss",
+              "node_modules/@dsd/library/dist/library/library.css",
+              "node_modules/@dsd/library/dist/themes/css/dsd-theme-ag-grid.css"
+            ],
+            "scripts": [],
+            "allowedCommonJsDependencies": [
+              "moment-timezone"
+            ],
+
+            /* ====== IMPORTANT pour ton contexte ====== */
+            "baseHref": "http://localhost:4510/",
+            "deployUrl": "/",
+            /* ========================================= */
+
+            "outputHashing": "all",
+            "optimization": true,
+            "sourceMap": false,
+            "namedChunks": false,
+            "vendorChunk": false,
+            "extractLicenses": true
+          },
+          "configurations": {
+            "production": {
+              "fileReplacements": [
+                {
+                  "replace": "src/environments/environment.ts",
+                  "with": "src/environments/environment.prod.ts"
+                }
+              ],
+              "budgets": [
+                { "type": "initial", "maximumWarning": "600kb", "maximumError": "1mb" },
+                { "type": "anyComponentStyle", "maximumWarning": "6kb", "maximumError": "10kb" }
+              ]
+            },
+            "development": {
+              "optimization": false,
+              "sourceMap": true,
+              "namedChunks": true,
+              "vendorChunk": true,
+              "extractLicenses": false,
+              "outputHashing": "none"
+            }
+          },
+          "defaultConfiguration": "production"
+        },
+
+        "serve": {
+          "builder": "@angular-devkit/build-angular:dev-server",
+          "options": {
+            "browserTarget": "conciliation:build:development",
+
+            /* SSL local comme ton ancien setup */
+            "ssl": true,
+            "sslKey": ".cert/private-key.pem",
+            "sslCert": ".cert/cert.pem",
+
+            "host": "localhost",
+            "port": 4510
+          },
+          "configurations": {
+            "production": { "browserTarget": "conciliation:build:production" },
+            "development": { "browserTarget": "conciliation:build:development" }
+          },
+          "defaultConfiguration": "development"
+        },
+
+        "test": {
+          "builder": "@angular-devkit/build-angular:karma",
+          "options": {
+            "polyfills": ["zone.js/testing"],
+            "tsConfig": "tsconfig.spec.json",
+            "assets": ["src/favicon.ico", "src/assets"],
+            "styles": ["src/styles.scss"],
+            "scripts": []
+          }
+        },
+
+        "lint": {
+          "builder": "@angular-eslint/builder:lint",
+          "options": { "lintFilePatterns": ["src/**/*.ts", "src/**/*.html"] }
+        }
+      }
+    }
+  },
+  "cli": {
+    "analytics": false,
+    "cache": { "enabled": false }
   }
+}
 
-  // ✅ 2. Forcer index.html avec NO-CACHE (toujours la dernière version Angular)
-  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-  res.setHeader('Pragma', 'no-cache');
-  res.setHeader('Expires', '0');
-  res.sendFile(path.join(__dirname, `${nomApplication}/index.html`));
+À faire côté root (rappel ultra-court)
+
+Dans ton index.ejs, dans l’import map déjà présente (type systemjs-importmap), pointe vers le fichier ESM généré par ce build (le main-*.js dans dist/csp-conciliation/spa/browser/) :
+
+<script type="systemjs-importmap">
+{
+  "imports": {
+    "mfe-concil": "https://localhost:4510/dist/csp-conciliation/spa/browser/main-XXXX.js"
+  }
+}
+</script>
+
+
+Et garde dans root-config.ts :
+
+registerApplication({
+  name: 'mfe-concil',
+  app: () => System.import('mfe-concil'),
+  activeWhen: (loc) => loc.pathname.startsWith('/conciliation')
 });
-
-💬 Explication ligne par ligne
-Ligne	Ce qu’elle fait
-if (req.path.includes('.') && !req.path.endsWith('.html'))	On renvoie 404 seulement pour des fichiers qui ont un . (ex: .map, .txt) mais pas pour .html. Les vrais fichiers statiques (main.js, styles.css, etc.) sont déjà servis par express.static(), donc pas besoin de les bloquer.
-res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');	On empêche le navigateur de garder une vieille version de index.html en cache.
-res.sendFile(path.join(...))	On renvoie le index.html Angular pour toutes les routes “SPA” (comme /dashboard, /login, /user/5).
-🧩 4️⃣ Vérifie aussi ton express.static(...)
-
-Juste au-dessus, assure-toi que tu as bien :
-
-app.use(express.static(path.join(__dirname, nomApplication), { index: false }));
-
-
-👉 Le index: false empêche Express de servir un index.html tout seul,
-ce qui permet à ton app.get(/.*/) de contrôler le cache.
-
-🚀 En résumé simple
-Partie	Avant	Après
-app.get(/.*/)	Bloquait tous les fichiers avec . (y compris main.js)	Ne bloque plus les .js/.css, juste les vraies erreurs
-index.html	Potentiellement mis en cache	Maintenant “no-cache”
-Résultat	❌ Écran blanc (main.js 404)	✅ Application Angular se charge correctement
+start();
