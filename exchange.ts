@@ -156,3 +156,96 @@ Enlève inlineDynamicImports: true. Tu obtiendras plusieurs fichiers System.regi
 Je veux réduire le poids
 
 Phase 2 : déclarer @angular/*/rxjs en external dans Rollup et les fournir via import map du root (en ESM ou System.register). On stabilise d’abord le chargement.
+
+
+
+
+
+
+
+
+
+
+
+
+Installer le bon set (compatibles v4)
+
+npm i -D rollup@^4 \
+  @rollup/plugin-node-resolve@^15 \
+  @rollup/plugin-commonjs@^25 \
+  @rollup/plugin-terser@^0.4 \
+  glob@^10
+
+
+Mettre à jour la config Rollup
+Dans rollup.config.mjs, importe @rollup/plugin-terser (et pas rollup-plugin-terser) :
+
+// rollup.config.mjs
+import { nodeResolve } from '@rollup/plugin-node-resolve';
+import commonjs from '@rollup/plugin-commonjs';
+import terser from '@rollup/plugin-terser';   // <— ICI
+
+const input = process.env.ROLLUP_INPUT;
+if (!input) throw new Error('ROLLUP_INPUT manquant');
+
+export default {
+  input,
+  output: {
+    file: 'dist/conciliation/mfe-concil.system.js',
+    format: 'system',
+    sourcemap: true,
+    inlineDynamicImports: true,
+  },
+  plugins: [
+    nodeResolve(),
+    commonjs(),
+    terser(),  // <— ICI
+  ],
+};
+
+Si le lock est “collant”
+
+Parfois npm garde l’ancien graphe. Dans ce cas :
+
+rm -rf node_modules package-lock.json
+npm i
+
+
+puis ré-installe le set ci-dessus (étape 2).
+
+
+
+
+
+
+
+
+
+✅ À mettre dans package.json (section "scripts")
+{
+  "scripts": {
+    "start": "ng serve -c development",
+    "build": "ng build",
+    "build:dev": "ng build -c development",
+    "build:prod": "ng build -c production",
+    "build:local": "ng build -c local",
+
+    "rollup:from-dist": "node -e \"const {globSync}=require('glob');const m=globSync('dist/**/browser/main-*.js')[0];if(!m)throw new Error('main-*.js introuvable');process.env.ROLLUP_INPUT=m;require('child_process').execSync('rollup -c', {stdio:'inherit'});\"",
+
+    "bundle": "npm run build && npm run rollup:from-dist",
+    "bundle:dev": "npm run build:dev && npm run rollup:from-dist",
+    "bundle:prod": "npm run build:prod && npm run rollup:from-dist",
+    "bundle:local": "npm run build:local && npm run rollup:from-dist"
+  }
+}
+
+
+bundle:* = build Angular (ESM) puis re-bundle Rollup en System.register (fichier unique).
+
+Utilise la conf existante : production, development, local. Pas besoin d’une conf nommée mfe.
+
+📦 Dépendances de build (une seule fois)
+npm i -D rollup@^4 @rollup/plugin-node-resolve@^15 @rollup/plugin-commonjs@^25 @rollup/plugin-terser@^0.4 glob@^10
+
+
+Et garde rollup.config.mjs à la racine (celui avec format: "system" et inlineDynamicImports: true).
