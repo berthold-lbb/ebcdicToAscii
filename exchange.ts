@@ -1,144 +1,158 @@
-Pensé pendant24s
+Où mettre quoi (arbo finale)
 
-Parfait Kaneki. Voici un angular.json prêt pour Angular 20, en ESM (par défaut avec le builder application), avec un baseHref pointant sur http://localhost:4510/ et en reprenant l’esprit de tes anciennes configs (outputPath, budgets, ssl, CommonJS autorisé, styles externes, etc.).
+À la racine du projet (même niveau que package.json, angular.json) :
 
-Remarque : Angular 20 émet ESM nativement — pas besoin d’option spéciale. Il suffit d’utiliser le builder @angular-devkit/build-angular:application.
+/ (racine)
+├─ src/
+│  ├─ main.single-spa.ts      ← ton entrée MFE (déjà là)
+│  └─ ...
+├─ angular.json
+├─ package.json
+├─ rollup.config.mjs          ← AJOUTER ICI
+└─ (le reste)
+
+
+rollup.config.mjs vit à la racine.
+On ne crée pas de sous-dossier spécial.
+
+1) Installer les outils
+npm i -D rollup @rollup/plugin-node-resolve @rollup/plugin-commonjs rollup-plugin-terser glob
+
+2) Créer rollup.config.mjs (à la racine)
+
+Remplace dist/<app>/mfe-concil.system.js par ton chemin de sortie voulu (garde dist/...).
+
+// rollup.config.mjs (RACINE)
+import { nodeResolve } from '@rollup/plugin-node-resolve';
+import commonjs from '@rollup/plugin-commonjs';
+import { terser } from 'rollup-plugin-terser';
+
+const input = process.env.ROLLUP_INPUT; // on le passera via npm script
+if (!input) throw new Error('ROLLUP_INPUT manquant (main-*.js du build Angular).');
+
+export default {
+  input,
+  output: {
+    file: 'dist/conciliation/mfe-concil.system.js', // ← adapte "conciliation" au nom de ton app
+    format: 'system',            // ⇒ System.register
+    sourcemap: true,
+    inlineDynamicImports: true   // ⇒ bundle unique, pas de chunks
+  },
+  // On embarque tout (AUCUN external) => le root n'a rien à partager
+  plugins: [nodeResolve(), commonjs(), terser()]
+};
+
+
+Si ton projet s’appelle autrement (ex: angular-20), remplace dist/conciliation/... par dist/angular-20/....
+
+3) Scripts dans package.json
+
+Ajoute/merge ces scripts :
 
 {
-  "$schema": "./node_modules/@angular/cli/lib/config/schema.json",
-  "version": 1,
+  "scripts": {
+    "build:mfe": "ng build -c mfe",
+    "postbuild:mfe": "node -e \"const {globSync}=require('glob');const m=globSync('dist/**/browser/main-*.js')[0];if(!m)throw new Error('main-*.js introuvable');process.env.ROLLUP_INPUT=m;require('child_process').execSync('rollup -c', {stdio:'inherit'});\"",
+    "bundle:mfe": "npm run build:mfe && npm run postbuild:mfe"
+  }
+}
+
+
+build:mfe : build Angular ESM en utilisant ta config mfe (où main = src/main.single-spa.ts).
+
+postbuild:mfe : repère main-*.js dans dist/**/browser/ et lance Rollup avec ce fichier en entrée.
+
+bundle:mfe : enchaîne les deux.
+
+4) Vérifier angular.json (config mfe)
+
+Dans ton projet (ex: conciliation) assure-toi d’avoir une config qui pointe sur main.single-spa.ts :
+
+{
   "projects": {
     "conciliation": {
-      "projectType": "application",
-      "root": "",
-      "sourceRoot": "src",
-      "schematics": {
-        "@schematics/angular:application": { "strict": true },
-        "@schematics/angular:component": { "style": "scss" }
-      },
       "architect": {
         "build": {
           "builder": "@angular-devkit/build-angular:application",
           "options": {
-            "outputPath": "dist/csp-conciliation/spa",
+            "outputPath": "dist/conciliation",
             "index": "src/index.html",
             "main": "src/main.ts",
             "polyfills": ["zone.js"],
             "tsConfig": "tsconfig.app.json",
-            "inlineStyleLanguage": "scss",
-            "assets": [
-              "src/favicon.ico",
-              "src/assets"
-            ],
-            "styles": [
-              "src/styles.scss",
-              "node_modules/@dsd/library/dist/library/library.css",
-              "node_modules/@dsd/library/dist/themes/css/dsd-theme-ag-grid.css"
-            ],
-            "scripts": [],
-            "allowedCommonJsDependencies": [
-              "moment-timezone"
-            ],
-
-            /* ====== IMPORTANT pour ton contexte ====== */
-            "baseHref": "http://localhost:4510/",
-            "deployUrl": "/",
-            /* ========================================= */
-
-            "outputHashing": "all",
-            "optimization": true,
-            "sourceMap": false,
-            "namedChunks": false,
-            "vendorChunk": false,
-            "extractLicenses": true
-          },
-          "configurations": {
-            "production": {
-              "fileReplacements": [
-                {
-                  "replace": "src/environments/environment.ts",
-                  "with": "src/environments/environment.prod.ts"
-                }
-              ],
-              "budgets": [
-                { "type": "initial", "maximumWarning": "600kb", "maximumError": "1mb" },
-                { "type": "anyComponentStyle", "maximumWarning": "6kb", "maximumError": "10kb" }
-              ]
-            },
-            "development": {
-              "optimization": false,
-              "sourceMap": true,
-              "namedChunks": true,
-              "vendorChunk": true,
-              "extractLicenses": false,
-              "outputHashing": "none"
-            }
-          },
-          "defaultConfiguration": "production"
-        },
-
-        "serve": {
-          "builder": "@angular-devkit/build-angular:dev-server",
-          "options": {
-            "browserTarget": "conciliation:build:development",
-
-            /* SSL local comme ton ancien setup */
-            "ssl": true,
-            "sslKey": ".cert/private-key.pem",
-            "sslCert": ".cert/cert.pem",
-
-            "host": "localhost",
-            "port": 4510
-          },
-          "configurations": {
-            "production": { "browserTarget": "conciliation:build:production" },
-            "development": { "browserTarget": "conciliation:build:development" }
-          },
-          "defaultConfiguration": "development"
-        },
-
-        "test": {
-          "builder": "@angular-devkit/build-angular:karma",
-          "options": {
-            "polyfills": ["zone.js/testing"],
-            "tsConfig": "tsconfig.spec.json",
             "assets": ["src/favicon.ico", "src/assets"],
             "styles": ["src/styles.scss"],
-            "scripts": []
+            "outputHashing": "all",
+            "baseHref": "/",
+            "deployUrl": "/dist/conciliation/browser/"
+          },
+          "configurations": {
+            "mfe": {
+              "main": "src/main.single-spa.ts",
+              "fileReplacements": [
+                { "replace": "src/environments/environment.ts", "with": "src/environments/environment.prod.ts" }
+              ]
+            }
           }
-        },
-
-        "lint": {
-          "builder": "@angular-eslint/builder:lint",
-          "options": { "lintFilePatterns": ["src/**/*.ts", "src/**/*.html"] }
         }
       }
     }
-  },
-  "cli": {
-    "analytics": false,
-    "cache": { "enabled": false }
   }
 }
 
-À faire côté root (rappel ultra-court)
 
-Dans ton index.ejs, dans l’import map déjà présente (type systemjs-importmap), pointe vers le fichier ESM généré par ce build (le main-*.js dans dist/csp-conciliation/spa/browser/) :
+outputPath: libre, mais garde-le cohérent avec rollup.config.mjs (ici dist/conciliation).
+
+deployUrl: chemin public depuis lequel le navigateur récupérera les chunks pendant le build ESM (Rollup les fusionnera ensuite).
+
+mfe.main → src/main.single-spa.ts ✅
+
+5) Build + bundle
+npm run bundle:mfe
+
+
+Tu obtiens :
+
+dist/conciliation/
+├─ browser/
+│  ├─ main-XXXX.js
+│  ├─ chunk-*.js
+│  └─ styles-*.css (si présent)
+└─ mfe-concil.system.js        ← ✔️ le fichier final à donner au root
+
+
+C’est ce fichier unique que le root doit charger via System.import('mfe-concil').
+
+6) Côté root (aucun code à changer)
+
+Tu ne touches pas au JS du root.
+Tu mets à jour uniquement la cible (import map / config route → l’URL) :
 
 <script type="systemjs-importmap">
 {
   "imports": {
-    "mfe-concil": "https://localhost:4510/dist/csp-conciliation/spa/browser/main-XXXX.js"
+    "mfe-concil": "https://localhost:4510/dist/conciliation/mfe-concil.system.js"
   }
 }
 </script>
 
 
-Et garde dans root-config.ts :
+Le nom mfe-concil doit être le même que dans registerApplication({ name: 'mfe-concil', ... }).
 
-registerApplication({
-  name: 'mfe-concil',
-  app: () => System.import('mfe-concil'),
-  activeWhen: (loc) => loc.pathname.startsWith('/conciliation')
-});
-start();
+Questions fréquentes
+
+Où mettre le CSS global ?
+
+Si tu as un styles-*.css, deux options :
+
+Ajouter un <link> dans le root (une fois) vers ce CSS (chemin public du build).
+
+Limiter les styles globaux et styler via composants (rien à ajouter côté root).
+
+Et si je veux garder des chunks (lazy) ?
+
+Enlève inlineDynamicImports: true. Tu obtiendras plusieurs fichiers System.register → il faudra s’assurer que SystemJS résout leurs chemins (import map additional, paths…) → plus complexe. Pour l’instant, un seul bundle = plus simple.
+
+Je veux réduire le poids
+
+Phase 2 : déclarer @angular/*/rxjs en external dans Rollup et les fournir via import map du root (en ESM ou System.register). On stabilise d’abord le chargement.
