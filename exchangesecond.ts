@@ -1,191 +1,228 @@
-Top, on adapte tout à datasource: T[] (pas de signal), on filtre les champs vides (matchTag, matchScore, matchApproval), et on préserve la sélection après le patch (en la reconstruisant avec les nouvelles références). Ça marche avec la méthode 1 (patch par id + coloration par id).
+1. Contexte de départ
 
-B — éditeur (patch typé + filtre des vides)
-// bulk-editor.component.ts
-import { Component, EventEmitter, Output } from '@angular/core';
-import { FormControl } from '@angular/forms';
+Front existant :
 
-export interface InfoTransactionModel {
-  idTransaction: string | number;
-  matchTag?: string;
-  matchDate?: string;
-  matchScore?: string;
-  matchApproval?: string;
-}
+Root single-spa + SystemJS.
 
-type TransactionPatch = Partial<
-  Pick<InfoTransactionModel, 'matchTag' | 'matchDate' | 'matchScore' | 'matchApproval'>
->;
+Les micro-frontends Angular 14 sont livrés en UMD/System.register via webpack custom.
 
-export type BulkPatchEvent = {
-  patch: TransactionPatch;   // seulement les champs non vides
-  color?: string;            // pour ngStyle
-  cssClass?: string;         // (option) pour ngClass
+Le root charge les MFEs avec System.import('nom-mfe') en s’appuyant sur un import-map.
+
+Objectif de la migration :
+
+Migrer un MFE Angular 14 → Angular 20.
+
+Garder le root tel qu’il est (SystemJS + UMD) pour ne pas casser les MFEs existants.
+
+Pouvoir charger le nouveau MFE Angular 20 via le root single-spa.
+
+Problème : Angular 20 ne sait plus sortir du UMD nativement. Il sort uniquement du ESM moderne.
+
+2. ESM vs UMD – rappel rapide
+UMD (Universal Module Definition)
+
+Pensé pour supporter :
+
+CommonJS (Node),
+
+AMD / RequireJS,
+
+et un global (window.lib = ...).
+
+Exemple d’utilisation :
+
+On met un <script> qui définit un global, ou on le charge via SystemJS qui sait comprendre la forme System.register/UMD.
+
+Avantages :
+
+Très compatible avec des vieux bundlers / chargeurs (SystemJS, RequireJS).
+
+Format “universel” pour les architectures existantes.
+
+Inconvénients :
+
+Optimisations plus limitées (tree-shaking plus difficile).
+
+Pas le format “natif” des navigateurs modernes.
+
+Complexifie les partages de dépendances et la migration vers les nouveaux outils (Vite, esbuild, etc.).
+
+ESM (ECMAScript Modules)
+
+Format standard du JavaScript moderne :
+
+import / export natifs dans le navigateur.
+
+Directement supporté par les navigateurs sans loader externe.
+
+Avantages :
+
+Meilleur tree-shaking → bundles plus petits.
+
+Meilleure intégration avec les outils modernes (Angular 20, Vite, Rollup, Webpack 5…).
+
+Chargement dynamique simple : import('…').
+
+plus aligné avec les librairies récentes (RxJS, Angular, etc.).
+
+Inconvénients dans ton contexte :
+
+Ton root actuel ne parle que SystemJS + UMD/System.register.
+
+Un bundle ESM “pur” ne peut pas être chargé tel quel avec System.import() sans adapter le root.
+
+3. Les options de migration
+Option A – Moderniser le root pour parler ESM
+
+Idée :
+
+Adapter le root (index.ejs + root-config) pour charger les MFEs Angular 20 directement en ESM :
+
+Utiliser les import maps natives :
+
+<script type="importmap">
+  {
+    "imports": {
+      "mfe-concil": "https://…/main-esm.js"
+    }
+  }
+</script>
+<script type="module">
+  import { start } from 'single-spa';
+  import './root-config.js';
+  start();
+</script>
+
+
+Remplacer certains System.import() par des import() ou utiliser le support ESM de single-spa.
+
+Avantages :
+
+Architecture à jour, alignée sur Angular 20 et les navigateurs modernes.
+
+Moins de couches techniques (plus besoin de SystemJS à terme).
+
+Plus facile pour les futurs MFEs.
+
+Inconvénients :
+
+Impacts lourds sur le root :
+
+Il faut tester tous les MFEs existants.
+
+Risque de régression si certains MFEs ou libs supposent encore du UMD/global.
+
+Migration “Big Bang” ou au moins assez structurante.
+
+Option B – Garder le root en UMD et convertir le bundle ESM → System.register après le build (post-build Rollup)
+
+Idée :
+
+Build Angular 20 normalement en ESM :
+
+ng build → dist/angular-20/browser/main-XXXX.js (+ chunks).
+
+Post-build Rollup :
+
+Rollup lit main-XXXX.js en entrée.
+
+Il rebundle en un seul fichier System.register :
+
+export default {
+  input: process.env.ROLLUP_INPUT,
+  output: {
+    format: "system",
+    file: "dist/angular-20/browser/main.system.js",
+    inlineDynamicImports: true
+  },
+  plugins: [resolve(), commonjs(), terser()]
 };
 
-@Component({
-  selector: 'app-bulk-editor',
-  template: `
-    <input class="form-control" [formControl]="tag"      placeholder="matchTag">
-    <input class="form-control" [formControl]="date"     placeholder="matchDate">
-    <select class="form-select"  [formControl]="score"   style="max-width: 140px">
-      <option value="">score ?</option>
-      <option *ngFor="let s of scores" [value]="s">{{s}}</option>
-    </select>
-    <input class="form-control" [formControl]="approval" placeholder="matchApproval">
 
-    <input type="color" class="form-control form-control-color" [formControl]="color">
-    <input class="form-control" [formControl]="klass" placeholder="cssClass (option)">
+Résultat : dist/angular-20/browser/main.system.js
 
-    <button class="btn btn-primary mt-2" (click)="emit()">Appliquer</button>
-  `
-})
-export class BulkEditorComponent {
-  @Output() applyPatch = new EventEmitter<BulkPatchEvent>();
+Côté root :
 
-  scores = ['20%','30%','40%','50%','60%','70%','80%','90%','100%'];
+Rien ne change dans le code.
 
-  tag      = new FormControl<string>('');
-  date     = new FormControl<string>('');
-  score    = new FormControl<string>('');
-  approval = new FormControl<string>('');
-  color    = new FormControl<string>('#fffbd6');
-  klass    = new FormControl<string>('');
+On pointe simplement l’import map vers ce nouveau bundle :
 
-  private isBlank = (v: unknown) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
-
-  emit() {
-    const p: TransactionPatch = {};
-
-    const t = this.tag.value;
-    const d = this.date.value;
-    const s = this.score.value;
-    const a = this.approval.value;
-
-    if (!this.isBlank(t)) p.matchTag = t!.trim();
-    if (!this.isBlank(d)) p.matchDate = d!.trim();
-    if (!this.isBlank(s)) p.matchScore = s!.trim();
-    if (!this.isBlank(a)) p.matchApproval = a!.trim();
-
-    if (!Object.keys(p).length) return;
-
-    this.applyPatch.emit({
-      patch: p,
-      color: this.color.value || undefined,
-      cssClass: this.klass.value?.trim() || undefined
-    });
+{
+  "imports": {
+    "mfe-concil": "http://localhost:4510/angular-20/main.system.js"
   }
 }
 
-A — host (datasource array, patch par id, couleur par id, sélection reconstruite)
-// host.component.ts
-import { Component } from '@angular/core';
-import type { BulkPatchEvent } from '../bulk-editor/bulk-editor.component';
 
-type Id = string | number;
+et System.import('mfe-concil') continue de fonctionner comme avant.
 
-@Component({
-  selector: 'app-transactions-table',
-  templateUrl: './host.component.html'
-})
-export class HostComponent<T extends Record<string, any>> {
-  // ==== Données & sélection ====
-  rowIdKey: keyof T = 'idTransaction' as any;   // adapte la clé id
-  datasource: T[] = [];                          // <-- tableau, pas signal
-  selectedROWS: T[] = [];
+Avantages :
 
-  // Styles mémorisés par ID (stables même si les objets changent)
-  private editedBgById    = new Map<Id, string>();
-  private editedClassById = new Map<Id, string>();
+Le root reste strictement identique (SystemJS, UMD, autres MFEs).
 
-  // Utils
-  private getId = (row: T): Id => row[this.rowIdKey] as Id;
-  private selToIds = (rows: T[]) => new Set(rows.map(r => this.getId(r)));
-  private isBlank = (v: unknown) => v === null || v === undefined || (typeof v === 'string' && v.trim() === '');
+On profite quand même :
 
-  // Optionnel : re-filtrer un patch arrivé côté A (sécurité)
-  private sanitizePatch(patch: Record<string, any>): Record<string, any> {
-    const cleaned: Record<string, any> = {};
-    for (const [k, v] of Object.entries(patch)) {
-      if (!this.isBlank(v)) cleaned[k] = typeof v === 'string' ? v.trim() : v;
-    }
-    return cleaned;
-  }
+du tooling moderne d’Angular 20,
 
-  onSelectedROWSChange(rows: T[]) {
-    this.selectedROWS = rows ?? [];
-  }
+de la compilation Ivy/ESM,
 
-  // ===== Patch immuable + couleurs garanties + sélection persistante =====
-  onApplyPatchFromB(evt: BulkPatchEvent) {
-    let { patch, color, cssClass } = evt;
-    const cleanPatch = this.sanitizePatch(patch as Record<string, any>);
-    if (!Object.keys(cleanPatch).length) return;
+et on ne touche pas aux MFEs existants.
 
-    const ids = this.selToIds(this.selectedROWS);
-    if (!ids.size) return;
+Migration progressive : MFE par MFE.
 
-    // 1) Mémoriser style par ID
-    if (color)    ids.forEach(id => this.editedBgById.set(id, color!));
-    if (cssClass) ids.forEach(id => this.editedClassById.set(id, cssClass!));
+Inconvénients :
 
-    // 2) Appliquer patch IMMUTABLE par id
-    const next = this.datasource.map(r => {
-      const id = this.getId(r);
-      return ids.has(id) ? { ...r, ...cleanPatch } as T : r;
-    });
+On introduit une étape build supplémentaire (Rollup).
 
-    // 3) Remplacer la datasource (nouvelle référence d'array)
-    this.datasource = next;
+Le bundle final est un gros fichier unique (inlineDynamicImports) :
 
-    // 4) Refaire la sélection avec les NOUVELLES références (persistance assurée)
-    this.selectedROWS = next.filter(r => ids.has(this.getId(r)));
-  }
+plus simple pour SystemJS,
 
-  // ==== Hooks de style pour lib-data-table ====
-  rowStyleFn = (row: T) => {
-    const bg = this.editedBgById.get(this.getId(row));
-    return bg ? { backgroundColor: bg } : null;
-  };
+mais moins optimal pour le code-splitting.
 
-  rowClassFn = (row: T) => this.editedClassById.get(this.getId(row)) ?? null;
-}
+Solution “pont” : à long terme, il faudra quand même envisager une vraie migration ESM du root.
 
-<!-- host.component.html -->
-<app-bulk-editor (applyPatch)="onApplyPatchFromB($event)"></app-bulk-editor>
+4. Solutions recommandées dans ton contexte
+Court/moyen terme (ce que tu es en train de mettre en place)
 
-<lib-data-table
-  [data]="datasource"
-  [rowIdKey]="rowIdKey"
-  [selectedROWS]="selectedROWS"
-  (selectedROWSChange)="onSelectedROWSChange($event)"
-  [pageSize]="5"
-  [pageSizeOptions]="[5,10,25,50]"
-  [enableOrder]="true"
+Garder le root en SystemJS/UMD et convertir le MFE Angular 20 en System.register avec Rollup (Option B).
 
-  [rowStyleFn]="rowStyleFn"
-  [rowClassFn]="rowClassFn">
-</lib-data-table>
+Pourquoi c’est pertinent :
 
-lib-data-table (si besoin des hooks)
-// lib-data-table.component.ts
-@Input() rowStyleFn?: (row: any) => Record<string, string> | null;
-@Input() rowClassFn?: (row: any) => string | string[] | Set<string> | null;
+Risque minimal : le root ne change pas, les autres MFEs continuent d’être chargés comme avant.
 
-trackById = (_: number, row: any) => row[this.rowIdKey as string];
+Focalisé sur un seul MFE : on peut valider Angular 20 sans toucher à toute la plateforme.
 
-<tr *ngFor="let row of view; trackBy: trackById"
-    [ngStyle]="rowStyleFn?.(row) || null"
-    [ngClass]="rowClassFn?.(row) || null">
-  <!-- cells -->
-</tr>
+Réversible : si un problème survient, tu peux toujours revenir à l’ancien MFE Angular 14.
 
-Ce que cette version te garantit
+En pratique :
 
-Les champs vides (matchTag, matchScore, matchApproval, etc.) sont ignorés (filtrés côté B et re-sanitisés côté A).
+ng build (Angular 20) → bundle ESM.
 
-Couleur/classe restent visibles après patch, tri, pagination ou reload → stockées par ID.
+rollup post-build → main.system.js.
 
-Sélection persistante : reconstruite avec les nouvelles références tout de suite après le map.
+Root importe main.system.js via SystemJS comme un UMD/System.register classique.
 
-Compatible OnPush (nouvelle référence de tableau), sans mutation des objets hors patch cib
+Long terme
+
+Planifier une migration progressive du root vers un modèle full ESM / import maps.
+
+Une fois que plusieurs MFEs sont en Angular 20+ :
+
+réduire l’usage de SystemJS,
+
+servir les MFEs comme scripts type="module",
+
+déplacer le partage des dépendances dans des import maps natives.
+
+5. Message clé à faire passer en présentation
+
+Angular 20 impose un build moderne basé sur ESM.
+
+Le root actuel est structuré autour de SystemJS + UMD/System.register.
+
+Modifier le root tout de suite serait risqué pour tous les MFEs existants.
+
+La stratégie choisie est donc une migration progressive :
+
+On build le MFE Angular 20 en ESM, puis on utilise Rollup pour le transformer en System.register afin qu’il reste compatible avec le root historique, sans toucher aux autres microfrontends.
