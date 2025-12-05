@@ -1,52 +1,51 @@
-src/app/guards/em-jeton-pkce-guard-v20.guard.ts
+import 'zone.js';
 
-import { Injectable } from '@angular/core';
-import { CanActivate } from '@angular/router';
-import { OAuthService } from 'angular-oauth2-oidc';
+import { enableProdMode, ApplicationConfig } from '@angular/core';
+import { bootstrapApplication } from '@angular/platform-browser';
+import { Router, NavigationStart } from '@angular/router';
+import { NgZone } from '@angular/core';
 
-@Injectable({
-  providedIn: 'root'
-})
-export class EmJetonPKCEGuardV20 implements CanActivate {
+import { environment } from './environments/environment';
 
-  constructor(private readonly oauthService: OAuthService) {}
+import {
+  singleSpaAngular,
+  getSingleSpaExtraProviders
+} from 'single-spa-angular';
 
-  /**
-   * Méthode utilisée par le router Angular pour autoriser ou non une route.
-   * (même logique que le guard original de la librairie)
-   */
-  canActivate(): boolean {
-    if (this.oauthService.hasValidAccessToken() &&
-        this.oauthService.hasValidIdToken()) {
-      return true;
-    } else {
-      this.oauthService.initImplicitFlow();
-      return false;
-    }
-  }
+// ⚠️ adapte le chemin / les types à ton projet
+import { AppProps, singleSpaPropsSubject } from './single-spa/single-spa-props';
+
+import { AppComponent } from './app/app.component';
+import { appConfig } from './app/app.config';
+
+if (environment.production) {
+  enableProdMode();
 }
 
+const lifecycles = singleSpaAngular({
+  bootstrapFunction: (singleSpaProps: AppProps) => {
+    // on push les props single-spa comme avant
+    singleSpaPropsSubject.next(singleSpaProps);
 
+    // on fusionne la config globale de l'app + les providers single-spa
+    const mergedConfig: ApplicationConfig = {
+      providers: [
+        ...(appConfig.providers ?? []),
+        getSingleSpaExtraProviders(),
+      ],
+    };
 
+    // ⬇️ équivalent standalone de :
+    // platformBrowserDynamic(getSingleSpaExtraProviders()).bootstrapModule(AppModule)
+    return bootstrapApplication(AppComponent, mergedConfig);
+  },
 
-@NgModule({
-  declarations: [AppComponent],
-  imports: [
-    BrowserModule,
-    // ... tes autres imports
-    EmCoreModule.forRoot(/* ta config */),
-  ],
-  providers: [
-    // autres providers éventuels...
+  template: '<app-root />',
+  Router,
+  NavigationStart,
+  NgZone,
+});
 
-    // 👉 OVERRIDE DU GUARD DE LA LIB
-    {
-      provide: EmJetonPKCEGuard,
-      useExisting: EmJetonPKCEGuardV20
-      // tu peux aussi faire:
-      // useClass: EmJetonPKCEGuardV20
-    }
-  ],
-  bootstrap: [AppComponent]
-})
-export class AppModule {}
+export const bootstrap = lifecycles.bootstrap;
+export const mount = lifecycles.mount;
+export const unmount = lifecycles.unmount;
