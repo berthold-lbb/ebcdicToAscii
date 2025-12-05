@@ -139,3 +139,29 @@ export const appConfig: ApplicationConfig = {
     // ➜ importe-les dans les components standalone qui les utilisent.
   ]
 };
+
+
+
+const lifecycles = singleSpaAngular({
+  bootstrapFunction: (singleSpaProps: AppProps) => {
+    // on push les props single-spa comme avant
+    singleSpaPropsSubject.next(singleSpaProps);
+
+    // on fusionne la config globale de l'app + les providers single-spa
+    const mergedConfig: ApplicationConfig = {
+      providers: [
+        ...(appConfig.providers ?? []),
+        getSingleSpaExtraProviders(),
+      ],
+    };
+
+    // ⬇️ équivalent standalone de :
+    // platformBrowserDynamic(getSingleSpaExtraProviders()).bootstrapModule(AppModule)
+    return bootstrapApplication(AppComponent, mergedConfig);
+  },
+
+  template: '<app-root />',
+  Router,
+  NavigationStart,
+  NgZone,
+});
