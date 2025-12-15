@@ -1,228 +1,165 @@
-🎯 Objectif du test
+2) Repository : oui, mais “léger”
 
-Simuler :
+Le repository sert à :
 
-2 tabs (Tab A / Tab B)
+centraliser OpenAPI (getReglesParGL, getCompteGL, add/delete…)
 
-chaque tab a son propre router-outlet nommé
+centraliser la construction des params selon filtres (“tous” → inclureTousLesGL=true)
 
-navigation rapide + lazy + resize
+centraliser mapping (comboOptions, tri, normalisation)
 
-observer :
+Exemple concret (très proche de ton code)
 
-logs de lifecycle
+regles.repository.ts
 
-tailles incorrectes
+@Injectable()
+export class ReglesRepository {
+  constructor(
+    private conciliationApi: ConciliationAutoService,
+    private compteApi: CompteGrandLivreService,
+  ) {}
 
-parfois erreurs DSD
-
-parfois rendu cassé
-
-1️⃣ Template : tabs + router-outlets nommés (SANS ngIf)
-<dsd-tab-group (dsdTabsChange)="onTabsChange($event)">
-  <div slot="tabs">
-    <dsd-tab panel="tabA">Tab A</dsd-tab>
-    <dsd-tab panel="tabB">Tab B</dsd-tab>
-  </div>
-
-  <div slot="panels">
-    <dsd-tab-panel name="tabA">
-      <!-- Outlet A -->
-      <router-outlet name="tabA"></router-outlet>
-    </dsd-tab-panel>
-
-    <dsd-tab-panel name="tabB">
-      <!-- Outlet B -->
-      <router-outlet name="tabB"></router-outlet>
-    </dsd-tab-panel>
-  </div>
-</dsd-tab-group>
-
-
-👉 Important :
-
-les panels ne sont jamais détruits
-
-les outlets sont toujours présents
-
-on respecte le contrat DSD
-
-2️⃣ Routes avec outlets nommés + lazy
-export const routes: Routes = [
-  {
-    path: '',
-    component: TabsHostComponent,
-    children: [
-      {
-        path: 'a',
-        outlet: 'tabA',
-        loadComponent: () =>
-          import('./pages/page-a.component').then(m => m.PageAComponent),
-      },
-      {
-        path: 'b',
-        outlet: 'tabA',
-        loadComponent: () =>
-          import('./pages/page-b.component').then(m => m.PageBComponent),
-      },
-      {
-        path: 'c',
-        outlet: 'tabB',
-        loadComponent: () =>
-          import('./pages/page-c.component').then(m => m.PageCComponent),
-      },
-      {
-        path: 'd',
-        outlet: 'tabB',
-        loadComponent: () =>
-          import('./pages/page-d.component').then(m => m.PageDComponent),
-      },
-    ],
-  },
-];
-
-3️⃣ Navigation tabs → router
-onTabsChange(evt: any) {
-  const panel = evt?.detail?.activeTab?.panel;
-
-  if (panel === 'tabA') {
-    this.router.navigate([{ outlets: { tabA: ['a'] } }]);
+  buildParamsFromUi(valueCombobox: string): GetReglesParGL$Params {
+    if (valueCombobox === 'tous') return { inclureTousLesGL: true };
+    return { idCompteGL: valueCombobox };
   }
 
-  if (panel === 'tabB') {
-    this.router.navigate([{ outlets: { tabB: ['c'] } }]);
+  loadRegles$(valueCombobox: string) {
+    const params = this.buildParamsFromUi(valueCombobox);
+    return this.conciliationApi.getReglesParGL(params);
+  }
+
+  loadComptesGL$() {
+    return this.compteApi.getCompteGL().pipe(
+      map((response) => ({
+        comptes: response,
+        comboOptions: [
+          ['tous', 'Tous'],
+          ...response.map(c => [c.identifiantCompteGL!, c.numeroCompteGL!])
+        ]
+      }))
+    );
+  }
+
+  deleteRegle$(id: string) {
+    return this.conciliationApi.deleteRegle({ id });
   }
 }
 
-4️⃣ Composant de test “probe” (clé pour voir le problème)
 
-👉 Ce composant mesure sa taille au montage
-👉 S’il est monté dans un panel caché → largeur = 0
+Dans ton composant tu ne fais plus que :
 
-@Component({
-  standalone: true,
-  template: `
-    <div class="probe">
-      <h3>{{ name }}</h3>
-      <p>Width: {{ width }}</p>
-      <button (click)="spam()">Spam navigation</button>
-    </div>
-  `,
-  styles: [`
-    .probe {
-      border: 2px solid red;
-      padding: 16px;
-    }
-  `]
-})
-export class ProbeComponent implements AfterViewInit, OnDestroy {
-  @Input() name = '';
-  width = 0;
+appeler repo.loadRegles$()
 
-  constructor(private el: ElementRef, private router: Router) {}
+mettre à jour rowData
 
-  ngAfterViewInit() {
-    this.width = this.el.nativeElement.getBoundingClientRect().width;
-    console.log(`[${this.name}] AfterViewInit width =`, this.width);
-  }
+ouvrir modal / gérer click
 
-  ngOnDestroy() {
-    console.log(`[${this.name}] destroyed`);
-  }
+3) “Usecases” : seulement si tu as de la logique métier
 
-  spam() {
-    // navigation rapide + microtasks
-    for (let i = 0; i < 10; i++) {
-      queueMicrotask(() => {
-        this.router.navigate([{ outlets: { tabA: ['a'], tabB: ['c'] } }]);
-      });
-    }
+Exemple où un usecase devient utile :
 
-    // forcer recalcul DSD
-    setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+Ajouter = (valider + transformer + appeler create + recharger + notifier)
+
+Delete = (confirmer + delete + refresh + notifier)
+
+Plusieurs appels dépendants, ou règles métier
+
+Si c’est juste POST → refresh, garde ça dans le composant ou dans le repo (1 méthode “command” max).
+
+4) AG Grid : centraliser ou pas ?
+Oui, centralise ce qui est répétitif
+
+Dans ton écran on voit :
+
+defaultColDef
+
+localeText
+
+paginationPageSize
+
+suppressRowTransform, domLayout, etc.
+
+Ça tu peux le factoriser proprement sans faire une “usine à gaz”.
+
+Option simple (recommandée) : un “GridConfigService”
+
+grid-config.service.ts
+
+@Injectable({ providedIn: 'root' })
+export class GridConfigService {
+  baseGridOptions(): GridOptions {
+    return {
+      localeText: AG_GRID_LOCALE_FR,
+      suppressRowTransform: true,
+      domLayout: 'normal',
+      pagination: true,
+      paginationPageSize: 20,
+      defaultColDef: {
+        sortable: true,
+        unSortIcon: true,
+        resizable: true,
+        suppressMovable: true,
+        filter: false,
+        wrapText: true,
+        editable: false,
+      }
+    };
   }
 }
 
-5️⃣ Pages de test
-@Component({
-  standalone: true,
-  imports: [ProbeComponent],
-  template: `<app-probe name="Page A"></app-probe>`
-})
-export class PageAComponent {}
 
-@Component({
-  standalone: true,
-  imports: [ProbeComponent],
-  template: `<app-probe name="Page B"></app-probe>`
-})
-export class PageBComponent {}
+Et dans le composant :
 
-@Component({
-  standalone: true,
-  imports: [ProbeComponent],
-  template: `<app-probe name="Page C"></app-probe>`
-})
-export class PageCComponent {}
-
-@Component({
-  standalone: true,
-  imports: [ProbeComponent],
-  template: `<app-probe name="Page D"></app-probe>`
-})
-export class PageDComponent {}
-
-6️⃣ Comment provoquer le problème (pas à pas)
-
-Lance l’app
-
-Clique Tab A
-
-Clique Tab B
-
-Alterne rapidement Tab A / Tab B
-
-Dans une page, clique “Spam navigation”
-
-Observe :
-
-logs console
-
-tailles affichées
-
-rendu
-
-7️⃣ Ce que tu DEVRAIS observer
-🔴 Cas 1 — largeur = 0
-
-Dans la console :
-
-[Page C] AfterViewInit width = 0
+gridOptions: GridOptions = {
+  ...this.gridConfig.baseGridOptions(),
+  columnDefs: this.columnDefs,
+  rowData: this.regleList,
+};
 
 
-➡️ composant monté dans un panel caché
-➡️ AG-Grid / charts / tables casseront ici
+✅ Résultat : tu évites la duplication, mais tu gardes la liberté par écran.
 
-🔴 Cas 2 — composants vivants mais invisibles
+Ce que tu ne centralises PAS
 
-Tu verras :
+columnDefs (spécifique à l’écran)
 
-[Page A] destroyed
-[Page C] AfterViewInit
-[Page A] AfterViewInit
+cellRenderer (spécifique à l’écran)
 
+logique de click Edit/Delete (spécifique)
 
-➡️ deux outlets vivent en parallèle
-➡️ pages “fantômes”
+5) Structure de dossiers “Paramètres” (simple)
 
-🔴 Cas 3 — comportement aléatoire
+Exemple :
 
-parfois tout marche
+parametres/
+  regles-conciliation/
+    pages/
+      regles-conciliation.page.ts
+      regles-conciliation.page.html
+    data/
+      regles.repository.ts
+    ui/
+      regles-grid.columns.ts        (colDefs + cellRenderer helpers)
+    regles-conciliation.routes.ts
+  shared/
+    grid/
+      grid-config.service.ts
 
-parfois rendu cassé
+6) Ton composant devient propre
 
-parfois DSD loggue une erreur (selon impl)
+ngOnInit : loadComptes() + loadRegles()
 
-en prod → plus fréquent
+onComboboxChange : loadRegles()
 
-👉 signature classique d’une race condition DOM
+onDelete : repo.delete → reload
+
+Et tu gardes le store spinner avec un helper withSpinner() (comme je t’ai montré).
+
+Si tu veux, je te propose une refacto exacte de TON composant en 3 fichiers :
+
+regles.repository.ts
+
+grid-config.service.ts
+
+regles-conciliation.page.ts simplifié
