@@ -163,3 +163,84 @@ regles.repository.ts
 grid-config.service.ts
 
 regles-conciliation.page.ts simplifié
+
+
+
+
+
+
+//////////ag-grid helpers : exemples//////////
+3) Variante A — Sans facade (simple + structuré)
+shared/grid/grid-config.service.ts
+import { Injectable } from '@angular/core';
+import { GridOptions } from 'ag-grid-community';
+import { AG_GRID_LOCALE_FR } from '...'; // ton import
+
+@Injectable({ providedIn: 'root' })
+export class GridConfigService {
+  baseOptions(): GridOptions {
+    return {
+      localeText: AG_GRID_LOCALE_FR,
+      suppressRowTransform: true,
+      domLayout: 'normal',
+      pagination: true,
+      paginationPageSize: 20,
+      defaultColDef: {
+        sortable: true,
+        unSortIcon: true,
+        resizable: true,
+        suppressMovable: true,
+        filter: false,
+        wrapText: true,
+        editable: false,
+      },
+    };
+  }
+}
+
+shared/ui/aggrid-actions.renderer.ts
+import { ICellRendererParams } from 'ag-grid-community';
+
+type Actions<T> = {
+  onEdit: (row: T) => void;
+  onDelete: (row: T) => void;
+};
+
+export function buildActionCellRenderer<T>(actions: Actions<T>) {
+  return (params: ICellRendererParams): Node => {
+    const frag = document.createDocumentFragment();
+
+    const editBtn = document.createElement('dsd-button');
+    const deleteBtn = document.createElement('dsd-button');
+
+    Object.assign(editBtn as any, {
+      variant: 'compact',
+      size: 'small',
+      title: 'Modifier',
+      iconName: 'actions_contour_modifier',
+      iconPosition: 'standalone',
+    });
+
+    Object.assign(deleteBtn as any, {
+      variant: 'compact',
+      size: 'small',
+      title: 'Supprimer',
+      iconName: 'navigations_contour_fermer',
+      iconPosition: 'standalone',
+    });
+
+    editBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      actions.onEdit(params.data as T);
+    });
+
+    deleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      actions.onDelete(params.data as T);
+    });
+
+    frag.appendChild(editBtn);
+    frag.appendChild(deleteBtn);
+    return frag;
+  };
+}
