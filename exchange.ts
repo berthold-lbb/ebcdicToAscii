@@ -256,3 +256,43 @@ export function withGlobalSpinner<T>(
     store.dispatch(new UpdateActiveCalls(false));
   });
 }
+
+
+
+
+
+
+///////report
+import { Injectable } from '@angular/core';
+import { Store } from '@ngxs/store';
+import { Observable } from 'rxjs';
+import { withGlobalSpinner } from 'src/app/shared/ui/spinner.operator';
+
+// OpenAPI services (exemples)
+import { ConciliationAutoService, CompteGrandLivreService } from 'src/app/api';
+
+import {
+  GetReglesParGL$Params,
+  ReglesParGLBffDto,
+  InformationCompteGLBffDto
+} from 'src/app/api';
+
+@Injectable({ providedIn: 'root' })
+export class ReglesConciliationRepository {
+  constructor(
+    private readonly apiRegles: ConciliationAutoService,
+    private readonly apiComptes: CompteGrandLivreService,
+    private readonly store: Store
+  ) {}
+
+  loadRegles$(params: GetReglesParGL$Params): Observable<ReglesParGLBffDto> {
+    return this.apiRegles.getReglesParGL(params).pipe(withGlobalSpinner(this.store));
+  }
+
+  loadComptesGL$(): Observable<InformationCompteGLBffDto[]> {
+    return this.apiComptes.getCompteGL().pipe(withGlobalSpinner(this.store));
+  }
+
+  // add/update/delete -> mêmes patterns
+  // addRegle$(payload: ...) { return this.apiRegles.post...(payload).pipe(withGlobalSpinner(this.store)); }
+}
