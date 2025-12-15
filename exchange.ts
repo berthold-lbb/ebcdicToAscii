@@ -244,3 +244,21 @@ export function buildActionCellRenderer<T>(actions: Actions<T>) {
     return frag;
   };
 }
+
+
+
+//////spinner global pour les appels HTTP//////
+hared/ui/spinner.operator.ts
+import { finalize, MonoTypeOperatorFunction } from 'rxjs';
+import { Store } from '@ngxs/store';
+import { UpdateActiveCalls } from '../store/ui.actions';
+
+export function withGlobalSpinner<T>(
+  store: Store
+): MonoTypeOperatorFunction<T> {
+  store.dispatch(new UpdateActiveCalls(true));
+
+  return finalize(() => {
+    store.dispatch(new UpdateActiveCalls(false));
+  });
+}
