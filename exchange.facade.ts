@@ -230,3 +230,25 @@ export class ReglesConciliationPage implements OnInit, AfterViewInit, OnDestroy 
     this.destroy$.complete();
   }
 }
+
+
+
+
+export function createDefaultGridOptions(): GridOptions {
+  return {
+    localeText: AG_GRID_LOCALE_FR,
+    suppressRowTransform: true,
+    domLayout: 'normal',
+    pagination: true,
+    paginationPageSize: 20,
+    defaultColDef: {
+      sortable: true,
+      resizable: true,
+      wrapText: true,
+      editable: false,
+      filter: false,
+      suppressMovable: true,
+      unSortIcon: true,
+    },
+  };
+}
