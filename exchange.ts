@@ -172,31 +172,25 @@ regles-conciliation.page.ts simplifié
 //////////ag-grid helpers : exemples//////////
 3) Variante A — Sans facade (simple + structuré)
 shared/grid/grid-config.service.ts
-import { Injectable } from '@angular/core';
-import { GridOptions } from 'ag-grid-community';
-import { AG_GRID_LOCALE_FR } from '...'; // ton import
-
-@Injectable({ providedIn: 'root' })
-export class GridConfigService {
-  baseOptions(): GridOptions {
-    return {
-      localeText: AG_GRID_LOCALE_FR,
-      suppressRowTransform: true,
-      domLayout: 'normal',
-      pagination: true,
-      paginationPageSize: 20,
-      defaultColDef: {
-        sortable: true,
-        unSortIcon: true,
-        resizable: true,
-        suppressMovable: true,
-        filter: false,
-        wrapText: true,
-        editable: false,
-      },
-    };
-  }
+export function createDefaultGridOptions(): GridOptions {
+  return {
+    localeText: AG_GRID_LOCALE_FR,
+    suppressRowTransform: true,
+    domLayout: 'normal',
+    pagination: true,
+    paginationPageSize: 20,
+    defaultColDef: {
+      sortable: true,
+      resizable: true,
+      wrapText: true,
+      editable: false,
+      filter: false,
+      suppressMovable: true,
+      unSortIcon: true,
+    },
+  };
 }
+
 
 shared/ui/aggrid-actions.renderer.ts
 import { ICellRendererParams } from 'ag-grid-community';
