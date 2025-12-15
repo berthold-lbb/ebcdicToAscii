@@ -19,6 +19,7 @@ export class ReglesConciliationPage implements OnInit, AfterViewInit, OnDestroy 
 
   valueCombobox = 'tous';
   comboBoxOptions: string[][] = [];
+  gridOptions: GridOptions = createDefaultGridOptions();
 
   columnDefs: ColDef[] = [
     { field: 'numeroRegle', headerName: 'Numéro', width: 130 },
@@ -109,4 +110,123 @@ export class ReglesConciliationFacade {
   }
 
   // add/update/delete plus tard ici (orchestration)
+}
+
+
+
+////////////
+
+import { Component, OnDestroy, OnInit, AfterViewInit } from '@angular/core';
+import { ColDef, GridApi, GridOptions, createGrid } from 'ag-grid-community';
+import { Subject, takeUntil } from 'rxjs';
+
+import { ReglesConciliationRepository } from '../data/regles-conciliation.repository';
+import { buildActionCellRenderer } from '../ui/ag-grid/action-cell-renderer.factory';
+import { createDefaultGridOptions } from '../ui/ag-grid/grid-defaults';
+
+import { RegleGLBff, GetReglesParGL$Params } from 'src/app/api';
+
+@Component({
+  selector: 'app-regles-conciliation',
+  templateUrl: './regles-conciliation.page.html',
+  styleUrls: ['./regles-conciliation.page.scss'],
+})
+export class ReglesConciliationPage implements OnInit, AfterViewInit, OnDestroy {
+  private readonly destroy$ = new Subject<void>();
+
+  gridApi!: GridApi;
+  gridOptions: GridOptions = createDefaultGridOptions();
+
+  regleList: RegleGLBff[] = [];
+
+  valueCombobox: string = 'tous';
+  comptesGL: any[] = [];
+  comboBoxOptions: string[][] = [];
+
+  columnDefs: ColDef[] = [
+    { field: 'numeroRegle', headerName: 'Numéro', width: 130 },
+    { field: 'descriptionRegle', headerName: 'Description', width: 350, tooltipField: 'descriptionRegle' },
+    {
+      colId: 'actions',
+      headerName: 'Actions',
+      width: 110,
+      sortable: false,
+      cellRenderer: buildActionCellRenderer<RegleGLBff>({
+        onEdit: (row) => this.onEdit(row),
+        onDelete: (row) => this.onDelete(row),
+      }),
+    },
+  ];
+
+  constructor(private readonly repo: ReglesConciliationRepository) {}
+
+  ngOnInit(): void {
+    this.refreshComptesGL();
+    this.refreshRegles();
+  }
+
+  ngAfterViewInit(): void {
+    const gridDiv = document.querySelector('#myGrid') as HTMLElement;
+    this.gridApi = createGrid(gridDiv, {
+      ...this.gridOptions,
+      columnDefs: this.columnDefs,
+      rowData: this.regleList,
+    });
+  }
+
+  onComboboxChange(evt: CustomEvent) {
+    const newValue: any = (evt.detail ?? evt)['value'] ?? evt.detail;
+    this.valueCombobox = Array.isArray(newValue) ? newValue[0] : newValue;
+    this.refreshRegles();
+  }
+
+  onAjouter(): void {
+    // ouvre modal add
+  }
+
+  onEdit(row: RegleGLBff): void {
+    // ouvre modal edit
+  }
+
+  onDelete(row: RegleGLBff): void {
+    // ouvre modal delete
+  }
+
+  private refreshRegles(): void {
+    const params: GetReglesParGL$Params = {};
+
+    if (this.valueCombobox === 'tous') {
+      params.inclureTousLesGL = true;
+    } else {
+      params.idCompteGL = this.valueCombobox;
+    }
+
+    this.repo.loadRegles$(params)
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (dto) => {
+          this.regleList = dto.regles ?? [];
+          this.gridApi?.setGridOption('rowData', this.regleList);
+        },
+        error: () => {
+          // notification
+        },
+      });
+  }
+
+  private refreshComptesGL(): void {
+    this.repo.loadComptesGL$()
+      .pipe(takeUntil(this.destroy$))
+      .subscribe({
+        next: (response) => {
+          this.comptesGL = response;
+          this.comboBoxOptions = [['tous', 'Tous'], ...response.map(c => [c.identifiantCompteGL!, c.numeroCompteGL!])];
+        },
+      });
+  }
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
+  }
 }
