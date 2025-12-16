@@ -94,3 +94,31 @@ export class ReglesConciliationFacade {
   //   return this.reglesRepo.addRegle$(payload).pipe(tap(() => this.reloadRegles()));
   // }
 }
+
+
+
+
+
+
+
+
+ constructor(private readonly facade: ReglesConciliationFacade) {}
+ 
+ngOnInit(): void {
+    // 1) On s’abonne au VM
+    this.facade.vm$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((vm) => {
+        // options combobox
+        this.comboBoxOptions = vm.comboOptions;
+        this.valueCombobox = vm.selectedCompteId;
+
+        // regles -> convert en liste pour AG Grid (selon ton DTO réel)
+        this.regleList = this.extractRows(vm.reglesDto);
+
+        // refresh grid si déjà initialisée
+        if (this.gridApi) {
+          this.gridApi.setGridOption('rowData', this.regleList);
+        }
+      });
+  }
