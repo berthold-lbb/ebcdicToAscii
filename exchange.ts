@@ -3,60 +3,31 @@ const path = require("path");
 
 const filePath = path.join(
   process.cwd(),
-  "src",
-  "app",
-  "api",
-  "models",
-  "operateur-recherche-bff.ts"
+  "src/app/api/models/operateur-recherche-bff.ts"
 );
 
-function main() {
-  console.log(`[fix-openapi-enums] Target: ${filePath}`);
-
-  if (!fs.existsSync(filePath)) {
-    console.log("[fix-openapi-enums] File not found -> nothing to do.");
-    process.exit(0);
-  }
-
-  const original = fs.readFileSync(filePath, "utf8");
-  const lines = original.split(/\r?\n/);
-
-  let changed = 0;
-
-  const out = lines.map((line) => {
-    const indent = line.match(/^\s*/)?.[0] ?? "";
-    const t = line.trim();
-
-    if (t === "= '=' ," || t === "= '='," || t === "= '='") {
-      changed++;
-      return `${indent}Egal = '=',`;
-    }
-
-    if (t === "= '>=' ," || t === "= '>='," || t === "= '>='") {
-      changed++;
-      return `${indent}SuperieurOuEgal = '>=',`;
-    }
-
-    if (t === "= '<=' ," || t === "= '<='," || t === "= '<='") {
-      changed++;
-      return `${indent}InferieurOuEgal = '<=',`;
-    }
-
-    return line;
-  });
-
-  if (changed === 0) {
-    console.log("[fix-openapi-enums] No change (already fixed or pattern not found).");
-    process.exit(0);
-  }
-
-  const updated = out.join("\n");
-  fs.writeFileSync(filePath, updated, "utf8");
-
-  console.log(`[fix-openapi-enums] Done. Replacements: ${changed}`);
+if (!fs.existsSync(filePath)) {
+  console.log("[fix-openapi-enums] File not found");
+  process.exit(0);
 }
 
-main();
+let content = fs.readFileSync(filePath, "utf8");
+
+const before = content;
+
+content = content
+  .replace("_ = '=',", "Egal = '=',")
+  .replace("_ = '>=',", "SuperieurOuEgal = '>=',")
+  .replace("_ = '<=',", "InferieurOuEgal = '<=',");
+
+if (content === before) {
+  console.log("[fix-openapi-enums] No change needed");
+  process.exit(0);
+}
+
+fs.writeFileSync(filePath, content, "utf8");
+console.log("[fix-openapi-enums] Enum fixed successfully");
+
 
 
 
