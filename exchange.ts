@@ -10,18 +10,54 @@ const filePath = path.join(
   "operateur-recherche-bff.ts"
 );
 
-if (!fs.existsSync(filePath)) {
-  process.exit(0);
+function main() {
+  console.log(`[fix-openapi-enums] Target: ${filePath}`);
+
+  if (!fs.existsSync(filePath)) {
+    console.log("[fix-openapi-enums] File not found -> nothing to do.");
+    process.exit(0);
+  }
+
+  const original = fs.readFileSync(filePath, "utf8");
+  const lines = original.split(/\r?\n/);
+
+  let changed = 0;
+
+  const out = lines.map((line) => {
+    const indent = line.match(/^\s*/)?.[0] ?? "";
+    const t = line.trim();
+
+    if (t === "= '=' ," || t === "= '='," || t === "= '='") {
+      changed++;
+      return `${indent}Egal = '=',`;
+    }
+
+    if (t === "= '>=' ," || t === "= '>='," || t === "= '>='") {
+      changed++;
+      return `${indent}SuperieurOuEgal = '>=',`;
+    }
+
+    if (t === "= '<=' ," || t === "= '<='," || t === "= '<='") {
+      changed++;
+      return `${indent}InferieurOuEgal = '<=',`;
+    }
+
+    return line;
+  });
+
+  if (changed === 0) {
+    console.log("[fix-openapi-enums] No change (already fixed or pattern not found).");
+    process.exit(0);
+  }
+
+  const updated = out.join("\n");
+  fs.writeFileSync(filePath, updated, "utf8");
+
+  console.log(`[fix-openapi-enums] Done. Replacements: ${changed}`);
 }
 
-let content = fs.readFileSync(filePath, "utf8");
+main();
 
-content = content
-  .replace(/^\s*=\s*['"]=['"]\s*,?/gm, "  Egal = '=',")
-  .replace(/^\s*>=\s*['"]>=['"]\s*,?/gm, "  SuperieurOuEgal = '>=',")
-  .replace(/^\s*<=\s*['"]<=['"]\s*,?/gm, "  InferieurOuEgal = '<=',");
-
-fs.writeFileSync(filePath, content, "utf8");
 
 
 
