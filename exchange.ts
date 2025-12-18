@@ -1,124 +1,158 @@
-// src/app/features/parametres/regles-conciliation/facade/regles-conciliation.facade.ts
-import { Injectable } from '@angular/core';
-import {
-  BehaviorSubject,
-  Subject,
-  combineLatest,
-  defer,
-  merge,
-  map,
-  shareReplay,
-  switchMap,
-  startWith,
-} from 'rxjs';
+#!/usr/bin/env node
+/**
+ * Fix invalid TypeScript enum members generated from OpenAPI values like '=', '>=', '<='
+ * Usage:
+ *   node scripts/fix-openapi-enums.js "src/app/api"
+ */
 
-import { CompteGLRepository } from '../data/repositories/compte-gl.repository';
-import { ReglesConciliationRepository } from '../data/repositories/regles-conciliation.repository';
+const fs = require("fs");
+const path = require("path");
 
-import { InformationCompteGlBffDto } from '.../api/models/information-compte-gl-bff-dto';
-import { ReglesParGlBffDto } from '.../api/models/regles-par-gl-bff-dto';
-import { GetReglesParGl$Params } from '.../api/fn/conciliation-automatique/get-regles-par-gl';
+const ROOT = process.argv[2] || "src/app/api";
 
-type Vm = {
-  comptes: InformationCompteGlBffDto[];
-  reglesDto: ReglesParGlBffDto;
-  selectedCompteId: string;
-  comboOptions: string[][];
-};
+// Enums à corriger (tu peux en ajouter d'autres si besoin)
+const ENUM_FIXES = [
+  {
+    enumName: "OperateurRechercheBff",
+    replacements: [
+      { fromKey: "=", toKey: "Egal", value: "=" },
+      { fromKey: ">=", toKey: "SuperieurOuEgal", value: ">=" },
+      { fromKey: "<=", toKey: "InferieurOuEgal", value: "<=" },
+    ],
+  },
+];
 
-@Injectable({ providedIn: 'root' })
-export class ReglesConciliationFacade {
-  private readonly selectedCompteId$ = new BehaviorSubject<string>('tous');
-  private readonly refreshRegles$ = new Subject<void>();
-
-  // 1) Comptes -> chargés une seule fois (cache)
-  readonly comptes$ = defer(() => this.compteRepo.loadComptesGL$({})).pipe(
-    shareReplay({ bufferSize: 1, refCount: true })
-  );
-
-  // 2) Trigger regles : sélection + refresh explicite
-  private readonly reglesTrigger$ = merge(
-    this.selectedCompteId$,
-    this.refreshRegles$.pipe(
-      switchMap(() => this.selectedCompteId$) // récupère le dernier id
-    )
-  ).pipe(startWith(this.selectedCompteId$.value));
-
-  // 3) Règles -> rechargées selon sélection
-  readonly reglesDto$ = this.reglesTrigger$.pipe(
-    switchMap((id) => {
-      const params: GetReglesParGl$Params =
-        id === 'tous'
-          ? { inclureTousLesGL: true }
-          : { idCompteGL: id };
-
-      return this.reglesRepo.loadRegles$(params);
-    }),
-    shareReplay({ bufferSize: 1, refCount: true })
-  );
-
-  // 4) VM final pour le composant
-  readonly vm$ = combineLatest([
-    this.comptes$,
-    this.reglesDto$,
-    this.selectedCompteId$,
-  ]).pipe(
-    map(([comptes, reglesDto, selectedCompteId]): Vm => {
-      const comboOptions: string[][] = [
-        ['tous', 'Tous'],
-        ...comptes.map((c) => [
-          c.identifiantCompteGL ?? '',
-          c.numeroCompteGL ?? c.identifiantCompteGL ?? '',
-        ]),
-      ];
-
-      return { comptes, reglesDto, selectedCompteId, comboOptions };
-    })
-  );
-
-  constructor(
-    private readonly compteRepo: CompteGLRepository,
-    private readonly reglesRepo: ReglesConciliationRepository
-  ) {}
-
-  setCompteSelection(id: string) {
-    this.selectedCompteId$.next(id);
+function walk(dir) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  const out = [];
+  for (const e of entries) {
+    const full = path.join(dir, e.name);
+    if (e.isDirectory()) out.push(...walk(full));
+    else out.push(full);
   }
-
-  reloadRegles() {
-    this.refreshRegles$.next();
-  }
-
-  // CRUD (exemples) : la façade orchestre et refresh
-  // addRegle(payload: CreateRegleDto) {
-  //   return this.reglesRepo.addRegle$(payload).pipe(tap(() => this.reloadRegles()));
-  // }
+  return out;
 }
 
+function escapeRegExp(s) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
+// Remplace seulement à l’intérieur du bloc: export enum XXX { ... }
+function patchEnumBlock(content, enumName, replacements) {
+  const enumStart = new RegExp(`export\\s+enum\\s+${escapeRegExp(enumName)}\\s*\\{`, "m");
+  const startMatch = content.match(enumStart);
+  if (!startMatch) return { changed: false, content };
 
+  const startIndex = startMatch.index;
+  const braceIndex = content.indexOf("{", startIndex);
+  if (braceIndex < 0) return { changed: false, content };
 
-
-
-
-
- constructor(private readonly facade: ReglesConciliationFacade) {}
- 
-ngOnInit(): void {
-    // 1) On s’abonne au VM
-    this.facade.vm$
-      .pipe(takeUntil(this.destroy$))
-      .subscribe((vm) => {
-        // options combobox
-        this.comboBoxOptions = vm.comboOptions;
-        this.valueCombobox = vm.selectedCompteId;
-
-        // regles -> convert en liste pour AG Grid (selon ton DTO réel)
-        this.regleList = this.extractRows(vm.reglesDto);
-
-        // refresh grid si déjà initialisée
-        if (this.gridApi) {
-          this.gridApi.setGridOption('rowData', this.regleList);
-        }
-      });
+  // Trouver la fin du bloc enum (brace matching simple)
+  let i = braceIndex;
+  let depth = 0;
+  for (; i < content.length; i++) {
+    if (content[i] === "{") depth++;
+    else if (content[i] === "}") {
+      depth--;
+      if (depth === 0) break;
+    }
   }
+  if (depth !== 0) return { changed: false, content };
+
+  const before = content.slice(0, braceIndex + 1);
+  const block = content.slice(braceIndex + 1, i);
+  const after = content.slice(i);
+
+  let newBlock = block;
+  let blockChanged = false;
+
+  // Cas généré typique:
+  //   = '=',
+  //   >= = '>=',
+  //   <= = '<=',
+  //
+  // On remplace uniquement les membres invalides par des identifiants valides
+  for (const r of replacements) {
+    // ex:   = '='
+    const pattern1 = new RegExp(
+      `(^\\s*)${escapeRegExp(r.fromKey)}\\s*=\\s*['"]${escapeRegExp(r.value)}['"]\\s*,?\\s*$`,
+      "m"
+    );
+
+    // ex:   '>= ' ??? (au cas où)
+    const pattern2 = new RegExp(
+      `(^\\s*)['"]${escapeRegExp(r.fromKey)}['"]\\s*=\\s*['"]${escapeRegExp(r.value)}['"]\\s*,?\\s*$`,
+      "m"
+    );
+
+    const replacementLine = `$1${r.toKey} = '${r.value}',`;
+
+    if (pattern1.test(newBlock)) {
+      newBlock = newBlock.replace(pattern1, replacementLine);
+      blockChanged = true;
+    } else if (pattern2.test(newBlock)) {
+      newBlock = newBlock.replace(pattern2, replacementLine);
+      blockChanged = true;
+    }
+  }
+
+  // Nettoyage: assure une virgule finale propre (optionnel, mais safe)
+  // (on laisse TypeScript gérer; pas obligatoire)
+
+  if (!blockChanged) return { changed: false, content };
+
+  const newContent = before + newBlock + after;
+  return { changed: true, content: newContent };
+}
+
+function main() {
+  if (!fs.existsSync(ROOT)) {
+    console.error(`[fix-openapi-enums] Folder not found: ${ROOT}`);
+    process.exit(1);
+  }
+
+  const files = walk(ROOT).filter((f) => f.endsWith(".ts"));
+  let changedFiles = 0;
+
+  for (const file of files) {
+    const original = fs.readFileSync(file, "utf8");
+    let content = original;
+    let changed = false;
+
+    for (const fix of ENUM_FIXES) {
+      const res = patchEnumBlock(content, fix.enumName, fix.replacements);
+      if (res.changed) {
+        content = res.content;
+        changed = true;
+      }
+    }
+
+    if (changed && content !== original) {
+      fs.writeFileSync(file, content, "utf8");
+      changedFiles++;
+      console.log(`[fix-openapi-enums] patched: ${file}`);
+    }
+  }
+
+  console.log(`[fix-openapi-enums] done. changedFiles=${changedFiles}`);
+}
+
+main();
+
+
+"generate.concil-bff": "ng-openapi-gen -i src/assets/openapi/api-csp-conciliation_bff_v1.yaml -o src/app/api && node scripts/fix-openapi-enums.js src/app/api"
+
+
+
+csp-concilliation-spa-migration/
+├─ package.json
+├─ angular.json
+├─ tsconfig.json
+├─ scripts/
+│  └─ fix-openapi-enums.js   ✅ ICI
+├─ src/
+│  └─ app/
+│     └─ api/
+│        ├─ fn/
+│        └─ models/
+│           └─ operateur-recherche-bff.ts  👈 cible
