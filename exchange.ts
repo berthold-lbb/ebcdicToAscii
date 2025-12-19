@@ -113,3 +113,11 @@
     }
   }
 }
+
+
+"scripts": {
+  "prepack": "ng build csp-conciliation-spa-migration --configuration production && rm -rf pack && mkdir pack && cp -R dist/csp-conciliation-spa-migration/* pack/"
+},
+"files": [
+  "pack/**"
+]
