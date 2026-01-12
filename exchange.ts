@@ -1,123 +1,114 @@
-<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Redition</title>
-</head>
+Option A — DSD panels multiples, 1 seul RouterOutlet “vivant”
+1) app.component.ts (Shell = AppComponent)
+import { Component, inject } from '@angular/core';
+import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
+import { filter } from 'rxjs/operators';
 
-<body>
-  <div class="page">
+type TabKey = 'conciliation' | 'recherche' | 'rapports' | 'utilitaires' | 'parametres';
 
-    <!-- Header -->
-    <header class="topbar" aria-label="En-tête">
-      <button type="button" class="btn btn-link" aria-label="Retour">
-        ← Retour
-      </button>
+@Component({
+  selector: 'app-root',
+  standalone: true,
+  imports: [RouterOutlet],
+  templateUrl: './app.component.html',
+})
+export class AppComponent {
+  private readonly router = inject(Router);
 
-      <h1 class="page-title">Redition</h1>
-    </header>
+  // ✅ Source unique: le mapping tab<->panel<->route
+  readonly tabs = [
+    { key: 'conciliation' as const, labelKey: 'ONGLETS.CONCILIATION_LABEL' },
+    { key: 'recherche' as const, labelKey: 'ONGLETS.RECHERCHE_LABEL' },
+    { key: 'rapports' as const, labelKey: 'ONGLETS.RAPPORTS_LABEL' },
+    { key: 'utilitaires' as const, labelKey: 'ONGLETS.UTILITAIRES_LABEL' },
+    { key: 'parametres' as const, labelKey: 'ONGLETS.PARAMETRES_LABEL' },
+  ] as const;
 
-    <!-- Contenu -->
-    <main class="content" aria-label="Contenu principal">
+  activePanel: TabKey = 'conciliation';
 
-      <!-- Carte / Bloc Paramètres -->
-      <section class="card" aria-label="Paramètres du rapport">
-        <div class="card-header">
-          <h2 class="card-title">Paramètres du rapport</h2>
-        </div>
+  constructor() {
+    // ✅ URL = source de vérité (back/forward)
+    this.router.events
+      .pipe(filter(e => e instanceof NavigationEnd))
+      .subscribe(() => this.syncPanelFromUrl());
 
-        <form class="form" autocomplete="off">
-          <!-- Entité -->
-          <div class="field">
-            <label class="label" for="entite">
-              <span aria-hidden="true">*</span> Entité
-            </label>
+    this.syncPanelFromUrl();
+  }
 
-            <div class="control control-select">
-              <select id="entite" name="entite" required>
-                <option value="" selected disabled>— Sélectionner —</option>
-                <option value="entite1">Entité 1</option>
-                <option value="entite2">Entité 2</option>
-              </select>
-              <span class="select-arrow" aria-hidden="true">▾</span>
-            </div>
-          </div>
+  onTabsChange(evt: any): void {
+    // DSD te donne activeItemIndex (d’après ton screenshot)
+    const idx = Number(evt?.detail?.activeItemIndex ?? 0);
+    const key = this.tabs[idx]?.key ?? 'conciliation';
 
-          <!-- Date -->
-          <div class="field">
-            <label class="label" for="date">
-              <span aria-hidden="true">*</span> Date
-            </label>
+    // ✅ clic tab -> URL
+    this.router.navigate(['/', key]);
+  }
 
-            <div class="control control-date">
-              <input
-                id="date"
-                name="date"
-                type="date"
-                required
-                aria-describedby="date-help"
-              />
-              <button type="button" class="icon-btn" aria-label="Ouvrir le calendrier">
-                📅
-              </button>
-            </div>
+  isActive(key: TabKey): boolean {
+    return this.activePanel === key;
+  }
 
-            <p id="date-help" class="hint">Format : AAAA-MM-JJ</p>
-          </div>
+  private syncPanelFromUrl(): void {
+    const urlPath = this.router.url.split('?')[0].split('#')[0];
+    const firstSeg = urlPath.split('/')[1] as TabKey | undefined;
 
-          <!-- Options disponibles -->
-          <div class="options">
-            <h3 class="options-title">Options disponibles</h3>
-            <p class="options-hint">
-              Les options disponibles seront visibles une fois vos choix effectués.
-            </p>
-
-            <!-- Placeholder (tu remplaceras par tes checkboxes / radios / etc.) -->
-            <div class="options-body" aria-label="Zone des options">
-              <!-- Exemple -->
-              <!--
-              <label class="checkbox">
-                <input type="checkbox" name="opt1" />
-                <span>Option 1</span>
-              </label>
-              -->
-            </div>
-          </div>
-        </form>
-      </section>
-
-    </main>
-  </div>
-</body>
-</html>
-
-
-
-{
-  "COMMON": {
-    "ACTIONS": {
-      "ADD": "Ajouter",
-      "EDIT": "Modifier",
-      "DELETE": "Supprimer",
-      "CANCEL": "Annuler",
-      "SAVE": "Enregistrer",
-      "BACK": "Retour"
-    },
-    "FIELDS": {
-      "ACCOUNT": "Compte",
-      "FREQUENCY": "Fréquence"
-    },
-    "MESSAGES": {
-      "ERROR": "Message d'erreur"
-    }
+    const found = this.tabs.some(t => t.key === firstSeg);
+    this.activePanel = found ? (firstSeg as TabKey) : 'conciliation';
   }
 }
 
+2) app.component.html (Angular 20 @for + @if)
 
-"scripts": {
-  "prepack": "ng build csp-conciliation-spa-migration --configuration production && rm -rf pack && mkdir pack && cp -R dist/csp-conciliation-spa-migration/* pack/"
-},
-"files": [
-  "pack/**"
-]
+👉 Ici on laisse la DSD faire son job (tab.panel ↔ tab-panel.name).
+Mais le router-outlet n’existe que dans le panel actif.
+
+<dsd-tab-group
+  remove-container="true"
+  background-color="dsd-color-background-page"
+  (dsdTabChange)="onTabsChange($event)"
+>
+  <!-- Tabs -->
+  <div slot="tabs" id="dsd-tab-group-main-menu-tabs">
+    @for (t of tabs; track t.key) {
+      <dsd-tab [attr.panel]="t.key">
+        {{ t.labelKey | translate }}
+      </dsd-tab>
+    }
+  </div>
+
+  <!-- Panels (DSD a besoin du name qui match le panel) -->
+  <div slot="panels">
+    @for (t of tabs; track t.key) {
+      <dsd-tab-panel [attr.name]="t.key">
+        @if (isActive(t.key)) {
+          <router-outlet></router-outlet>
+        }
+      </dsd-tab-panel>
+    }
+  </div>
+</dsd-tab-group>
+
+Équivalent *ngFor/*ngIf
+<dsd-tab-group (dsdTabChange)="onTabsChange($event)" remove-container="true">
+  <div slot="tabs">
+    <dsd-tab *ngFor="let t of tabs" [attr.panel]="t.key">
+      {{ t.labelKey | translate }}
+    </dsd-tab>
+  </div>
+
+  <div slot="panels">
+    <dsd-tab-panel *ngFor="let t of tabs" [attr.name]="t.key">
+      <router-outlet *ngIf="activePanel === t.key"></router-outlet>
+    </dsd-tab-panel>
+  </div>
+</dsd-tab-group>
+
+Pourquoi c’est robuste ?
+
+✅ DSD : tu respectes panel ↔ name
+
+✅ Angular : 1 seul router-outlet vivant (grâce au @if)
+
+✅ Maintenance : l’ordre / labels / clés sont dans un seul tableau
+
+✅ Back/Forward : activePanel vient de l’URL (pas d’état caché)
