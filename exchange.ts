@@ -112,3 +112,47 @@ Pourquoi c’est robuste ?
 ✅ Maintenance : l’ordre / labels / clés sont dans un seul tableau
 
 ✅ Back/Forward : activePanel vient de l’URL (pas d’état caché)
+
+
+
+
+
+
+
+
+
+
+
+import { Routes } from '@angular/router';
+
+export const APP_ROUTES: Routes = [
+  { path: '', pathMatch: 'full', redirectTo: 'conciliation' },
+
+  {
+    path: 'conciliation',
+    loadChildren: () =>
+      import('./processus/conciliation/conciliation.routes').then(m => m.CONCILIATION_ROUTES),
+  },
+  {
+    path: 'recherche',
+    loadChildren: () =>
+      import('./processus/recherche/recherche.routes').then(m => m.RECHERCHE_ROUTES),
+  },
+  {
+    path: 'rapports',
+    loadChildren: () =>
+      import('./processus/rapports/rapports.routes').then(m => m.RAPPORTS_ROUTES),
+  },
+  {
+    path: 'utilitaires',
+    loadChildren: () =>
+      import('./processus/utilitaires/utilitaires.routes').then(m => m.UTILITAIRES_ROUTES),
+  },
+  {
+    path: 'parametres',
+    loadChildren: () =>
+      import('./processus/parametres/parametres.routes').then(m => m.PARAMETRES_ROUTES),
+  },
+
+  { path: '**', redirectTo: 'conciliation' },
+];
