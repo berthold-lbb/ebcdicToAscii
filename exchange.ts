@@ -1,78 +1,196 @@
 // app-error.ts
+import { ErreurRest } from '.../api/models/erreur-rest';
+import { ProblemeRest } from '.../api/models/probleme-rest';
+
+export type AppErrorSource = 'HTTP' | 'NETWORK' | 'CLIENT';
+
 export type AppErrorKind =
-  | 'NETWORK'
+  | 'VALIDATION'   // type V
+  | 'BUSINESS'     // type B
+  | 'SYSTEM'       // type S
+  | 'RELEVE'       // type R (si c’est bien ça chez vous)
   | 'UNAUTHORIZED'
   | 'FORBIDDEN'
   | 'NOT_FOUND'
-  | 'VALIDATION'
-  | 'BUSINESS'
   | 'SERVER'
   | 'UNKNOWN';
 
 export interface AppError {
+  source: AppErrorSource;
   kind: AppErrorKind;
+
+  /** status HTTP numérique */
   httpStatus?: number;
-  code?: number | string;
-  message: string;           // message prêt pour UI (ou clé i18n)
-  details?: string[];
-  original?: unknown;        // pour debug/log
-  endpoint?: string;         // optionnel
+
+  /** httpStatus enum (ProblemeRest.httpStatus) */
+  httpStatusKey?: string;
+
+  /** status texte (ProblemeRest.status) */
+  status?: string;
+
+  /** message UI principal */
+  message: string;
+
+  /** messages UI (dérivés de errors[].message / detail / exception.message) */
+  messages: string[];
+
+  /** code erreur backend (errors[0].code) */
+  code?: number;
+
+  /** type erreur backend (B/S/V/R) */
+  errorType?: 'B' | 'S' | 'V' | 'R';
+
+  /** endpoint le plus fiable : errors[0].url ou exception.url ou HttpErrorResponse.url */
+  endpoint?: string;
+
+  /** système */
+  systemId?: string;
+  systemName?: string;
+
+  /** timestamp si fourni */
+  time?: string;
+
+  /** payload backend brut (utile debug) */
+  problemeRest?: ProblemeRest;
+
+  /** liste complète (utile debug / écran support) */
+  errors?: ErreurRest[];
+
+  /** l’erreur originale */
+  original?: unknown;
 }
 
 
+
 // api-error-mapper.ts
-import { HttpErrorResponse } from '@angular/common/http';
+// api-error-mapper.ts
 import { Injectable } from '@angular/core';
-import { AppError } from './app-error';
-import { ProblemeRest } from '.../api/models/probleme-rest'; // adapte ton path
+import { HttpErrorResponse } from '@angular/common/http';
+import { AppError, AppErrorKind } from './app-error';
+import { ProblemeRest } from '.../api/models/probleme-rest';
+import { ErreurRest } from '.../api/models/erreur-rest';
 
 @Injectable({ providedIn: 'root' })
 export class ApiErrorMapper {
-  map(err: unknown, endpoint?: string): AppError {
-    // HttpErrorResponse (Angular)
+  map(err: unknown): AppError {
     if (err instanceof HttpErrorResponse) {
-      const status = err.status;
-
-      // Réseau / CORS / offline
-      if (status === 0) {
-        return { kind: 'NETWORK', httpStatus: 0, message: 'Réseau indisponible.', original: err, endpoint };
-      }
-
-      // Le backend renvoie parfois un body typé ProblemeRest
-      const body = err.error as ProblemeRest | undefined;
-
-      // 401/403/404
-      if (status === 401) return { kind: 'UNAUTHORIZED', httpStatus: 401, message: 'Session expirée.', original: err, endpoint };
-      if (status === 403) return { kind: 'FORBIDDEN', httpStatus: 403, message: 'Accès refusé.', original: err, endpoint };
-      if (status === 404) return { kind: 'NOT_FOUND', httpStatus: 404, message: 'Ressource introuvable.', original: err, endpoint };
-
-      // Validation / business
-      if (body?.errors?.length) {
-        const details = body.errors
-          .map(e => e?.detail ?? e?.message ?? '')
-          .filter(Boolean);
-
-        // tu peux décider "VALIDATION" si 400, "BUSINESS" si 422, etc.
-        const kind = status === 400 ? 'VALIDATION' : 'BUSINESS';
+      // status 0 => réseau / CORS / offline
+      if (err.status === 0) {
         return {
-          kind,
-          httpStatus: status,
-          message: details[0] ?? 'Une erreur est survenue.',
-          details,
+          source: 'NETWORK',
+          kind: 'UNKNOWN',
+          httpStatus: 0,
+          message: 'Impossible de joindre le serveur.',
+          messages: ['Impossible de joindre le serveur.'],
+          endpoint: err.url ?? undefined,
           original: err,
-          endpoint,
         };
       }
 
-      // Server
-      if (status >= 500) {
-        return { kind: 'SERVER', httpStatus: status, message: 'Erreur serveur.', original: err, endpoint };
+      const body = err.error as ProblemeRest | undefined;
+
+      // Si backend ne renvoie pas ProblemeRest
+      if (!this.isProblemeRest(body)) {
+        return {
+          source: 'HTTP',
+          kind: this.kindFromHttpStatus(err.status),
+          httpStatus: err.status,
+          message: err.message || 'Une erreur est survenue.',
+          messages: [err.message || 'Une erreur est survenue.'],
+          endpoint: err.url ?? undefined,
+          original: err,
+        };
       }
 
-      return { kind: 'UNKNOWN', httpStatus: status, message: err.message || 'Erreur inconnue.', original: err, endpoint };
+      const errors = body.errors ?? [];
+      const first = errors[0];
+
+      // endpoint : priorité ErreurRest.url puis ErreurRest.exception.url puis HttpErrorResponse.url
+      const endpoint =
+        first?.url ??
+        first?.exception?.url ??
+        err.url ??
+        undefined;
+
+      // messages UI (on prend le plus parlant)
+      const messages = this.collectMessages(errors);
+      const message = messages[0] ?? 'Une erreur est survenue.';
+
+      // type B/S/V/R => kind
+      const kind = this.kindFromErreurType(first?.type, err.status);
+
+      return {
+        source: 'HTTP',
+        kind,
+        httpStatus: err.status,
+        httpStatusKey: body.httpStatus,
+        status: body.status,
+        message,
+        messages,
+        code: first?.code,
+        errorType: first?.type,
+        endpoint,
+        systemId: first?.systemId ?? first?.exception?.systemId,
+        systemName: first?.systemName ?? first?.exception?.systemName,
+        time: first?.time ?? first?.exception?.time,
+        problemeRest: body,
+        errors,
+        original: err,
+      };
     }
 
-    // Fallback non-HTTP
-    return { kind: 'UNKNOWN', message: 'Erreur inconnue.', original: err, endpoint };
+    // Erreurs non HTTP (frontend)
+    const msg = err instanceof Error ? err.message : 'Erreur inconnue.';
+    return {
+      source: 'CLIENT',
+      kind: 'UNKNOWN',
+      message: msg,
+      messages: [msg],
+      original: err,
+    };
+  }
+
+  private isProblemeRest(x: any): x is ProblemeRest {
+    return (
+      x &&
+      typeof x === 'object' &&
+      typeof x.status === 'string' &&
+      typeof x.httpStatus === 'string' &&
+      Array.isArray(x.errors)
+    );
+  }
+
+  private collectMessages(errors: ErreurRest[]): string[] {
+    const out: string[] = [];
+    for (const e of errors) {
+      // ordre de préférence: message -> detail -> exception.message
+      if (e?.message) out.push(e.message);
+      if (e?.detail) out.push(e.detail);
+      if (e?.exception?.message) out.push(e.exception.message);
+    }
+
+    // dédoublonner
+    return [...new Set(out.map(s => s.trim()).filter(Boolean))];
+  }
+
+  private kindFromErreurType(
+    t: 'B' | 'S' | 'V' | 'R' | undefined,
+    httpStatus: number
+  ): AppErrorKind {
+    if (t === 'V') return 'VALIDATION';
+    if (t === 'B') return 'BUSINESS';
+    if (t === 'S') return 'SYSTEM';
+    if (t === 'R') return 'RELEVE';
+
+    // fallback via HTTP
+    return this.kindFromHttpStatus(httpStatus);
+  }
+
+  private kindFromHttpStatus(status: number): AppErrorKind {
+    if (status === 401) return 'UNAUTHORIZED';
+    if (status === 403) return 'FORBIDDEN';
+    if (status === 404) return 'NOT_FOUND';
+    if (status >= 500) return 'SERVER';
+    return 'UNKNOWN';
   }
 }
