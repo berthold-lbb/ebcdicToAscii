@@ -265,3 +265,18 @@ export class RedditionFacade {
     );
   }
 }
+
+
+
+
+export type AsyncStatus = 'idle' | 'loading' | 'success' | 'error';
+
+export interface AsyncState<E = unknown> {
+  status: AsyncStatus;
+  error: E | null;
+}
+
+export const idleState = <E = unknown>(): AsyncState<E> => ({ status: 'idle', error: null });
+export const loadingState = <E = unknown>(): AsyncState<E> => ({ status: 'loading', error: null });
+export const successState = <E = unknown>(): AsyncState<E> => ({ status: 'success', error: null });
+export const errorState = <E = unknown>(error: E): AsyncState<E> => ({ status: 'error', error });
