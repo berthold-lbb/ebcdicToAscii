@@ -1,161 +1,62 @@
-La solution clean dans ton cas
-A) Injecter ApiConfiguration depuis ton ConfigService
+import { Directive, ElementRef, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
 
-Tu vas overrider le provider ApiConfiguration (généré) pour que son rootUrl vienne de ta config.
+type DsdDatepickerEl = HTMLElement & { value?: string; max?: string };
 
-1) APP_INITIALIZER pour charger ta config AVANT
-import { APP_INITIALIZER, Provider } from '@angular/core';
+@Directive({
+  selector: 'dsd-datepicker[bindMax], dsd-datepicker[bindValue]',
+  standalone: true,
+})
+export class DsdDatePickerBindDirective implements OnChanges {
+  private host = inject(ElementRef<DsdDatepickerEl>);
 
-export function initConfig(configService: ConfigService) {
-  return () => configService.load(); // doit retourner Promise/Observable -> Promise
-}
+  @Input('bindMax') maxDateLabel: string | null = null;
+  @Input() bindValue: string | null = null;
 
-export const CONFIG_INIT_PROVIDER: Provider = {
-  provide: APP_INITIALIZER,
-  multi: true,
-  deps: [ConfigService],
-  useFactory: initConfig,
-};
+  ngOnChanges(changes: SimpleChanges): void {
+    const el = this.host.nativeElement;
 
-2) Provider ApiConfiguration basé sur ta config chargée
-import { ApiConfiguration } from '.../api/api-configuration';
+    if ('maxDateLabel' in changes) {
+      const v = this.maxDateLabel ?? '';
+      (el as any).max = v;
+      if (v) el.setAttribute('max', v);
+      else el.removeAttribute('max');
+    }
 
-export function apiConfigFactory(configService: ConfigService) {
-  const cfg = new ApiConfiguration();
+    if ('bindValue' in changes) {
+      const v = this.bindValue ?? '';
+      (el as any).value = v;
+      if (v) el.setAttribute('value', v);
+      else el.removeAttribute('value');
+    }
 
-  // ✅ ton backendId (ex: 'bff_concil_action')
-  cfg.rootUrl = configService.getBackendUrl('bff_concil_action');
-
-  return cfg;
-}
-
-export const API_CONFIG_PROVIDER: Provider = {
-  provide: ApiConfiguration,
-  deps: [ConfigService],
-  useFactory: apiConfigFactory,
-};
-
-3) Ajouter ça dans app.config.ts (standalone)
-import { ApplicationConfig } from '@angular/core';
-
-export const appConfig: ApplicationConfig = {
-  providers: [
-    CONFIG_INIT_PROVIDER,
-    API_CONFIG_PROVIDER,
-  ],
-};
-
-
-✅ Résultat : this.rootUrl dans tous tes services générés va automatiquement prendre ton URL dynamique.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-standalone 
-
-
-
-
-1) ConfigService (doit être “ready” après load)
-
-L’idée : load() hydrate une config en mémoire, et getBackendUrl() lit dedans.
-
-import { Injectable } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { firstValueFrom } from 'rxjs';
-
-type AppConfig = {
-  backends: Record<string, string>; // ex: { "bff_concil_action": "https://..." }
-};
-
-@Injectable({ providedIn: 'root' })
-export class ConfigService {
-  private cfg!: AppConfig;
-
-  constructor(private http: HttpClient) {}
-
-  async load(): Promise<void> {
-    // exemple : fichier assets/config.json ou endpoint /config
-    this.cfg = await firstValueFrom(this.http.get<AppConfig>('/assets/config.json'));
-  }
-
-  getBackendUrl(backendId: string): string {
-    const url = this.cfg?.backends?.[backendId];
-    if (!url) throw new Error(`Backend URL introuvable pour backendId="${backendId}"`);
-    return url;
+    // optionnel mais très utile pour certains WC
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 }
+dsd-datepicker-bind.directive.ts
 
-2) APP_INITIALIZER (standalone)
+import { AfterViewInit, Component, ElementRef, ViewChild, inject } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
-⚠️ Important : la factory doit retourner une fonction qui retourne Promise<void>.
+@Component({...})
+export class RedditionComponent implements AfterViewInit {
+  @ViewChild('redditionDatePicker', { read: ElementRef })
+  private pickerRef!: ElementRef<any>;
 
-import { APP_INITIALIZER, Provider } from '@angular/core';
-import { ConfigService } from './config.service';
+  private facade = inject(RedditionFacade);
 
-export function initConfig(configService: ConfigService) {
-  return () => configService.load();
+  ngAfterViewInit(): void {
+    this.facade.dateMaxLabel$
+      .pipe(takeUntilDestroyed())
+      .subscribe(maxLabel => {
+        const el = this.pickerRef.nativeElement as any;
+
+        // property
+        el.max = maxLabel;
+
+        // attribute (backup)
+        el.setAttribute('max', maxLabel);
+      });
+  }
 }
-
-export const CONFIG_INIT_PROVIDER: Provider = {
-  provide: APP_INITIALIZER,
-  multi: true,
-  deps: [ConfigService],
-  useFactory: initConfig,
-};
-
-3) Override ApiConfiguration (ng-openapi-gen)
-
-Tu overrides le provider de ApiConfiguration (celui généré par ng-openapi-gen).
-
-import { Provider } from '@angular/core';
-import { ApiConfiguration } from 'src/app/api/api-configuration'; // adapte le chemin
-import { ConfigService } from './config.service';
-
-export function apiConfigFactory(configService: ConfigService) {
-  const cfg = new ApiConfiguration();
-  cfg.rootUrl = configService.getBackendUrl('bff_concil_action');
-  return cfg;
-}
-
-export const API_CONFIG_PROVIDER: Provider = {
-  provide: ApiConfiguration,
-  deps: [ConfigService],
-  useFactory: apiConfigFactory,
-};
-
-
-✅ Résultat : tous les services générés qui font this.rootUrl + path vont prendre cette URL.
-
-4) app.config.ts (standalone)
-
-N’oublie pas HttpClient si tu ne l’as pas déjà.
-
-import { ApplicationConfig } from '@angular/core';
-import { provideHttpClient, withInterceptorsFromDi } from '@angular/common/http';
-
-import { CONFIG_INIT_PROVIDER } from './config/config-init.provider';
-import { API_CONFIG_PROVIDER } from './config/api-config.provider';
-
-export const appConfig: ApplicationConfig = {
-  providers: [
-    provideHttpClient(withInterceptorsFromDi()),
-
-    CONFIG_INIT_PROVIDER,
-    API_CONFIG_PROVIDER,
-  ],
-};
