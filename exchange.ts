@@ -1,22 +1,36 @@
-static toBlob(base64: string, contentType = 'application/octet-stream'): Blob {
-  const pure = base64.includes(',') ? base64.split(',').pop()! : base64;
+import { Directive, ElementRef, Input, OnChanges, SimpleChanges, inject } from '@angular/core';
 
-  const byteChars = atob(pure);
-  const sliceSize = 1024;
+type DsdDatepickerEl = HTMLElement & { value?: string; max?: string };
 
-  const chunks: ArrayBuffer[] = [];
+@Directive({
+  selector: 'dsd-datepicker[bindMax], dsd-datepicker[bindValue]',
+  standalone: true,
+})
+export class DsdDatePickerBindDirective implements OnChanges {
+  private host = inject(ElementRef<DsdDatepickerEl>);
 
-  for (let offset = 0; offset < byteChars.length; offset += sliceSize) {
-    const slice = byteChars.slice(offset, offset + sliceSize);
+  @Input('bindMax') maxDateLabel: string | null = null;
+  @Input() bindValue: string | null = null;
 
-    const bytes = new Uint8Array(slice.length);
-    for (let i = 0; i < slice.length; i++) {
-      bytes[i] = slice.charCodeAt(i);
+  ngOnChanges(changes: SimpleChanges): void {
+    const el = this.host.nativeElement;
+
+    if ('maxDateLabel' in changes) {
+      const v = this.maxDateLabel ?? '';
+      (el as any).max = v;
+      if (v) el.setAttribute('max', v);
+      else el.removeAttribute('max');
     }
 
-    // ✅ on push le buffer (ArrayBuffer) => BlobPart compatible
-    chunks.push(bytes.buffer);
-  }
+    if ('bindValue' in changes) {
+      const v = this.bindValue ?? '';
+      (el as any).value = v;
+      if (v) el.setAttribute('value', v);
+      else el.removeAttribute('value');
+    }
 
-  return new Blob(chunks, { type: contentType });
+    // optionnel mais très utile pour certains WC
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+  }
 }
