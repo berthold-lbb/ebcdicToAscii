@@ -34,3 +34,4 @@ export class DsdDatePickerBindDirective implements OnChanges {
     el.dispatchEvent(new Event('change', { bubbles: true }));
   }
 }
+dsd-datepicker-bind.directive.ts
