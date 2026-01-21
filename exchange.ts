@@ -1,25 +1,35 @@
-private formatYMD(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
+it("extraire$ doit appeler le repo et ouvrir le zip", () => {
+  // Arrange
+  const extractionDone$ = new Subject<HttpResponse<Blob>>();
 
-private parseYMDLocal(ymd: string): Date {
-  const [y, m, d] = ymd.split('-').map(Number);
-  return new Date(y, m - 1, d); // ✅ local, pas UTC
-}
+  spyOn(mockConciliationRepo, 'getExtractionConciliationFinAnnee$')
+    .and.returnValue(extractionDone$.asObservable());
 
-setSelectedDate(input: Date | string | null | undefined): void {
-  if (!input) {
-    this.selectedDateLabelSubject.next('');
-    return;
-  }
+  spyOn(FileUtils, 'openBlobFile');
 
-  const d = input instanceof Date ? input : this.parseYMDLocal(input);
+  facade.setSelectedTransit({ id: 'T1' } as any);
+  facade.setSelectedDate('2024-06-01'); // important: string ISO
+  isPaie$.next(true);
+  isSaci$.next(false);
 
-  // ✅ dernier jour du même mois
-  const end = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+  // Act
+  facade.extraire$();
 
-  this.selectedDateLabelSubject.next(this.formatYMD(end));
-}
+  // Assert 1: l'appel repo a bien eu lieu
+  expect(mockConciliationRepo.getExtractionConciliationFinAnnee$).toHaveBeenCalled();
+
+  // Simule la réponse backend
+  const res = new HttpResponse({
+    body: new Blob(['data'], { type: 'application/zip' }),
+    headers: new HttpHeaders({
+      'content-disposition': 'attachment; filename=rapport.zip',
+      'content-type': 'application/zip',
+    }),
+    status: 200,
+  });
+
+  extractionDone$.next(res);
+
+  // Assert 2: openBlobFile a été appelé
+  expect(FileUtils.openBlobFile).toHaveBeenCalled();
+});
