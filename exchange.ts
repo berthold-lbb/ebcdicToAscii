@@ -1,331 +1,403 @@
-import { CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
-import { TestBed, ComponentFixture } from '@angular/core/testing';
-import { Router } from '@angular/router';
-import { RouterTestingModule } from '@angular/router/testing';
+// role.mapper.ts
+import { Role } from '../model/enums'; // ⚠️ ajuste le chemin chez toi
 
-import { of, Subject } from 'rxjs';
-
-import { Overlay } from '@angular/cdk/overlay';
-import { ComponentPortal } from '@angular/cdk/portal';
-
-import {
-  TranslateLoader,
-  TranslateModule,
-  TranslateService,
-  TranslateStore,
-} from '@ngx-translate/core';
-
-import { HttpClientTestingModule } from '@angular/common/http/testing';
-
-import { Store } from '@ngxs/store';
-
-// ⚠️ adapte le chemin selon ton projet
-import { AppComponent } from './app.component';
-
-// Si tu as un vrai composant Spinner utilisé par ComponentPortal(Spinner)
-import { Spinner } from './shared/components/spinner/spinner'; // <-- adapte
-
-// ---- Fake loader ngx-translate (évite HttpClient + fichiers i18n) ----
-class FakeTranslateLoader implements TranslateLoader {
-  getTranslation(_lang: string) {
-    return of({}); // aucune traduction nécessaire pour ces tests
-  }
+/**
+ * Normalise un rôle backend (string) vers une clé stable :
+ * - trim
+ * - uppercase
+ * - espaces / tirets / slash => underscore
+ * - underscores multiples => 1 seul
+ * - enlève underscores au début/fin
+ *
+ * Ex:
+ *  " paie lecture " => "PAIE_LECTURE"
+ *  "paie-lecture"   => "PAIE_LECTURE"
+ *  "PAIE/LECTURE"   => "PAIE_LECTURE"
+ */
+export function normalizeRole(raw?: string | null): string {
+  return (raw ?? '')
+    .trim()
+    .toUpperCase()
+    .replace(/[\s\-\/]+/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '');
 }
 
-describe('AppComponent', () => {
-  let fixture: ComponentFixture<AppComponent>;
-  let component: AppComponent;
+/**
+ * Mapping des rôles normalisés -> Enum Role.
+ * Ajoute ici TOUTES les valeurs attendues.
+ */
+export const ROLE_MAP: Record<string, Role> = {
+  // --- OCSA
+  OCSA: Role.OCSA,
+  SUPER_OCSA: Role.SUPER_OCSA,
+  OCSA_SUPPORT: Role.OCSA_SUPPORT,
+  OCSA_LECTURE: Role.OCSA_LECTURE,
 
-  // Router mock
-  const routerMock = jasmine.createSpyObj<Router>('Router', ['navigate'], {
-    url: '/conciliation',
-  });
+  // --- SACI
+  SACI: Role.SACI,
+  SUPER_SACI: Role.SUPER_SACI,
+  SACI_SUPPORT: Role.SACI_SUPPORT,
+  SACI_LECTURE: Role.SACI_LECTURE,
+  SUPERVISEUR_SACI: Role.SUPERVISEUR_SACI,
 
-  // Store mock
-  const storeMock = jasmine.createSpyObj<Store>('Store', ['select', 'dispatch']);
+  // --- PAIE
+  PAIE: Role.PAIE,
+  SUPER_PAIE: Role.SUPER_PAIE,
+  PAIE_SUPPORT: Role.PAIE_SUPPORT,
+  PAIE_LECTURE: Role.PAIE_LECTURE,
 
-  // Overlay mock (avec chain overlay.position().global().left().top())
-  const overlayRefMock = jasmine.createSpyObj('OverlayRef', ['attach', 'dispose']);
+  // fallback connus éventuels
+  NONE: Role.NONE,
+  UNKNOWN: Role.NONE,
+};
 
-  const globalPositionStrategyMock = jasmine.createSpyObj('GlobalPositionStrategy', [
-    'left',
-    'top',
-  ]);
-  globalPositionStrategyMock.left.and.returnValue(globalPositionStrategyMock);
-  globalPositionStrategyMock.top.and.returnValue(globalPositionStrategyMock);
+export function mapRole(raw?: string | null): Role {
+  const key = normalizeRole(raw);
+  return ROLE_MAP[key] ?? Role.NONE;
+}
 
-  const positionStrategyBuilderMock = jasmine.createSpyObj('OverlayPositionBuilder', [
-    'global',
-  ]);
-  positionStrategyBuilderMock.global.and.returnValue(globalPositionStrategyMock);
 
-  const overlayMock = jasmine.createSpyObj<Overlay>('Overlay', ['create', 'position']);
-  overlayMock.position.and.returnValue(positionStrategyBuilderMock as any);
-  overlayMock.create.and.returnValue(overlayRefMock as any);
+// role.mapper.spec.ts
+import { mapRole, normalizeRole, ROLE_MAP } from './role.mapper';
+import { Role } from '../model/enums'; // ⚠️ ajuste le chemin chez toi
 
-  // TranslateStore mock (clé pour enlever "No provider for TranslateStore")
-  const translateStoreMock = {
-    onTranslationChange: new Subject<any>(),
-    onLangChange: new Subject<any>(),
-    onDefaultLangChange: new Subject<any>(),
-    translations: {},
-  };
+describe('role.mapper', () => {
+  describe('normalizeRole', () => {
+    const cases: Array<{ raw: any; expected: string }> = [
+      { raw: undefined, expected: '' },
+      { raw: null, expected: '' },
+      { raw: '', expected: '' },
+      { raw: '   ', expected: '' },
 
-  beforeEach(async () => {
-    // select() doit renvoyer un Observable<number> pour ton spinner$
-    storeMock.select.and.returnValue(of(0));
+      { raw: 'paie', expected: 'PAIE' },
+      { raw: ' PAIE ', expected: 'PAIE' },
+      { raw: 'paie lecture', expected: 'PAIE_LECTURE' },
+      { raw: 'PaIe   LeCtUrE', expected: 'PAIE_LECTURE' },
+      { raw: 'paie-lecture', expected: 'PAIE_LECTURE' },
+      { raw: 'paie/lecture', expected: 'PAIE_LECTURE' },
 
-    await TestBed.configureTestingModule({
-      imports: [
-        RouterTestingModule,
-        HttpClientTestingModule,
-
-        // ✅ IMPORTANT : on utilise TranslateModule (pas de MockTranslatePipe)
-        TranslateModule.forRoot({
-          loader: { provide: TranslateLoader, useClass: FakeTranslateLoader },
-        }),
-      ],
-      declarations: [
-        AppComponent,
-        // ⚠️ N'ajoute pas TranslatePipe / MockTranslatePipe ici
-        // Si AppComponent référence Spinner via ComponentPortal, le déclarer aide parfois :
-        Spinner,
-      ],
-      providers: [
-        { provide: Router, useValue: routerMock },
-        { provide: Store, useValue: storeMock },
-        { provide: Overlay, useValue: overlayMock },
-
-        // ✅ Clé : TranslateStore doit exister si TranslateService existe
-        { provide: TranslateStore, useValue: translateStoreMock },
-      ],
-      schemas: [CUSTOM_ELEMENTS_SCHEMA], // ✅ pour <app-header> ou web components
-    }).compileComponents();
-
-    // nettoyer le body si overlay/backdrop laisse des traces
-    document.body.className = '';
-  });
-
-  function createComponent() {
-    fixture = TestBed.createComponent(AppComponent);
-    component = fixture.componentInstance;
-
-    // Optionnel : si ton ngOnInit fait setDefaultLang / use()
-    const translate = TestBed.inject(TranslateService);
-    spyOn(translate, 'setDefaultLang').and.callThrough();
-    spyOn(translate, 'use').and.callThrough();
-
-    fixture.detectChanges(); // déclenche ngOnInit
-    return { translate };
-  }
-
-  it('should create', () => {
-    createComponent();
-    expect(component).toBeTruthy();
-  });
-
-  it('should set window title', () => {
-    createComponent();
-    expect(window.document.title).toBe('La vue de conciliation');
-  });
-
-  it('should open spinner when activeCalls != 0 and initialized', () => {
-    createComponent();
-
-    // Simule "déjà initialisé"
-    (component as any).isInitialised = true;
-
-    // activeCalls != 0
-    (component as any).openSpinner(); // ou si tu testes via subscription, pousse la valeur via storeMock.select
-
-    expect(overlayMock.create).toHaveBeenCalled();
-    expect(overlayRefMock.attach).toHaveBeenCalled();
-  });
-
-  it('should close spinner when open', () => {
-    createComponent();
-
-    // ouvre une fois
-    (component as any).openSpinner();
-    // ferme
-    (component as any).closeSpinner();
-
-    expect(overlayRefMock.dispose).toHaveBeenCalled();
-  });
-
-  it('onTabsChange should navigate to selected key', () => {
-    createComponent();
-
-    // Adapte selon tes tabs (idx->key)
-    (component as any).tabs = [
-      { key: 'conciliation' },
-      { key: 'recherche' },
-      { key: 'rapports' },
+      { raw: '__paie__lecture__', expected: 'PAIE_LECTURE' },
+      { raw: '  - paie  /  lecture - ', expected: 'PAIE_LECTURE' },
+      { raw: '_PAIE__LECTURE_', expected: 'PAIE_LECTURE' },
     ];
 
-    (component as any).onTabsChange({ detail: { activeItemIndex: 1 } });
-    expect(routerMock.navigate).toHaveBeenCalledWith(['/', 'recherche']);
+    cases.forEach(({ raw, expected }) => {
+      it(`should normalize "${String(raw)}" -> "${expected}"`, () => {
+        expect(normalizeRole(raw)).toBe(expected);
+      });
+    });
+  });
+
+  describe('mapRole', () => {
+    it('should return Role.NONE for unknown / empty values', () => {
+      expect(mapRole(undefined)).toBe(Role.NONE);
+      expect(mapRole(null)).toBe(Role.NONE);
+      expect(mapRole('')).toBe(Role.NONE);
+      expect(mapRole('   ')).toBe(Role.NONE);
+      expect(mapRole('un-role-inconnu')).toBe(Role.NONE);
+    });
+
+    it('should map known roles ignoring case/separators', () => {
+      // adapte si tu n'as pas ces rôles dans ton enum
+      expect(mapRole('paie')).toBe(Role.PAIE);
+      expect(mapRole('PAIE LECTURE')).toBe(Role.PAIE_LECTURE);
+      expect(mapRole('paie-lecture')).toBe(Role.PAIE_LECTURE);
+      expect(mapRole('paie/lecture')).toBe(Role.PAIE_LECTURE);
+    });
+
+    it('should map every ROLE_MAP key (sanity)', () => {
+      // garantit que chaque clé mappée renvoie bien une valeur valide
+      Object.keys(ROLE_MAP).forEach((key) => {
+        const expected = ROLE_MAP[key];
+        expect(mapRole(key)).toBe(expected);
+      });
+    });
+
+    it('should accept variants for each ROLE_MAP key (normalize-driven)', () => {
+      // Pour chaque clé "FOO_BAR", on teste :
+      // - "foo bar"
+      // - "foo-bar"
+      // - "foo/bar"
+      Object.keys(ROLE_MAP).forEach((key) => {
+        const expected = ROLE_MAP[key];
+
+        const spaced = key.toLowerCase().replace(/_/g, ' ');
+        const dashed = key.toLowerCase().replace(/_/g, '-');
+        const slashed = key.toLowerCase().replace(/_/g, '/');
+
+        expect(mapRole(spaced)).toBe(expected);
+        expect(mapRole(dashed)).toBe(expected);
+        expect(mapRole(slashed)).toBe(expected);
+      });
+    });
   });
 });
 
 
 
 
------------------
-// app.component.spec.ts
-import { CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
-import { TestBed, ComponentFixture } from '@angular/core/testing';
-import { Router, NavigationEnd } from '@angular/router';
-import { Subject, of } from 'rxjs';
+import { Injectable } from '@angular/core';
+import { BehaviorSubject, Observable, of } from 'rxjs';
+import { catchError, map, shareReplay, switchMap } from 'rxjs/operators';
 
-import { Overlay } from '@angular/cdk/overlay';
-import { Store } from '@ngxs/store';
-import { TranslateService } from '@ngx-translate/core';
+import { AuthentificationRepository } from '../repositories/authentification.repository';
+import { Role } from '../model/enums';
+import { InformationUtilisateurBffDto } from '../model/utilisateur'; // ng-openapi
+import { mapRole } from './role.mapper';
 
-import { AppComponent } from './app.component';
+@Injectable({ providedIn: 'root' })
+export class AuthentificationService {
+  private readonly refreshSubject = new BehaviorSubject<void>(undefined);
 
-describe('AppComponent', () => {
-  let fixture: ComponentFixture<AppComponent>;
-  let component: AppComponent;
+  readonly currentUser$: Observable<InformationUtilisateurBffDto | null> =
+    this.refreshSubject.pipe(
+      switchMap(() => this.fetchUsers$()),
+      shareReplay({ bufferSize: 1, refCount: false })
+    );
 
-  // Router events
-  const routerEvents$ = new Subject<any>();
-
-  // ---- Router mock
-  const routerMock = jasmine.createSpyObj<Router>(
-    'Router',
-    ['navigate'],
-    {
-      url: '/conciliation',
-      events: routerEvents$.asObservable(),
-    } as any
+  readonly currentUserRole$: Observable<Role> = this.currentUser$.pipe(
+    map((u) => (u ? (u.role as unknown as Role) : Role.NONE)), // <- on va corriger juste après
+    // ✅ mieux: map(u => u ? u.role : Role.NONE) si tu transformes le DTO en modèle front
+    // (je te laisse la version DTO ci-dessous, corrigée dans fetchUsers$)
+    shareReplay({ bufferSize: 1, refCount: false })
   );
 
-  // ---- Store mock (NGXS)
-  const storeMock = jasmine.createSpyObj<Store>('Store', ['select', 'dispatch']);
-  // ton ngOnInit fait: this.store.select(SpinnerState.getActiveCalls)
-  storeMock.select.and.returnValue(of(0));
+  constructor(private readonly authentificationRepository: AuthentificationRepository) {}
 
-  // ---- Overlay mocks (si ton spinner utilise Overlay + position().global().left().top() + create().attach()/dispose())
-  const overlayRefMock = jasmine.createSpyObj('OverlayRef', ['attach', 'dispose']);
-
-  const globalPositionStrategyMock = jasmine.createSpyObj('GlobalPositionStrategy', ['left', 'top']);
-  globalPositionStrategyMock.left.and.returnValue(globalPositionStrategyMock);
-  globalPositionStrategyMock.top.and.returnValue(globalPositionStrategyMock);
-
-  const positionStrategyBuilderMock = jasmine.createSpyObj('OverlayPositionBuilder', ['global']);
-  positionStrategyBuilderMock.global.and.returnValue(globalPositionStrategyMock);
-
-  const overlayMock = jasmine.createSpyObj<Overlay>('Overlay', ['create', 'position']);
-  (overlayMock.position as any).and.returnValue(positionStrategyBuilderMock);
-  overlayMock.create.and.returnValue(overlayRefMock as any);
-
-  // ---- TranslateService mock (CLE: on ne veut pas du vrai ngx-translate)
-  const translateMock = jasmine.createSpyObj<TranslateService>('TranslateService', [
-    'setTranslation',
-    'setDefaultLang',
-    'use',
-    'instant',
-    'get',
-    'addLangs',
-  ]);
-
-  beforeEach(async () => {
-    // valeurs par défaut utiles
-    translateMock.get.and.returnValue(of({}));
-    translateMock.instant.and.callFake((k: string) => k);
-
-    await TestBed.configureTestingModule({
-      declarations: [AppComponent], // AppComponent n'est pas standalone → declarations OK
-      providers: [
-        { provide: Router, useValue: routerMock },
-        { provide: Store, useValue: storeMock },
-        { provide: Overlay, useValue: overlayMock },
-        { provide: TranslateService, useValue: translateMock },
-      ],
-      // ✅ évite NG0304 pour <app-header> / web components / tags inconnus
-      schemas: [CUSTOM_ELEMENTS_SCHEMA],
-    }).compileComponents();
-  });
-
-  afterEach(() => {
-    // évite pollution body class si ton code modifie document.body.className
-    document.body.className = '';
-    routerEvents$.complete();
-  });
-
-  function createComponent() {
-    fixture = TestBed.createComponent(AppComponent);
-    component = fixture.componentInstance;
-    fixture.detectChanges(); // déclenche constructor + ngOnInit + subscriptions
-    return { fixture, component };
+  load(): void {
+    this.refreshSubject.next();
   }
 
-  it('should create', () => {
-    createComponent();
-    expect(component).toBeTruthy();
+  refresh(): void {
+    this.refreshSubject.next();
+  }
+
+  /** Helpers */
+  hasRole(...roles: Role[]): Observable<boolean> {
+    return this.currentUserRole$.pipe(map((r) => roles.includes(r)));
+  }
+
+  isSaci$(): Observable<boolean> {
+    return this.hasRole(
+      Role.SACI,
+      Role.SUPER_SACI,
+      Role.SACI_SUPPORT,
+      Role.SACI_LECTURE,
+      Role.SUPERVISEUR_SACI
+    );
+  }
+
+  isOcsa$(): Observable<boolean> {
+    return this.hasRole(Role.OCSA, Role.SUPER_OCSA, Role.OCSA_SUPPORT, Role.OCSA_LECTURE);
+  }
+
+  isPaie$(): Observable<boolean> {
+    return this.hasRole(Role.PAIE, Role.SUPER_PAIE, Role.PAIE_SUPPORT, Role.PAIE_LECTURE);
+  }
+
+  /** 🔥 Ici on fait la conversion DTO -> DTO enrichi (role typé Role) */
+  private fetchUsers$(): Observable<InformationUtilisateurBffDto | null> {
+    return this.authentificationRepository.getInformationUtilisateurs().pipe(
+      map((user) => {
+        if (!user) return null;
+
+        // IMPORTANT: on remplace le role string par le Role enum
+        return {
+          ...user,
+          role: mapRole((user as any).role) as any, // garde compat si dto est typé string
+        };
+      }),
+      catchError(() => of(null))
+    );
+  }
+}
+
+
+
+import { TestBed } from '@angular/core/testing';
+import { of, throwError, firstValueFrom } from 'rxjs';
+
+import { AuthentificationService } from './authentification.service';
+import { AuthentificationRepository } from '../repositories/authentification.repository';
+import { Role } from '../model/enums';
+import { ROLE_MAP, mapRole } from './role.mapper';
+
+// Mini DTO (si ton import DTO est lourd, sinon importe ton vrai type)
+type InformationUtilisateurBffDto = {
+  identifiantNouvement: string;
+  numeroInstitution: string;
+  numeroTransit: string;
+  numeroPointService: string;
+  typeTransit: string;
+  role: any; // string backend -> devient Role après mapping
+  instanceAssignee: string;
+};
+
+describe('AuthentificationService', () => {
+  let service: AuthentificationService;
+
+  let repoSpy: jasmine.SpyObj<AuthentificationRepository>;
+
+  const makeDto = (roleRaw: string): InformationUtilisateurBffDto => ({
+    identifiantNouvement: 'id',
+    numeroInstitution: '123',
+    numeroTransit: '456',
+    numeroPointService: '789',
+    typeTransit: 'T',
+    role: roleRaw,
+    instanceAssignee: 'assignee',
   });
 
-  it('should set default lang and translation in constructor (without crashing)', () => {
-    createComponent();
+  beforeEach(() => {
+    repoSpy = jasmine.createSpyObj<AuthentificationRepository>('AuthentificationRepository', [
+      'getInformationUtilisateurs',
+    ]);
 
-    // Ton code appelle:
-    // this.translateService.setTranslation('fr-CA', defaultLanguage);
-    // this.translateService.setDefaultLang('fr-CA');
-    expect(translateMock.setDefaultLang).toHaveBeenCalledWith('fr-CA');
-    expect(translateMock.setTranslation).toHaveBeenCalled();
+    TestBed.configureTestingModule({
+      providers: [
+        AuthentificationService,
+        { provide: AuthentificationRepository, useValue: repoSpy },
+      ],
+    });
+
+    service = TestBed.inject(AuthentificationService);
   });
 
-  it('should subscribe to router NavigationEnd and call syncPanelFromUrl', () => {
-    // On surveille la méthode si elle existe
-    // (si ton AppComponent l’a bien)
-    const spy = spyOn(AppComponent.prototype as any, 'syncPanelFromUrl').and.callThrough();
+  describe('role.mapper', () => {
+    it('mapRole retourne Role.NONE si unknown / vide', () => {
+      expect(mapRole(undefined)).toBe(Role.NONE);
+      expect(mapRole(null)).toBe(Role.NONE);
+      expect(mapRole('')).toBe(Role.NONE);
+      expect(mapRole('___nope___')).toBe(Role.NONE);
+    });
 
-    createComponent();
+    it('mapRole couvre toutes les clés ROLE_MAP', () => {
+      for (const [raw, expected] of Object.entries(ROLE_MAP)) {
+        expect(mapRole(raw)).toBe(expected, `raw=${raw}`);
+      }
+    });
 
-    routerEvents$.next(new NavigationEnd(1, '/conciliation', '/conciliation'));
-    expect(spy).toHaveBeenCalled();
+    it('mapRole normalise (espaces, casse)', () => {
+      expect(mapRole('  saci_support  ')).toBe(Role.SACI_SUPPORT);
+      expect(mapRole('Super Ocsa')).toBe(Role.SUPER_OCSA);
+      expect(mapRole('paie lecture')).toBe(Role.PAIE_LECTURE);
+    });
   });
 
-  it('should call store.select on init (spinner observable)', () => {
-    createComponent();
-    expect(storeMock.select).toHaveBeenCalled();
+  describe('load/refresh + currentUser$', () => {
+    it('load() déclenche un fetch et map le role', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValue(of(makeDto('SACI_SUPPORT') as any));
+
+      service.load();
+
+      const u = await firstValueFrom(service.currentUser$);
+      expect(repoSpy.getInformationUtilisateurs).toHaveBeenCalled();
+      expect(u).toBeTruthy();
+      expect((u as any).role).toBe(Role.SACI_SUPPORT);
+    });
+
+    it('si repo renvoie null => currentUser$ émet null', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValue(of(null));
+
+      service.load();
+
+      const u = await firstValueFrom(service.currentUser$);
+      expect(u).toBeNull();
+    });
+
+    it('si repo throw => currentUser$ émet null (catchError)', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValue(throwError(() => new Error('boom')));
+
+      service.load();
+
+      const u = await firstValueFrom(service.currentUser$);
+      expect(u).toBeNull();
+    });
+
+    it('refresh() déclenche un nouveau fetch', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValues(
+        of(makeDto('OCSA') as any),
+        of(makeDto('PAIE') as any)
+      );
+
+      service.load();
+      const u1 = await firstValueFrom(service.currentUser$);
+      expect((u1 as any).role).toBe(Role.OCSA);
+
+      service.refresh();
+      const u2 = await firstValueFrom(service.currentUser$);
+      expect((u2 as any).role).toBe(Role.PAIE);
+
+      expect(repoSpy.getInformationUtilisateurs).toHaveBeenCalledTimes(2);
+    });
   });
 
-  // ---------- Tests spinner (optionnels) ----------
-  // Si ton code ouvre le spinner via Overlay quand activeCalls != 0 et isInitialised == true,
-  // ce test montre le wiring sans dépendre du vrai Spinner component.
-  it('should create overlay when openSpinner is called (if method exists)', () => {
-    createComponent();
+  describe('currentUserRole$', () => {
+    it('retourne Role.NONE si user null', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValue(of(null));
+      service.load();
 
-    // si ta méthode existe (selon tes screenshots tu as openSpinner/closeSpinner)
-    const openSpinnerFn = (component as any).openSpinner;
-    if (typeof openSpinnerFn !== 'function') {
-      pending('openSpinner() not found on component');
-      return;
-    }
+      const r = await firstValueFrom(service.currentUserRole$);
+      expect(r).toBe(Role.NONE);
+    });
 
-    (component as any).openSpinner();
-    expect(overlayMock.position).toHaveBeenCalled();
-    expect(overlayMock.create).toHaveBeenCalled();
-    expect(overlayRefMock.attach).toHaveBeenCalled();
+    it('retourne le Role mappé si user existe', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValue(of(makeDto('SUPER_SACI') as any));
+      service.load();
+
+      const r = await firstValueFrom(service.currentUserRole$);
+      expect(r).toBe(Role.SUPER_SACI);
+    });
   });
 
-  it('should dispose overlay when closeSpinner is called (if method exists)', () => {
-    createComponent();
+  describe('hasRole / isX helpers', () => {
+    it('hasRole retourne true si role match', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValue(of(makeDto('PAIE_SUPPORT') as any));
+      service.load();
 
-    const closeSpinnerFn = (component as any).closeSpinner;
-    if (typeof closeSpinnerFn !== 'function') {
-      pending('closeSpinner() not found on component');
-      return;
-    }
+      const ok = await firstValueFrom(service.hasRole(Role.PAIE_SUPPORT, Role.SACI));
+      expect(ok).toBeTrue();
+    });
 
-    // ouvre puis ferme si ton code l’exige
-    if (typeof (component as any).openSpinner === 'function') {
-      (component as any).openSpinner();
-    }
+    it('hasRole retourne false si role ne match pas', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValue(of(makeDto('OCSA') as any));
+      service.load();
 
-    (component as any).closeSpinner();
-    expect(overlayRefMock.dispose).toHaveBeenCalled();
+      const ok = await firstValueFrom(service.hasRole(Role.PAIE, Role.SACI));
+      expect(ok).toBeFalse();
+    });
+
+    it('isSaci$ true pour un rôle SACI*', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValue(of(makeDto('SUPERVISEUR_SACI') as any));
+      service.load();
+
+      const ok = await firstValueFrom(service.isSaci$());
+      expect(ok).toBeTrue();
+    });
+
+    it('isSaci$ false si pas SACI', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValue(of(makeDto('PAIE') as any));
+      service.load();
+
+      const ok = await firstValueFrom(service.isSaci$());
+      expect(ok).toBeFalse();
+    });
+
+    it('isOcsa$ true pour OCSA*', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValue(of(makeDto('SUPER_OCSA') as any));
+      service.load();
+
+      const ok = await firstValueFrom(service.isOcsa$());
+      expect(ok).toBeTrue();
+    });
+
+    it('isPaie$ true pour PAIE*', async () => {
+      repoSpy.getInformationUtilisateurs.and.returnValue(of(makeDto('PAIE_LECTURE') as any));
+      service.load();
+
+      const ok = await firstValueFrom(service.isPaie$());
+      expect(ok).toBeTrue();
+    });
   });
 });
