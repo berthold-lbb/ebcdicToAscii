@@ -156,3 +156,178 @@ describe('ApiErrorMapper', () => {
     expect(fn(null)).toBeFalse();
   });
 });
+
+
+
+import { Injectable } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
+
+// ✅ tes modèles (ng-openapi-gen)
+import type { ProblemeRest } from '../api/models/probleme-rest';
+import type { ErreurRest } from '../api/models/erreur-rest';
+
+// ✅ ton modèle front
+import type { AppError, AppErrorKind } from '../models/app-error';
+
+@Injectable({ providedIn: 'root' })
+export class ApiErrorMapper {
+
+  map(err: unknown): AppError {
+    // -------------------------
+    // HTTP errors
+    // -------------------------
+    if (err instanceof HttpErrorResponse) {
+
+      // Réseau / CORS / offline
+      if (err.status === 0) {
+        return {
+          source: 'NETWORK',
+          kind: 'UNKNOWN',
+          httpStatus: 0,
+          message: 'Impossible de joindre le serveur.',
+          messages: ['Impossible de joindre le serveur.'],
+          endpoint: err.url ?? undefined,
+          original: err,
+        };
+      }
+
+      const body = err.error as unknown;
+
+      // Backend a renvoyé un ProblemeRest
+      if (this.isProblemeRest(body)) {
+        const httpStatus = this.parseHttpStatus(body.httpStatus) ?? err.status;
+        const errors = body.errors ?? [];
+
+        const messages = this.collectMessages(errors);
+        const message = messages[0] ?? 'Une erreur est survenue.';
+
+        const first = errors[0];
+        const endpoint = first?.url ?? err.url ?? undefined;
+
+        // ✅ règle ta confusion : on priorise d'abord HTTP (401/403/404/5xx),
+        // ensuite on utilise le type backend (B/S/V/R) si le statut ne dit pas déjà quoi faire.
+        const kind = this.kindFromBackendOrHttp(first?.type, httpStatus);
+
+        return {
+          source: 'HTTP',
+          kind,
+          httpStatus,
+          httpStatusKey: body.httpStatus,
+          status: body.status,
+          message,
+          messages,
+
+          code: first?.code,
+          errorType: first?.type,
+          endpoint,
+          systemId: first?.systemId,
+          systemName: first?.systemName,
+          time: first?.time,
+
+          problemeRest: body,
+          errors: errors,
+          original: err,
+        };
+      }
+
+      // HTTP sans ProblemeRest (texte, blob, etc.)
+      const msg = (err.message || '').trim() || 'Erreur HTTP.';
+      return {
+        source: 'HTTP',
+        kind: this.kindFromHttpStatus(err.status),
+        httpStatus: err.status,
+        message: msg,
+        messages: [msg],
+        endpoint: err.url ?? undefined,
+        original: err,
+      };
+    }
+
+    // -------------------------
+    // Non-HTTP (client)
+    // -------------------------
+    const msg =
+      err instanceof Error && err.message
+        ? err.message
+        : 'Erreur inconnue (client).';
+
+    return {
+      source: 'CLIENT',
+      kind: 'UNKNOWN',
+      message: msg,
+      messages: [msg],
+      original: err,
+    };
+  }
+
+  // ---------------------------------------
+  // Guards / utils (privés)
+  // ---------------------------------------
+
+  private isProblemeRest(x: any): x is ProblemeRest {
+    // D'après tes screens : httpStatus?: string, errors?: ErreurRest[]
+    return !!(
+      x &&
+      typeof x === 'object' &&
+      typeof x.httpStatus === 'string' &&
+      Array.isArray(x.errors)
+    );
+  }
+
+  /**
+   * Ex: "403 FORBIDDEN" -> 403
+   */
+  private parseHttpStatus(httpStatus?: string): number | undefined {
+    if (!httpStatus) return undefined;
+    const m = String(httpStatus).match(/^\s*(\d{3})\b/);
+    return m ? Number(m[1]) : undefined;
+  }
+
+  /**
+   * Ordre: message -> detail -> exception
+   * + trim + remove empty + dedup
+   */
+  private collectMessages(errors: ErreurRest[]): string[] {
+    const out: string[] = [];
+
+    for (const e of errors) {
+      if (e?.message) out.push(e.message);
+      if (e?.detail) out.push(e.detail);
+      if (e?.exception) out.push(e.exception);
+    }
+
+    const cleaned = out
+      .map((s) => (s ?? '').trim())
+      .filter((s): s is string => !!s);
+
+    return Array.from(new Set(cleaned));
+  }
+
+  private kindFromBackendOrHttp(
+    t: 'B' | 'S' | 'V' | 'R' | undefined,
+    httpStatus: number
+  ): AppErrorKind {
+    // Priorité "UX / sécurité"
+    if (httpStatus === 401) return 'UNAUTHORIZED';
+    if (httpStatus === 403) return 'FORBIDDEN';
+    if (httpStatus === 404) return 'NOT_FOUND';
+    if (httpStatus >= 500) return 'SERVER';
+
+    // Sinon, backend type si fourni
+    if (t === 'V') return 'VALIDATION';
+    if (t === 'B') return 'BUSINESS';
+    if (t === 'S') return 'SYSTEM';
+    if (t === 'R') return 'RELEVE';
+
+    // fallback
+    return 'UNKNOWN';
+  }
+
+  private kindFromHttpStatus(status: number): AppErrorKind {
+    if (status === 401) return 'UNAUTHORIZED';
+    if (status === 403) return 'FORBIDDEN';
+    if (status === 404) return 'NOT_FOUND';
+    if (status >= 500) return 'SERVER';
+    return 'UNKNOWN';
+  }
+}
