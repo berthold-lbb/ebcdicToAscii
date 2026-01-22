@@ -334,18 +334,16 @@ export class ApiErrorMapper {
 
 
 export function normalizeRole(raw?: string | null): string {
-  if (!raw) return '';
+  // Identique à avant
+  let s = (raw ?? '').trim().toUpperCase();
 
-  // 1) normaliser en underscores
-  let s = raw.trim().toUpperCase();
-
-  // remplace espaces/tirets par underscore (regex simple, safe)
+  // ⚠️ Garde EXACTEMENT tes 2 replace comme ils étaient
+  // (copie-colle tes regex à toi si elles diffèrent)
   s = s.replace(/[\s-]+/g, '_');
-
-  // collapse underscores multiples (regex simple, safe)
   s = s.replace(/_+/g, '_');
 
-  // 2) trim "_" au début/fin sans regex
+  // ✅ Remplace seulement: .replace(/^_+|_+$/g, '')
+  // par un trim sans regex (même résultat)
   let start = 0;
   let end = s.length;
 
