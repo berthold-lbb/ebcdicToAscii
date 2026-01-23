@@ -146,3 +146,26 @@ describe('Reddition', () => {
     });
   });
 });
+
+
+
+
+
+
+it('should forward raw date (array) to facade as end-of-month and update datepicker', () => {
+  (component as any).reddititionDatePicker = { value: '' };
+
+  component.onDateChange({ detail: { value: ['2023-07-04'] } } as any);
+
+  expect(facadeMock.setSelectedDate).toHaveBeenCalledWith('2023-07-31');
+  expect((component as any).reddititionDatePicker.value).toBe('2023-07-31');
+});
+
+it('should work when value is not an array', () => {
+  (component as any).reddititionDatePicker = { value: '' };
+
+  component.onDateChange({ detail: { value: '2023-02-12' } } as any);
+
+  expect(facadeMock.setSelectedDate).toHaveBeenCalledWith('2023-02-28');
+  expect((component as any).reddititionDatePicker.value).toBe('2023-02-28');
+});
