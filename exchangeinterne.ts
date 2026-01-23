@@ -152,20 +152,152 @@ describe('Reddition', () => {
 
 
 
-it('should forward raw date (array) to facade as end-of-month and update datepicker', () => {
-  (component as any).reddititionDatePicker = { value: '' };
 
-  component.onDateChange({ detail: { value: ['2023-07-04'] } } as any);
 
-  expect(facadeMock.setSelectedDate).toHaveBeenCalledWith('2023-07-31');
-  expect((component as any).reddititionDatePicker.value).toBe('2023-07-31');
-});
 
-it('should work when value is not an array', () => {
-  (component as any).reddititionDatePicker = { value: '' };
 
-  component.onDateChange({ detail: { value: '2023-02-12' } } as any);
 
-  expect(facadeMock.setSelectedDate).toHaveBeenCalledWith('2023-02-28');
-  expect((component as any).reddititionDatePicker.value).toBe('2023-02-28');
+
+import { CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { of, Subject } from 'rxjs';
+
+import { TranslateFakeLoader, TranslateLoader, TranslateModule } from '@ngx-translate/core';
+
+import { Redditition } from './redditition';
+import { ReddititionFacade } from '../facade/reddition.facade';
+import { DateUtils } from '../../../../shared/utils/date-utils';
+
+describe('Redditition', () => {
+  let fixture: ComponentFixture<Redditition>;
+  let component: Redditition;
+
+  let facadeMock: jasmine.SpyObj<ReddititionFacade>;
+
+  beforeEach(async () => {
+    facadeMock = jasmine.createSpyObj<ReddititionFacade>('ReddititionFacade', [
+      'setSelectedDate',
+      'setSelectedTransit',
+      'extraire$',
+      'envoyer$',
+    ]);
+
+    // Si ton composant expose viewState$ depuis la facade
+    (facadeMock as any).viewState$ = of({});
+
+    facadeMock.extraire$.and.returnValue(of(void 0));
+    facadeMock.envoyer$.and.returnValue(of(void 0));
+
+    await TestBed.configureTestingModule({
+      imports: [
+        Redditition,
+        TranslateModule.forRoot({
+          loader: { provide: TranslateLoader, useClass: TranslateFakeLoader },
+        }),
+      ],
+      providers: [{ provide: ReddititionFacade, useValue: facadeMock }],
+      schemas: [CUSTOM_ELEMENTS_SCHEMA],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(Redditition);
+    component = fixture.componentInstance;
+
+    // Mock du ViewChild datepicker
+    (component as any).reddititionDatePicker = { value: '' };
+
+    // Mock de unsubscribe$ (au cas où BaseComponent ne l'initialise pas en test)
+    (component as any).unsubscribe$ = new Subject<void>();
+
+    fixture.detectChanges();
+  });
+
+  it('should create', () => {
+    expect(component).toBeTruthy();
+  });
+
+  // -------------------
+  // DATE PICKER
+  // -------------------
+
+  it('onDateChange: should convert and update facade + datepicker when value is array', () => {
+    component.onDateChange({ detail: { value: ['2023-07-04'] } } as any);
+
+    const expected = DateUtils.endOfMonthIso('2023-07-04');
+
+    expect(facadeMock.setSelectedDate).toHaveBeenCalledWith(expected);
+    expect((component as any).reddititionDatePicker.value).toBe(expected);
+  });
+
+  it('onDateChange: should convert and update facade + datepicker when value is string', () => {
+    component.onDateChange({ detail: { value: '2023-02-12' } } as any);
+
+    const expected = DateUtils.endOfMonthIso('2023-02-12');
+
+    expect(facadeMock.setSelectedDate).toHaveBeenCalledWith(expected);
+    expect((component as any).reddititionDatePicker.value).toBe(expected);
+  });
+
+  it('onDateChange: should do nothing if raw is null/undefined', () => {
+    component.onDateChange({ detail: { value: null } } as any);
+
+    expect(facadeMock.setSelectedDate).not.toHaveBeenCalled();
+    expect((component as any).reddititionDatePicker.value).toBe('');
+  });
+
+  // -------------------
+  // TRANSIT COMBOBOX
+  // -------------------
+
+  it('onComboboxClear: should clear transit id', () => {
+    component.onComboboxClear();
+
+    expect(facadeMock.setSelectedTransit).toHaveBeenCalledWith('');
+  });
+
+  it('onComboboxChange: should take first item if array', () => {
+    component.onComboboxChange({ detail: { value: ['T1', 'T2'] } } as any);
+
+    expect(facadeMock.setSelectedTransit).toHaveBeenCalledWith('T1');
+  });
+
+  it('onComboboxChange: should take string value directly', () => {
+    component.onComboboxChange({ detail: { value: 'T9' } } as any);
+
+    expect(facadeMock.setSelectedTransit).toHaveBeenCalledWith('T9');
+  });
+
+  // -------------------
+  // EXTRAIRE / ENVOYER
+  // -------------------
+
+  it('onExtraire: should call facade.extraire$ and subscribe', () => {
+    component.onExtraire();
+
+    expect(facadeMock.extraire$).toHaveBeenCalledTimes(1);
+  });
+
+  it('onEnvoyer: should call facade.envoyer$ and subscribe', () => {
+    component.onEnvoyer();
+
+    expect(facadeMock.envoyer$).toHaveBeenCalledTimes(1);
+  });
+
+  it('onExtraire: should not crash even if unsubscribe$ emits (takeUntil)', () => {
+    component.onExtraire();
+
+    // simule destruction / cleanup
+    (component as any).unsubscribe$.next();
+    (component as any).unsubscribe$.complete();
+
+    expect(facadeMock.extraire$).toHaveBeenCalledTimes(1);
+  });
+
+  it('onEnvoyer: should not crash even if unsubscribe$ emits (takeUntil)', () => {
+    component.onEnvoyer();
+
+    (component as any).unsubscribe$.next();
+    (component as any).unsubscribe$.complete();
+
+    expect(facadeMock.envoyer$).toHaveBeenCalledTimes(1);
+  });
 });
