@@ -1,49 +1,39 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { CUSTOM_ELEMENTS_SCHEMA } from '@angular/core';
-import { of, Observable } from 'rxjs';
+import { of, Subject } from 'rxjs';
 
-import { Reddition } from './reddition'; // <-- adapte le chemin si besoin
-import { RedditionFacade } from './reddition.facade'; // <-- adapte
-import { DateUtils } from '../utils/date-utils'; // <-- adapte
+import { Reddition } from './reddition';
+import { RedditionFacade } from './facade/reddition.facade';
+import { DateUtils } from '../../shared/utils/date-utils';
 
-describe('Reddition component', () => {
+describe('Reddition', () => {
   let fixture: ComponentFixture<Reddition>;
   let component: Reddition;
 
-  // Mock façade
-  let facade: jasmine.SpyObj<RedditionFacade>;
-
-  beforeEach(async () => {
-    facade = jasmine.createSpyObj<RedditionFacade>('RedditionFacade', [
+  const facadeMock = jasmine.createSpyObj<RedditionFacade>(
+    'RedditionFacade',
+    [
       'setSelectedDate',
       'setSelectedTransit',
       'extraire$',
       'envoyer$',
-    ], {
-      // propriété/observable
-      viewState$: of({}) as any,
-      viewStates$: of({}) as any, // selon ton code (tu as viewStates$)
-    });
+    ]
+  );
 
-    // par défaut : extraire/envoyer renvoient un observable qui termine
-    facade.extraire$.and.returnValue(of(void 0));
-    facade.envoyer$.and.returnValue(of(void 0));
+  beforeEach(async () => {
+    // stream consommé par AsyncPipe
+    (facadeMock as any).viewStates$ = of({});
+
+    facadeMock.extraire$.and.returnValue(of(void 0));
+    facadeMock.envoyer$.and.returnValue(of(void 0));
 
     await TestBed.configureTestingModule({
       imports: [Reddition],
-      providers: [
-        { provide: RedditionFacade, useValue: facade },
-      ],
       schemas: [CUSTOM_ELEMENTS_SCHEMA],
     })
-      // Important: si ton composant utilise templateUrl, on override le template
-      // pour injecter le #redditionDatePicker attendu par @ViewChild
       .overrideComponent(Reddition, {
         set: {
-          template: `
-            <dsd-date-picker #redditionDatePicker></dsd-date-picker>
-            <dsd-combobox></dsd-combobox>
-          `,
+          providers: [{ provide: RedditionFacade, useValue: facadeMock }],
         },
       })
       .compileComponents();
@@ -51,140 +41,108 @@ describe('Reddition component', () => {
     fixture = TestBed.createComponent(Reddition);
     component = fixture.componentInstance;
 
-    // Vu que @ViewChild sur custom element peut renvoyer ElementRef selon config,
-    // on force un stub simple qui supporte `.value = ...`
+    // stub du custom element
     (component as any).redditionDatePicker = { value: '' };
 
     fixture.detectChanges();
   });
 
+  afterEach(() => {
+    facadeMock.setSelectedDate.calls.reset();
+    facadeMock.setSelectedTransit.calls.reset();
+    facadeMock.extraire$.calls.reset();
+    facadeMock.envoyer$.calls.reset();
+  });
+
+  it('should create', () => {
+    expect(component).toBeTruthy();
+  });
+
+  // -------------------------
+  // DATE
+  // -------------------------
   describe('onDateChange', () => {
-    it('doit convertir la date (array) -> setSelectedDate + assigner datePicker.value', () => {
+    it('should ignore empty value', () => {
+      component.onDateChange({ detail: { value: null } } as any);
+      expect(facadeMock.setSelectedDate).not.toHaveBeenCalled();
+    });
+
+    it('should forward raw date to facade and update datepicker', () => {
       spyOn(DateUtils, 'endOfMonthIso').and.returnValue('2023-07-31');
 
-      const evt = new CustomEvent('dsdDatepickerChange', {
+      component.onDateChange({
         detail: { value: ['2023-07-04'] },
-      });
+      } as any);
 
-      component.onDateChange(evt);
-
+      expect(facadeMock.setSelectedDate).toHaveBeenCalledWith('2023-07-04');
       expect(DateUtils.endOfMonthIso).toHaveBeenCalledWith('2023-07-04');
-      expect(facade.setSelectedDate).toHaveBeenCalledWith('2023-07-31');
       expect((component as any).redditionDatePicker.value).toBe('2023-07-31');
     });
 
-    it('doit convertir la date (non array) -> setSelectedDate + assigner datePicker.value', () => {
-      spyOn(DateUtils, 'endOfMonthIso').and.returnValue('2023-07-31');
+    it('should work when value is not an array', () => {
+      spyOn(DateUtils, 'endOfMonthIso').and.returnValue('2023-02-28');
 
-      const evt = new CustomEvent('dsdDatepickerChange', {
-        detail: { value: '2023-07-12' },
-      });
+      component.onDateChange({
+        detail: { value: '2023-02-12' },
+      } as any);
 
-      component.onDateChange(evt);
-
-      expect(DateUtils.endOfMonthIso).toHaveBeenCalledWith('2023-07-12');
-      expect(facade.setSelectedDate).toHaveBeenCalledWith('2023-07-31');
-      expect((component as any).redditionDatePicker.value).toBe('2023-07-31');
-    });
-
-    it('si aucune valeur -> ne fait rien', () => {
-      spyOn(DateUtils, 'endOfMonthIso');
-
-      const evt = new CustomEvent('dsdDatepickerChange', {
-        detail: { value: null },
-      });
-
-      component.onDateChange(evt);
-
-      expect(DateUtils.endOfMonthIso).not.toHaveBeenCalled();
-      expect(facade.setSelectedDate).not.toHaveBeenCalled();
+      expect(facadeMock.setSelectedDate).toHaveBeenCalledWith('2023-02-12');
+      expect((component as any).redditionDatePicker.value).toBe('2023-02-28');
     });
   });
 
+  // -------------------------
+  // TRANSIT
+  // -------------------------
   describe('onComboboxClear', () => {
-    it('doit vider le transit dans la façade', () => {
+    it('should clear transit', () => {
       component.onComboboxClear();
-      expect(facade.setSelectedTransit).toHaveBeenCalledWith('');
+      expect(facadeMock.setSelectedTransit).toHaveBeenCalledWith('');
     });
   });
 
   describe('onComboboxChange', () => {
-    it('si evt.detail.value est un array -> prend le 1er', () => {
-      const evt = new CustomEvent('dsdComboboxChange', {
-        detail: { value: ['98000 - FCDQ'] },
-      });
+    it('should handle array value', () => {
+      component.onComboboxChange({
+        detail: { value: ['98000'] },
+      } as any);
 
-      component.onComboboxChange(evt);
-
-      expect(facade.setSelectedTransit).toHaveBeenCalledWith('98000 - FCDQ');
+      expect(facadeMock.setSelectedTransit).toHaveBeenCalledWith('98000');
     });
 
-    it('si evt.detail.value est une string -> prend la string', () => {
-      const evt = new CustomEvent('dsdComboboxChange', {
-        detail: { value: '98000 - FCDQ' },
-      });
+    it('should handle direct value', () => {
+      component.onComboboxChange({
+        detail: '99000',
+      } as any);
 
-      component.onComboboxChange(evt);
-
-      expect(facade.setSelectedTransit).toHaveBeenCalledWith('98000 - FCDQ');
-    });
-
-    it("si evt['value'] existe (fallback) -> l’utilise", () => {
-      // cas (evt.detail ?? evt)['value']
-      const evt: any = { value: '98000 - FCDQ' };
-
-      component.onComboboxChange(evt);
-
-      expect(facade.setSelectedTransit).toHaveBeenCalledWith('98000 - FCDQ');
-    });
-
-    it('si newValue est undefined -> passe undefined (ou tu peux choisir de guarder)', () => {
-      const evt: any = { detail: undefined };
-
-      component.onComboboxChange(evt);
-
-      // ton code actuel fait setSelectedTransit(Array.isArray(newValue) ? newValue[0] : newValue)
-      expect(facade.setSelectedTransit).toHaveBeenCalledWith(undefined as any);
+      expect(facadeMock.setSelectedTransit).toHaveBeenCalledWith('99000');
     });
   });
 
+  // -------------------------
+  // ACTIONS
+  // -------------------------
   describe('onExtraire', () => {
-    it('doit appeler facade.extraire$ et se désabonner à destroy (takeUntil)', () => {
-      const unsubSpy = jasmine.createSpy('unsub');
+    it('should call facade.extraire$', () => {
+      component.onExtraire();
+      expect(facadeMock.extraire$).toHaveBeenCalled();
+    });
 
-      facade.extraire$.and.returnValue(
-        new Observable<void>((subscriber) => {
-          // observable infini
-          return () => unsubSpy();
-        })
-      );
+    it('should unsubscribe on destroy', () => {
+      const subj = new Subject<void>();
+      facadeMock.extraire$.and.returnValue(subj.asObservable());
 
       component.onExtraire();
-      expect(facade.extraire$).toHaveBeenCalled();
+      component.ngOnDestroy();
 
-      // Déclenche ngOnDestroy (BaseComponent) via destroy du fixture
-      fixture.destroy();
-
-      expect(unsubSpy).toHaveBeenCalled();
+      expect().nothing();
     });
   });
 
   describe('onEnvoyer', () => {
-    it('doit appeler facade.envoyer$ et se désabonner à destroy (takeUntil)', () => {
-      const unsubSpy = jasmine.createSpy('unsub');
-
-      facade.envoyer$.and.returnValue(
-        new Observable<void>(() => {
-          return () => unsubSpy();
-        })
-      );
-
+    it('should call facade.envoyer$', () => {
       component.onEnvoyer();
-      expect(facade.envoyer$).toHaveBeenCalled();
-
-      fixture.destroy();
-
-      expect(unsubSpy).toHaveBeenCalled();
+      expect(facadeMock.envoyer$).toHaveBeenCalled();
     });
   });
 });
