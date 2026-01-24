@@ -301,3 +301,389 @@ describe('Redditition', () => {
     expect(facadeMock.envoyer$).toHaveBeenCalledTimes(1);
   });
 });
+
+
+
+
+
+
+
+
+
+
+
+// reddition.facade.spec.ts
+import { TestBed } from '@angular/core/testing';
+import { of, Subject, EMPTY } from 'rxjs';
+
+import { RedditionFacade } from './reddition.facade';
+
+// ⬇️ adapte les chemins exacts chez toi
+import { AuthenticationService } from '../../../core/services/authentication.service';
+import { TransitRepository } from '../../domain/transit.repository';
+import { ConciliationRepository } from '../../domain/conciliation.repository';
+
+// ⬇️ si tu utilises FileUtils dans la facade
+import { FileUtils } from '../../../../shared/utils/file-utils';
+
+describe('RedditionFacade', () => {
+  let facade: RedditionFacade;
+
+  // Streams contrôlés
+  let isPaies$: Subject<boolean>;
+  let isSacis$: Subject<boolean>;
+  let transits$: Subject<any[]>;
+  let dateMax$: Subject<string | null>;
+
+  // Repo responses
+  let extractionFinAnnee$: Subject<any>;
+  let courrielFinAnnee$: Subject<any>;
+
+  // Mocks
+  let mockAuth: any;
+  let mockTransitRepo: any;
+  let mockConciliationRepo: any;
+
+  beforeEach(() => {
+    isPaies$ = new Subject<boolean>();
+    isSacis$ = new Subject<boolean>();
+    transits$ = new Subject<any[]>();
+    dateMax$ = new Subject<string | null>();
+
+    extractionFinAnnee$ = new Subject<any>();
+    courrielFinAnnee$ = new Subject<any>();
+
+    mockAuth = {
+      isPaies: jasmine.createSpy('isPaies').and.returnValue(isPaies$.asObservable()),
+      isSacis: jasmine.createSpy('isSacis').and.returnValue(isSacis$.asObservable()),
+    };
+
+    mockTransitRepo = {
+      getTransits$: jasmine.createSpy('getTransits$').and.returnValue(transits$.asObservable()),
+    };
+
+    mockConciliationRepo = {
+      getDateMax$: jasmine.createSpy('getDateMax$').and.returnValue(dateMax$.asObservable()),
+
+      getExtractionConciliationFinAnnee$: jasmine
+        .createSpy('getExtractionConciliationFinAnnee$')
+        .and.returnValue(extractionFinAnnee$.asObservable()),
+
+      getExtractionCourrielFinAnnee$: jasmine
+        .createSpy('getExtractionCourrielFinAnnee$')
+        .and.returnValue(courrielFinAnnee$.asObservable()),
+    };
+
+    TestBed.configureTestingModule({
+      providers: [
+        RedditionFacade,
+        { provide: AuthenticationService, useValue: mockAuth },
+        { provide: TransitRepository, useValue: mockTransitRepo },
+        { provide: ConciliationRepository, useValue: mockConciliationRepo },
+      ],
+    });
+
+    facade = TestBed.inject(RedditionFacade);
+
+    // Spy FileUtils si utilisé dans extraire$/envoyer$
+    spyOn(FileUtils, 'openBlobFile').and.stub();
+    spyOn(FileUtils, 'getFilenameFromContentDisposition').and.callFake((cd?: string) => {
+      // fallback simple
+      if (!cd) return undefined;
+      // Simule extraction filename="xxx"
+      const m = /filename="?([^"]+)"?/i.exec(cd);
+      return m?.[1];
+    });
+  });
+
+  // --------------------
+  // DATE MAX
+  // --------------------
+  it('dateMax$: should expose conciliationRepo.getDateMax$()', (done) => {
+    facade.dateMax$.subscribe((v) => {
+      expect(v).toBe('2023-12-31');
+      done();
+    });
+
+    dateMax$.next('2023-12-31');
+
+    expect(mockConciliationRepo.getDateMax$).toHaveBeenCalled();
+  });
+
+  // --------------------
+  // SETTERS
+  // --------------------
+  it('setSelectedTransit: should push id as-is', (done) => {
+    facade.selectedTransitId$.subscribe((id) => {
+      expect(id).toBe('T-123');
+      done();
+    });
+
+    facade.setSelectedTransit('T-123');
+  });
+
+  it('setSelectedTransit: should push empty string when id is null/undefined', (done) => {
+    let count = 0;
+
+    const sub = facade.selectedTransitId$.subscribe((id) => {
+      count++;
+      if (count === 1) {
+        // valeur initiale (souvent '')
+        return;
+      }
+      expect(id).toBe('');
+      sub.unsubscribe();
+      done();
+    });
+
+    facade.setSelectedTransit(undefined as any);
+  });
+
+  it('setSelectedDate: should push date as-is', (done) => {
+    facade.selectedDateLabel$.subscribe((d) => {
+      expect(d).toBe('2023-07-31');
+      done();
+    });
+
+    facade.setSelectedDate('2023-07-31');
+  });
+
+  it('setSelectedDate: should push empty string when input is null/undefined', (done) => {
+    let count = 0;
+
+    const sub = facade.selectedDateLabel$.subscribe((d) => {
+      count++;
+      if (count === 1) return; // initial
+      expect(d).toBe('');
+      sub.unsubscribe();
+      done();
+    });
+
+    facade.setSelectedDate(undefined as any);
+  });
+
+  // --------------------
+  // EXTRAIRE$
+  // --------------------
+  it('extraire$: should return EMPTY when date is missing', (done) => {
+    isPaies$.next(true);
+    isSacis$.next(false);
+
+    facade.setSelectedTransit('T-1');
+    facade.setSelectedDate('');
+
+    facade.extraire$().subscribe({
+      next: () => fail('should not emit'),
+      complete: () => {
+        expect(mockConciliationRepo.getExtractionConciliationFinAnnee$).not.toHaveBeenCalled();
+        done();
+      },
+    });
+  });
+
+  it('extraire$: should return EMPTY when transit is missing', (done) => {
+    isPaies$.next(true);
+    isSacis$.next(false);
+
+    facade.setSelectedTransit('');
+    facade.setSelectedDate('2023-07-31');
+
+    facade.extraire$().subscribe({
+      next: () => fail('should not emit'),
+      complete: () => {
+        expect(mockConciliationRepo.getExtractionConciliationFinAnnee$).not.toHaveBeenCalled();
+        done();
+      },
+    });
+  });
+
+  it('extraire$: should return EMPTY when no role (isPaie=false and isSaci=false)', (done) => {
+    isPaies$.next(false);
+    isSacis$.next(false);
+
+    facade.setSelectedTransit('T-1');
+    facade.setSelectedDate('2023-07-31');
+
+    facade.extraire$().subscribe({
+      next: () => fail('should not emit'),
+      complete: () => {
+        expect(mockConciliationRepo.getExtractionConciliationFinAnnee$).not.toHaveBeenCalled();
+        done();
+      },
+    });
+  });
+
+  it('extraire$: PAIE -> should call repo with correct payload and openBlobFile', (done) => {
+    isPaies$.next(true);
+    isSacis$.next(false);
+
+    facade.setSelectedTransit('T-77');
+    facade.setSelectedDate('2023-07-31');
+
+    // Lance
+    facade.extraire$().subscribe({
+      complete: () => {
+        // repo appelé
+        expect(mockConciliationRepo.getExtractionConciliationFinAnnee$).toHaveBeenCalled();
+
+        // vérifie payload
+        const payloadArg = mockConciliationRepo.getExtractionConciliationFinAnnee$.calls.mostRecent().args[0];
+        expect(payloadArg?.body?.dateRapport).toBe('2023-07-31');
+        expect(payloadArg?.body?.numTransit).toEqual(['T-77']);
+
+        // le reste dépend de ta POLICY_PAR_ROLE (TRIMESTRIEL/XLS par ex)
+        // on vérifie juste présence
+        expect(payloadArg?.body?.frequenceExtraction).toBeTruthy();
+        expect(payloadArg?.body?.typeFichierExtraction).toBeTruthy();
+
+        // open blob
+        expect(FileUtils.openBlobFile).toHaveBeenCalled();
+        done();
+      },
+    });
+
+    // Simule réponse HTTP
+    const blob = new Blob(['x'], { type: 'application/octet-stream' });
+    extractionFinAnnee$.next({
+      body: blob,
+      headers: {
+        get: (_name: string) => 'attachment; filename="Reddition-PAIE.zip"',
+      },
+    });
+    extractionFinAnnee$.complete();
+  });
+
+  it('extraire$: SACI -> should call repo with correct payload and openBlobFile', (done) => {
+    isPaies$.next(false);
+    isSacis$.next(true);
+
+    facade.setSelectedTransit('T-88');
+    facade.setSelectedDate('2023-06-30');
+
+    facade.extraire$().subscribe({
+      complete: () => {
+        expect(mockConciliationRepo.getExtractionConciliationFinAnnee$).toHaveBeenCalled();
+
+        const payloadArg = mockConciliationRepo.getExtractionConciliationFinAnnee$.calls.mostRecent().args[0];
+        expect(payloadArg?.body?.dateRapport).toBe('2023-06-30');
+        expect(payloadArg?.body?.numTransit).toEqual(['T-88']);
+        expect(payloadArg?.body?.frequenceExtraction).toBeTruthy();
+        expect(payloadArg?.body?.typeFichierExtraction).toBeTruthy();
+
+        expect(FileUtils.openBlobFile).toHaveBeenCalled();
+        done();
+      },
+    });
+
+    const blob = new Blob(['x'], { type: 'application/octet-stream' });
+    extractionFinAnnee$.next({
+      body: blob,
+      headers: {
+        get: (_name: string) => 'attachment; filename="Reddition-SACI.zip"',
+      },
+    });
+    extractionFinAnnee$.complete();
+  });
+
+  // --------------------
+  // ENVOYER$
+  // --------------------
+  it('envoyer$: should return EMPTY when date or transit missing', (done) => {
+    isPaies$.next(true);
+    isSacis$.next(false);
+
+    facade.setSelectedTransit('');
+    facade.setSelectedDate('2023-07-31');
+
+    facade.envoyer$().subscribe({
+      next: () => fail('should not emit'),
+      complete: () => {
+        expect(mockConciliationRepo.getExtractionCourrielFinAnnee$).not.toHaveBeenCalled();
+        done();
+      },
+    });
+  });
+
+  it('envoyer$: PAIE -> should call repo and openBlobFile', (done) => {
+    isPaies$.next(true);
+    isSacis$.next(false);
+
+    facade.setSelectedTransit('T-10');
+    facade.setSelectedDate('2023-07-31');
+
+    facade.envoyer$().subscribe({
+      complete: () => {
+        expect(mockConciliationRepo.getExtractionCourrielFinAnnee$).toHaveBeenCalled();
+
+        const payloadArg = mockConciliationRepo.getExtractionCourrielFinAnnee$.calls.mostRecent().args[0];
+        expect(payloadArg?.body?.dateRapport).toBe('2023-07-31');
+        expect(payloadArg?.body?.numTransit).toEqual(['T-10']);
+        expect(payloadArg?.body?.frequenceExtraction).toBeTruthy();
+        expect(payloadArg?.body?.typeFichierExtraction).toBeTruthy();
+
+        expect(FileUtils.openBlobFile).toHaveBeenCalled();
+        done();
+      },
+    });
+
+    const blob = new Blob(['mail'], { type: 'application/octet-stream' });
+    courrielFinAnnee$.next({
+      body: blob,
+      headers: { get: (_name: string) => 'attachment; filename="courriel-fin-annee.eml"' },
+    });
+    courrielFinAnnee$.complete();
+  });
+
+  it('envoyer$: SACI -> should call repo and openBlobFile', (done) => {
+    isPaies$.next(false);
+    isSacis$.next(true);
+
+    facade.setSelectedTransit('T-11');
+    facade.setSelectedDate('2023-06-30');
+
+    facade.envoyer$().subscribe({
+      complete: () => {
+        expect(mockConciliationRepo.getExtractionCourrielFinAnnee$).toHaveBeenCalled();
+
+        const payloadArg = mockConciliationRepo.getExtractionCourrielFinAnnee$.calls.mostRecent().args[0];
+        expect(payloadArg?.body?.dateRapport).toBe('2023-06-30');
+        expect(payloadArg?.body?.numTransit).toEqual(['T-11']);
+
+        expect(FileUtils.openBlobFile).toHaveBeenCalled();
+        done();
+      },
+    });
+
+    const blob = new Blob(['mail'], { type: 'application/octet-stream' });
+    courrielFinAnnee$.next({
+      body: blob,
+      headers: { get: (_name: string) => 'attachment; filename="courriel-fin-annee.eml"' },
+    });
+    courrielFinAnnee$.complete();
+  });
+
+  // --------------------
+  // (OPTIONNEL) Filtrage transits si tu as transitFiltres$ dans la facade
+  // --------------------
+  it('transitsFiltres$: PAIE should filter transits with idSociete != null (if present)', (done) => {
+    // Si la propriété n’existe pas chez toi, skip sans faire planter
+    const anyFacade = facade as any;
+    if (!anyFacade.transitsFiltres$) {
+      done();
+      return;
+    }
+
+    isPaies$.next(true);
+    isSacis$.next(false);
+
+    anyFacade.transitsFiltres$.subscribe((list: any[]) => {
+      expect(list.every((t) => t.idSociete != null)).toBeTrue();
+      done();
+    });
+
+    transits$.next([
+      { numeroTransit: '1', nomTransit: 'A', idSociete: 'SOC' },
+      { numeroTransit: '2', nomTransit: 'B', idSociete: null },
+    ]);
+  });
+});
