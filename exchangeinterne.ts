@@ -1,138 +1,221 @@
-// app/shared/directives/has-role/app-has-role.directive.ts
-import {
-  Directive,
-  Input,
-  TemplateRef,
-  ViewContainerRef,
-  OnDestroy,
-  inject,
-} from '@angular/core';
-import { combineLatest, Observable, of, Subject } from 'rxjs';
-import { map, takeUntil, distinctUntilChanged, startWith } from 'rxjs/operators';
-import { AuthentificationService } from 'src/app/core/services/authentification/authentification.service';
-import { RoleKey } from './roles.model';
 
-type RoleMapper = Partial<Record<RoleKey, () => Observable<boolean>>>;
 
-@Directive({
-  selector: '[appHasRole]',
+
+
+
+
+
+// app-has-role.directive.spec.ts
+import { Component } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { BehaviorSubject } from 'rxjs';
+
+// ⚠️ adapte le chemin selon ton projet
+import { AppHasRoleDirective } from './app-has-role.directive';
+import { AuthentificationService } from '../core/services/authentification/authentification.service';
+
+type RoleKey = 'PAIE' | 'SACI' | 'OSCA';
+
+@Component({
+  // On met plusieurs cas dans le template pour tester facilement
+  template: `
+    <div id="paieOnly" *appHasRole="['PAIE']">PAIE</div>
+    <div id="saciOnly" *appHasRole="['SACI']">SACI</div>
+    <div id="oscaOnly" *appHasRole="['OSCA']">OSCA</div>
+
+    <div id="paieOrSaci" *appHasRole="['PAIE','SACI']">PAIE_OR_SACI</div>
+    <div id="allThree" *appHasRole="['PAIE','SACI','OSCA']">ALL</div>
+
+    <!-- cas limite -->
+    <div id="emptyRoles" *appHasRole="[]">EMPTY</div>
+    <div id="unknownRole" *appHasRole="['UNKNOWN' as any]">UNKNOWN</div>
+
+    <!-- pour tester les changements dynamiques -->
+    <div id="dynamic" *appHasRole="dynamicRoles">DYNAMIC</div>
+  `,
   standalone: true,
+  imports: [AppHasRoleDirective],
 })
-export class AppHasRoleDirective implements OnDestroy {
-  private readonly auth = inject(AuthentificationService);
-  private readonly tpl = inject(TemplateRef<unknown>);
-  private readonly vcr = inject(ViewContainerRef);
-
-  private readonly destroy$ = new Subject<void>();
-
-  private hasView = false;
-  private roles: RoleKey[] = [];
-  private negate = false;
-
-  /**
-   * Map centralisé : ici tu relies un "RoleKey" à son observable.
-   * => pour ajouter un rôle : tu ajoutes une entrée ici + dans RoleKey.
-   */
-  private readonly roleMappers: RoleMapper = {
-    PAIE: () => this.auth.isPaie$(),
-    SACI: () => this.auth.isSaci$(),
-    OSCA: () => this.auth.isOsca$(),
-
-    // Exemples si tu les as (sinon enlève)
-    SUPER_PAIE: () => this.auth.isSuperPaie$?.() ?? of(false),
-    SUPER_SACI: () => this.auth.isSuperSaci$?.() ?? of(false),
-    PAIE_SUPPORT: () => this.auth.isPaieSupport$?.() ?? of(false),
-    SACI_SUPPORT: () => this.auth.isSaciSupport$?.() ?? of(false),
-    OSCA_SUPPORT: () => this.auth.isOscaSupport$?.() ?? of(false),
-    OSCA_LECTURE: () => this.auth.isOscaLecture$?.() ?? of(false),
-  };
-
-  /**
-   * Utilisation:
-   *   *appHasRole="'SACI'"
-   *   *appHasRole="['SACI','PAIE']"
-   */
-  @Input('appHasRole')
-  set appHasRole(value: RoleKey | RoleKey[] | null | undefined) {
-    this.roles = this.normalize(value);
-    this.bind();
-  }
-
-  /**
-   * Optionnel:
-   *   *appHasRole="['SACI']"; appHasRoleNot
-   * -> inverse la condition
-   */
-  @Input()
-  set appHasRoleNot(value: boolean | '' | null | undefined) {
-    this.negate = value === '' ? true : !!value;
-    this.bind();
-  }
-
-  ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
-  }
-
-  // ------------------------
-  // Internal
-  // ------------------------
-
-  private bind(): void {
-    // stop l'ancien bind
-    this.destroy$.next();
-
-    // si rien demandé => par défaut on masque
-    if (!this.roles.length) {
-      this.updateView(false);
-      return;
-    }
-
-    const streams = this.roles.map((r) => {
-      const fn = this.roleMappers[r];
-      // rôle non mappé => false (sécuritaire)
-      return fn ? fn().pipe(startWith(false)) : of(false);
-    });
-
-    combineLatest(streams)
-      .pipe(
-        map((values) => values.some(Boolean)), // OR
-        map((allowed) => (this.negate ? !allowed : allowed)),
-        distinctUntilChanged(),
-        takeUntil(this.destroy$)
-      )
-      .subscribe((allowed) => this.updateView(allowed));
-  }
-
-  private updateView(allowed: boolean): void {
-    if (allowed && !this.hasView) {
-      this.vcr.createEmbeddedView(this.tpl);
-      this.hasView = true;
-      return;
-    }
-
-    if (!allowed && this.hasView) {
-      this.vcr.clear();
-      this.hasView = false;
-    }
-  }
-
-  private normalize(value: RoleKey | RoleKey[] | null | undefined): RoleKey[] {
-    if (!value) return [];
-    return Array.isArray(value) ? value : [value];
-  }
+class HostComponent {
+  dynamicRoles: RoleKey[] = ['PAIE'];
 }
 
+describe('AppHasRoleDirective (spy + BehaviorSubject)', () => {
+  let fixture: ComponentFixture<HostComponent>;
 
-// app/whatever/roles.model.ts
-export type RoleKey =
-  | 'PAIE'
-  | 'SACI'
-  | 'OSCA'
-  // futur : ajoute ici
-  | 'SUPER_PAIE'
-  | 'SUPER_SACI'
-  | 'SACI_SUPPORT'
-  | 'PAIE_SUPPORT'
-  | 'OSCA_SUPPORT'
-  | 'OSCA_LECTURE';
+  // streams contrôlables
+  let isPaieBS: BehaviorSubject<boolean>;
+  let isSaciBS: BehaviorSubject<boolean>;
+  let isOscaBS: BehaviorSubject<boolean>;
+
+  let authSpy: jasmine.SpyObj<AuthentificationService>;
+
+  function el(id: string): HTMLElement | null {
+    return fixture.nativeElement.querySelector(`#${id}`);
+  }
+
+  function detect() {
+    fixture.detectChanges();
+  }
+
+  beforeEach(async () => {
+    isPaieBS = new BehaviorSubject<boolean>(false);
+    isSaciBS = new BehaviorSubject<boolean>(false);
+    isOscaBS = new BehaviorSubject<boolean>(false);
+
+    authSpy = jasmine.createSpyObj<AuthentificationService>('AuthentificationService', [
+      'isPaie$',
+      'isSaci$',
+      'isOsca$',
+    ]);
+
+    authSpy.isPaie$.and.returnValue(isPaieBS.asObservable());
+    authSpy.isSaci$.and.returnValue(isSaciBS.asObservable());
+    authSpy.isOsca$.and.returnValue(isOscaBS.asObservable());
+
+    await TestBed.configureTestingModule({
+      imports: [HostComponent], // standalone host
+      providers: [{ provide: AuthentificationService, useValue: authSpy }],
+    }).compileComponents();
+
+    fixture = TestBed.createComponent(HostComponent);
+  });
+
+  it('ne doit rien afficher quand aucun rôle n’est vrai', () => {
+    detect();
+    expect(el('paieOnly')).toBeNull();
+    expect(el('saciOnly')).toBeNull();
+    expect(el('oscaOnly')).toBeNull();
+    expect(el('paieOrSaci')).toBeNull();
+    expect(el('allThree')).toBeNull();
+  });
+
+  it('doit afficher PAIE seulement quand isPaie=true', () => {
+    isPaieBS.next(true);
+    detect();
+
+    expect(el('paieOnly')).not.toBeNull();
+    expect(el('saciOnly')).toBeNull();
+    expect(el('oscaOnly')).toBeNull();
+  });
+
+  it('doit afficher SACI seulement quand isSaci=true', () => {
+    isSaciBS.next(true);
+    detect();
+
+    expect(el('paieOnly')).toBeNull();
+    expect(el('saciOnly')).not.toBeNull();
+    expect(el('oscaOnly')).toBeNull();
+  });
+
+  it('doit afficher OSCA seulement quand isOsca=true', () => {
+    isOscaBS.next(true);
+    detect();
+
+    expect(el('paieOnly')).toBeNull();
+    expect(el('saciOnly')).toBeNull();
+    expect(el('oscaOnly')).not.toBeNull();
+  });
+
+  it('doit faire un OR: affiche si PAIE ou SACI est vrai', () => {
+    // aucun
+    detect();
+    expect(el('paieOrSaci')).toBeNull();
+
+    // PAIE
+    isPaieBS.next(true);
+    detect();
+    expect(el('paieOrSaci')).not.toBeNull();
+
+    // PAIE -> false, SACI -> true
+    isPaieBS.next(false);
+    isSaciBS.next(true);
+    detect();
+    expect(el('paieOrSaci')).not.toBeNull();
+
+    // les deux false
+    isSaciBS.next(false);
+    detect();
+    expect(el('paieOrSaci')).toBeNull();
+  });
+
+  it('doit afficher ALL si au moins un des 3 rôles est vrai (OR)', () => {
+    detect();
+    expect(el('allThree')).toBeNull();
+
+    isOscaBS.next(true);
+    detect();
+    expect(el('allThree')).not.toBeNull();
+
+    isOscaBS.next(false);
+    isSaciBS.next(true);
+    detect();
+    expect(el('allThree')).not.toBeNull();
+
+    isSaciBS.next(false);
+    isPaieBS.next(true);
+    detect();
+    expect(el('allThree')).not.toBeNull();
+
+    // tous faux
+    isPaieBS.next(false);
+    detect();
+    expect(el('allThree')).toBeNull();
+  });
+
+  it('cas limite: [] doit cacher (recommandé)', () => {
+    detect();
+    expect(el('emptyRoles')).toBeNull();
+  });
+
+  it('cas limite: rôle inconnu => caché', () => {
+    detect();
+    expect(el('unknownRole')).toBeNull();
+  });
+
+  it('doit réagir aux changements dynamiques de roles input (dynamicRoles)', () => {
+    // dynamicRoles = ['PAIE'] au départ
+    isPaieBS.next(true);
+    detect();
+    expect(el('dynamic')).not.toBeNull();
+
+    // on change l’input pour exiger SACI
+    fixture.componentInstance.dynamicRoles = ['SACI'];
+    detect();
+    // isSaci = false => doit cacher
+    expect(el('dynamic')).toBeNull();
+
+    // maintenant SACI devient true => doit afficher
+    isSaciBS.next(true);
+    detect();
+    expect(el('dynamic')).not.toBeNull();
+
+    // SACI redevient false => doit cacher
+    isSaciBS.next(false);
+    detect();
+    expect(el('dynamic')).toBeNull();
+  });
+
+  it('doit appeler les méthodes du service au moins une fois (wire-up)', () => {
+    detect();
+    expect(authSpy.isPaie$).toHaveBeenCalled();
+    expect(authSpy.isSaci$).toHaveBeenCalled();
+    expect(authSpy.isOsca$).toHaveBeenCalled();
+  });
+
+  it('ne doit pas planter si on toggles plusieurs fois (stabilité)', () => {
+    detect();
+
+    isPaieBS.next(true);
+    detect();
+    expect(el('paieOnly')).not.toBeNull();
+
+    isPaieBS.next(false);
+    detect();
+    expect(el('paieOnly')).toBeNull();
+
+    isPaieBS.next(true);
+    detect();
+    expect(el('paieOnly')).not.toBeNull();
+  });
+});
