@@ -260,3 +260,90 @@ export class GestionTachesFiltersComponent {
 function stableStringify(obj: unknown): string {
   return JSON.stringify(obj);
 }
+
+
+
+// models/gestion-taches.models.ts
+export type Affichage = 'GESTION_TACHES' | 'TOUS_COMPTES';
+export type ModeTravail = 'ENTITE' | 'COMPTE';
+
+export interface ComboboxOption {
+  value: string;
+  label: string;
+}
+
+export interface GestionTachesSearchCriteria {
+  affichage: Affichage;
+  modeTravail: ModeTravail;
+  entiteId: string | null;
+  compteId: string | null;
+}
+
+export interface Paging {
+  pageIndex: number;
+  pageSize: number;
+}
+export interface Sorting {
+  active: string;
+  direction: 'asc' | 'desc' | '';
+}
+
+export interface TacheRow {
+  id: string;
+  entite: string;
+  compte: string;
+  typeCompte: string;
+}
+
+export interface SearchResult {
+  rows: TacheRow[];
+  total: number;
+}
+
+
+// facade/gestion-taches.state.ts
+import { ComboboxOption, GestionTachesSearchCriteria, Paging, SearchResult, Sorting } from '../models/gestion-taches.models';
+
+export interface GestionTachesViewState {
+  // options initiales
+  entiteOptions: ComboboxOption[];
+  compteOptions: ComboboxOption[];
+
+  // critères + table state
+  criteria: GestionTachesSearchCriteria;
+  paging: Paging;
+  sorting: Sorting;
+
+  // data
+  result: SearchResult;
+
+  // ui
+  loadingInit: boolean;
+  loadingSearch: boolean;
+  error: string | null;
+
+  disabled: boolean; // ex: selon rôle / permission / loading global
+}
+
+export const initialCriteria: GestionTachesSearchCriteria = {
+  affichage: 'GESTION_TACHES',
+  modeTravail: 'ENTITE',
+  entiteId: null,
+  compteId: null,
+};
+
+export const initialState: GestionTachesViewState = {
+  entiteOptions: [],
+  compteOptions: [],
+
+  criteria: initialCriteria,
+  paging: { pageIndex: 0, pageSize: 10 },
+  sorting: { active: 'entite', direction: 'asc' },
+
+  result: { rows: [], total: 0 },
+
+  loadingInit: false,
+  loadingSearch: false,
+  error: null,
+  disabled: false,
+};
