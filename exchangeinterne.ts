@@ -347,3 +347,179 @@ export const initialState: GestionTachesViewState = {
   error: null,
   disabled: false,
 };
+
+
+
+
+<!-- page/gestion-taches-page.component.html -->
+<section class="gestion-taches-page">
+  <app-gestion-taches-filters
+    [vm]="filtersVm$ | async"
+    (search)="onFiltersSearch($event)"
+  />
+
+  <app-gestion-taches-grid
+    [vm]="gridVm$ | async"
+    (pagingChange)="facade.changePaging($event)"
+    (sortingChange)="facade.changeSorting($event)"
+    (refresh)="facade.refresh()"
+  />
+</section>
+
+
+
+
+// facade/gestion-taches.facade.ts
+import { Injectable } from '@angular/core';
+import { BehaviorSubject, EMPTY, Observable, combineLatest, forkJoin } from 'rxjs';
+import { catchError, distinctUntilChanged, finalize, map, switchMap, take, tap } from 'rxjs/operators';
+import { CompteRepository } from '../data/compte.repository';
+import { EntiteRepository } from '../data/entite.repository';
+import { GestionTachesRepository } from '../data/gestion-taches.repository';
+import { GestionTachesSearchCriteria, Paging, Sorting } from '../models/gestion-taches.models';
+import { GestionTachesViewState, initialState } from './gestion-taches.state';
+
+export type SearchTrigger = 'AUTO' | 'MANUAL';
+
+@Injectable()
+export class GestionTachesFacade {
+  private readonly stateSubject = new BehaviorSubject<GestionTachesViewState>(initialState);
+  readonly state$ = this.stateSubject.asObservable();
+
+  // VM Filters
+  readonly filtersVm$ = this.state$.pipe(
+    map((s) => ({
+      disabled: s.disabled || s.loadingInit || s.loadingSearch,
+      entiteOptions: s.entiteOptions,
+      compteOptions: s.compteOptions,
+      selectedEntiteId: s.criteria.entiteId,
+      selectedCompteId: s.criteria.compteId,
+      criteria: s.criteria,
+    })),
+  );
+
+  // VM Grid
+  readonly gridVm$ = this.state$.pipe(
+    map((s) => ({
+      loading: s.loadingSearch,
+      error: s.error,
+      rows: s.result.rows,
+      total: s.result.total,
+      paging: s.paging,
+      sorting: s.sorting,
+    })),
+  );
+
+  constructor(
+    private readonly entiteRepo: EntiteRepository,
+    private readonly compteRepo: CompteRepository,
+    private readonly repo: GestionTachesRepository,
+  ) {}
+
+  init(): void {
+    this.patch({ loadingInit: true, error: null });
+
+    forkJoin({
+      entites: this.entiteRepo.listEntites().pipe(take(1)),
+      comptes: this.compteRepo.listComptes().pipe(take(1)),
+    })
+      .pipe(
+        tap(({ entites, comptes }) => {
+          this.patch({
+            entiteOptions: entites,
+            compteOptions: comptes,
+          });
+        }),
+        catchError(() => {
+          this.patch({ error: 'Erreur lors du chargement initial.' });
+          return EMPTY;
+        }),
+        finalize(() => this.patch({ loadingInit: false })),
+      )
+      .subscribe();
+  }
+
+  /** appelé par Filters (auto ou manuel) */
+  onSearch(criteria: GestionTachesSearchCriteria, trigger: SearchTrigger): void {
+    // normalisation: éviter des critères incohérents
+    const normalized = this.normalizeCriteria(criteria);
+
+    // on reset la page si criteria change
+    const current = this.snapshot();
+    const criteriaChanged = stableStringify(current.criteria) !== stableStringify(normalized);
+
+    this.patch({
+      criteria: normalized,
+      paging: criteriaChanged ? { ...current.paging, pageIndex: 0 } : current.paging,
+      error: null,
+    });
+
+    // MANUAL: tu peux forcer même si mêmes critères (refresh)
+    // AUTO: si mêmes critères, ne pas relancer
+    if (trigger === 'AUTO' && !criteriaChanged) return;
+
+    this.executeSearch();
+  }
+
+  changePaging(paging: Paging): void {
+    this.patch({ paging });
+    this.executeSearch();
+  }
+
+  changeSorting(sorting: Sorting): void {
+    this.patch({ sorting, paging: { ...this.snapshot().paging, pageIndex: 0 } });
+    this.executeSearch();
+  }
+
+  refresh(): void {
+    this.executeSearch();
+  }
+
+  private executeSearch(): void {
+    const s = this.snapshot();
+
+    // sécurité : ne pas chercher si critères pas complets selon mode
+    if (!this.isCriteriaSearchable(s.criteria)) return;
+
+    this.patch({ loadingSearch: true, error: null });
+
+    this.repo
+      .search(s.criteria, s.paging, s.sorting)
+      .pipe(
+        take(1),
+        tap((result) => this.patch({ result })),
+        catchError(() => {
+          this.patch({ error: 'Erreur lors de la recherche.' });
+          return EMPTY;
+        }),
+        finalize(() => this.patch({ loadingSearch: false })),
+      )
+      .subscribe();
+  }
+
+  private isCriteriaSearchable(c: GestionTachesSearchCriteria): boolean {
+    if (c.modeTravail === 'ENTITE') return !!c.entiteId;
+    if (c.modeTravail === 'COMPTE') return !!c.compteId;
+    return false;
+  }
+
+  private normalizeCriteria(c: GestionTachesSearchCriteria): GestionTachesSearchCriteria {
+    return {
+      ...c,
+      entiteId: c.modeTravail === 'ENTITE' ? c.entiteId : null,
+      compteId: c.modeTravail === 'COMPTE' ? c.compteId : null,
+    };
+  }
+
+  private patch(partial: Partial<GestionTachesViewState>): void {
+    this.stateSubject.next({ ...this.stateSubject.value, ...partial });
+  }
+
+  private snapshot(): GestionTachesViewState {
+    return this.stateSubject.value;
+  }
+}
+
+function stableStringify(obj: unknown): string {
+  return JSON.stringify(obj);
+}
