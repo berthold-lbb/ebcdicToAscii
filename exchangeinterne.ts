@@ -96,85 +96,65 @@
 
 
 
-.gt-filters {
-  padding: 12px 16px;
-}
-
-/* Barre unique horizontale */
+/* La barre doit être une ligne */
 .gt-bar {
   display: flex;
   align-items: center;
   gap: 16px;
   width: 100%;
+  flex-wrap: nowrap; /* important */
 }
 
-/* Fieldsets compacts */
+/* Les fieldsets ne doivent PAS prendre 100% */
 .gt-fs {
-  padding: 6px 8px;
+  flex: 0 0 auto;     /* ne grandit pas */
+  width: auto;        /* pas 100% */
+  max-width: none;
   margin: 0;
 }
 
-/* Radios sur une seule ligne */
+/* ⚠️ DSD peut forcer un display:block sur fieldset => on neutralise */
+.gt-fs,
+.gt-fs dsd-radio-group {
+  display: inline-flex;
+}
+
+/* Radios sur une ligne */
 .gt-radio-row {
-  display: flex;
+  display: inline-flex !important;
   align-items: center;
   gap: 16px;
   white-space: nowrap;
 }
 
-/* 2 séparateurs verticaux (comme l'image) */
+/* Les séparateurs verticaux */
 .gt-sep {
   width: 1px;
   align-self: stretch;
   background: #cfcfcf;
+  flex: 0 0 1px;
 }
 
-/* Zone des combobox au centre */
+/* Zone entité/compte : elle prend le reste */
 .gt-selects {
   display: flex;
   align-items: flex-end;
   gap: 12px;
-  flex: 1;
+  flex: 1 1 auto;  /* prend l’espace restant */
   min-width: 0;
 }
 
-/* Empêche l’effet “input géant” */
+/* Largeur raisonnable des combos */
 .gt-combo {
-  width: 320px;
+  flex: 0 0 320px;     /* fixe de base */
   max-width: 420px;
 }
 
-/* Bouton collé à droite */
+/* Bouton à droite */
 .gt-actions {
   margin-left: auto;
   display: flex;
   align-items: center;
   white-space: nowrap;
-}
-
-/* Responsive : on wrap, on retire les séparateurs */
-@media (max-width: 1100px) {
-  .gt-bar {
-    flex-wrap: wrap;
-    align-items: flex-start;
-  }
-
-  .gt-sep {
-    display: none;
-  }
-
-  .gt-selects {
-    flex-basis: 100%;
-    justify-content: flex-start;
-  }
-
-  .gt-combo {
-    width: min(420px, 100%);
-  }
-
-  .gt-actions {
-    margin-left: 0;
-    flex-basis: 100%;
-    justify-content: flex-start;
-  }
+  flex: 0 0 auto;
 }
