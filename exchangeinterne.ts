@@ -1,187 +1,75 @@
-import { DestroyRef, inject } from '@angular/core';
-import { Store } from '@ngxs/store';
-import {
-  Observable,
-  EMPTY,
-  Subject,
-  defer,
-  shareReplay,
-  catchError,
-  finalize,
-  tap,
-} from 'rxjs';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-
-export type AlertVariant = 'error' | 'success' | 'info' | 'warning';
-
-export interface UiAlert {
-  variant: AlertVariant;
-  title?: string;
-  message: string;
-  timestamp: number;
-}
-
-export abstract class BaseFacade {
-  protected readonly destroyRef = inject(DestroyRef);
-  protected readonly store = inject(Store);
-
-  // ---------- UI state (tu peux remplacer par NGXS si tu préfères) ----------
-  private readonly alertSubject = new Subject<UiAlert | null>();
-  readonly alert$ = this.alertSubject.asObservable();
-
-  protected setAlert(alert: UiAlert) {
-    this.alertSubject.next(alert);
-  }
-  clearAlert() {
-    this.alertSubject.next(null);
-  }
-
-  // ---------- Loading ----------
-  /**
-   * Enveloppe un observable avec ton spinner global.
-   * => dispatch UpdateActiveCalls(true) au start, false au finalize.
-   */
-  protected withGlobalLoading<T>(): (source$: Observable<T>) => Observable<T> {
-    return (source$) =>
-      defer(() => {
-        this.store.dispatch(new UpdateActiveCalls(true));
-        return source$.pipe(
-          finalize(() => {
-            this.store.dispatch(new UpdateActiveCalls(false));
-          })
-        );
-      });
-  }
-
-  // ---------- cache1 ----------
-  /**
-   * cache1 : crée une fonction qui renvoie un Observable partagé,
-   * qui ne fait le call qu'une fois tant que tu ne reset pas.
-   *
-   * - refCount false => reste en cache même si plus aucun subscriber
-   * - reset() permet de forcer un reload
-   */
-  protected cache1<T>(factory: () => Observable<T>) {
-    let cached$: Observable<T> | null = null;
-
-    const get$ = () => {
-      if (!cached$) {
-        cached$ = factory().pipe(
-          shareReplay({ bufferSize: 1, refCount: false })
-        );
-      }
-      return cached$;
-    };
-
-    const reset = () => {
-      cached$ = null;
-    };
-
-    return { get$, reset };
-  }
-
-  // ---------- runAction / runEffect ----------
-  /**
-   * runAction : pour les actions "bouton" -> on subscribe ici.
-   * - spinner global (optionnel)
-   * - mapping erreur -> AppError
-   * - alert success / error (optionnel)
-   * - pas de throw : on avale l'erreur (EMPTY) pour éviter de casser le flux UI
-   */
-  protected runAction<T>(
-    work$: Observable<T>,
-    mapError: (err: unknown) => AppError,
-    opts?: {
-      useGlobalSpinner?: boolean; // default true
-      clearAlertOnStart?: boolean; // default true (tu peux mettre false pour persistance)
-      success?: { title?: string; message: string };
-      error?: { title?: string; fallbackMessage?: string };
-      onSuccess?: (value: T) => void;
-      onError?: (appErr: AppError) => void;
-    }
-  ): void {
-    const {
-      useGlobalSpinner = true,
-      clearAlertOnStart = true,
-      success,
-      error,
-      onSuccess,
-      onError,
-    } = opts ?? {};
-
-    if (clearAlertOnStart) this.clearAlert();
-
-    let stream$ = work$.pipe(takeUntilDestroyed(this.destroyRef));
-
-    if (useGlobalSpinner) {
-      stream$ = stream$.pipe(this.withGlobalLoading());
-    }
-
-    stream$
-      .pipe(
-        tap((value) => {
-          onSuccess?.(value);
-
-          if (success) {
-            this.setAlert({
-              variant: 'success',
-              title: success.title ?? 'Succès',
-              message: success.message,
-              timestamp: Date.now(),
-            });
-          }
-        }),
-        catchError((err) => {
-          const appErr = mapError(err);
-          onError?.(appErr);
-
-          const msg =
-            appErr.message ??
-            error?.fallbackMessage ??
-            'Une erreur est survenue.';
-
-          this.setAlert({
-            variant: 'error',
-            title: error?.title ?? 'Erreur',
-            message: msg,
-            timestamp: Date.now(),
-          });
-
-          return EMPTY;
-        })
-      )
-      .subscribe();
-  }
-
-  /**
-   * runEffect : utile pour les streams "automatiques" (load initial, refresh, etc.)
-   * => renvoie un observable à binder plutôt que de subscribe.
-   */
-  protected runEffect<T>(
-    work$: Observable<T>,
-    mapError: (err: unknown) => AppError,
-    opts?: {
-      useGlobalSpinner?: boolean; // default true
-      onError?: (appErr: AppError) => void;
-    }
-  ): Observable<T> {
-    const { useGlobalSpinner = true, onError } = opts ?? {};
-
-    let stream$ = work$.pipe(takeUntilDestroyed(this.destroyRef));
-    if (useGlobalSpinner) stream$ = stream$.pipe(this.withGlobalLoading());
-
-    return stream$.pipe(
-      catchError((err) => {
-        const appErr = mapError(err);
-        onError?.(appErr);
+extraire(): void {
+  const work$ = combineLatest([
+    this.selectedDateLabel$,   // string | null
+    this.selectedTransitId$,   // string | null
+    this.auth.isPaie$(),       // boolean
+    this.auth.isSaci$(),       // boolean
+  ]).pipe(
+    take(1),
+    switchMap(([dateRapport, transitId, isPaie, isSaci]) => {
+      // 1) validations UI
+      if (!dateRapport || !transitId) {
         this.setAlert({
-          variant: 'error',
-          title: 'Erreur',
-          message: appErr.message ?? 'Une erreur est survenue.',
+          variant: 'warning',
+          title: this.translate.instant('GLOBAL.MESSAGE_INFORMATION'),
+          message: this.translate.instant('GLOBAL.FORMS.VEUILLEZ_SELECTIONNER_DATE_ET_TRANSIT'),
           timestamp: Date.now(),
         });
         return EMPTY;
-      })
-    );
-  }
+      }
+
+      // 2) rôle -> roleKey
+      const roleKey = isPaie ? 'PAIE' : isSaci ? 'SACI' : null;
+      if (!roleKey) {
+        this.setAlert({
+          variant: 'warning',
+          title: this.translate.instant('GLOBAL.MESSAGE_INFORMATION'),
+          message: this.translate.instant('GLOBAL.FORMS.ROLE_INVALIDE'),
+          timestamp: Date.now(),
+        });
+        return EMPTY;
+      }
+
+      // 3) policy par rôle
+      const policy = POLICY_PAR_ROLE[roleKey];
+
+      const frequenceExtraction = policy.frequenceExtraction;
+      const typeFichierExtraction = policy.typeFichierExtraction;
+
+      // 4) payload (fidèle à ton code)
+      const payload: ExtractionConciliationFinAnneeParams = {
+        body: {
+          dateRapport: `+33${dateRapport}`,
+          numTransit: [transitId],
+          frequenceExtraction,
+          typeFichierExtraction,
+        },
+      };
+
+      // 5) appel API
+      return this.conciliationRepo.obtenirExtractionConciliationFinAnnee$(payload).pipe(
+        tap((res) => {
+          const blob = res.body as Blob;
+          const cd = res.headers.get('content-disposition');
+
+          const fallbackName =
+            roleKey === 'PAIE'
+              ? FileUtils.getFilenameFromContentDisposition(cd) ?? `Reddition-${transitId}-${dateRapport}.zip`
+              : FileUtils.getFilenameFromContentDisposition(cd) ?? `${dateRapport}_11-2x-06_et_27-20-01.zip`;
+
+          FileUtils.openBlobFile(blob, fallbackName, true);
+        }),
+        map(() => void 0)
+      );
+    })
+  );
+
+  // ✅ ici on centralise : spinner + mapping erreur + alerte persistante
+  this.runAction({
+    work$,
+    spinner: true, // active withGlobalSpinner(store)
+    mapError: (e) => this.apiErrorMapper.map(e),
+    successMessage: this.translate.instant('FOLIO13EOP.MESSAGE_AJOUT_FOLIO_SUCCES'),
+    errorTitle: this.translate.instant('GLOBAL.MESSAGE_ERREUR'),
+  });
 }
