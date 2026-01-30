@@ -1,160 +1,187 @@
-<dsd-container class="gt-filters">
-  <dsd-form name="gestion-taches-filters" (dsdSubmit)="onSubmit()">
+import { DestroyRef, inject } from '@angular/core';
+import { Store } from '@ngxs/store';
+import {
+  Observable,
+  EMPTY,
+  Subject,
+  defer,
+  shareReplay,
+  catchError,
+  finalize,
+  tap,
+} from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
-    <div class="gt-bar">
+export type AlertVariant = 'error' | 'success' | 'info' | 'warning';
 
-      <!-- 1) Affichage -->
-      <dsd-fieldset legend="Affichage" class="gt-fs">
-        <dsd-radio-group
-          name="affichage"
-          formControlName="affichage"
-          flex-direction="row"
-          class="gt-radio-row"
-        >
-          <dsd-radio value="GESTION_TACHES">Gestion des tâches</dsd-radio>
-          <dsd-radio value="TOUS_COMPTES">Tous les comptes</dsd-radio>
-
-          <span slot="error">Choix obligatoire</span>
-        </dsd-radio-group>
-      </dsd-fieldset>
-
-      <span class="gt-sep" aria-hidden="true"></span>
-
-      <!-- 2) Mode de travail -->
-      <dsd-fieldset legend="Mode de travail" class="gt-fs">
-        <dsd-radio-group
-          name="modeTravail"
-          formControlName="modeTravail"
-          flex-direction="row"
-          class="gt-radio-row"
-        >
-          <dsd-radio value="ENTITE">Entité</dsd-radio>
-          <dsd-radio value="COMPTE">Compte</dsd-radio>
-
-          <span slot="error">Choix obligatoire</span>
-        </dsd-radio-group>
-      </dsd-fieldset>
-
-      <span class="gt-sep" aria-hidden="true"></span>
-
-      <!-- 3) Combobox : Entité + Compte -->
-      <div class="gt-selects">
-
-        <!-- ✅ TON INPUT ENTITÉ (inchangé) -->
-        <dsd-combobox
-          class="gt-combo"
-          data-cy-dsd="form-input-entite"
-          name="entite"
-          [options]="viewState.entiteOptions"
-          [value]="form.controls.entiteId.value"
-          required="true"
-          (dsdComboboxClear)="onEntiteClear()"
-          (dsdComboboxSelect)="onEntiteSelect($event)"
-        >
-          <span slot="label">Entité</span>
-          <span slot="error">Entité obligatoire</span>
-        </dsd-combobox>
-
-        <!-- ✅ TON INPUT COMPTE (inchangé) -->
-        <dsd-combobox
-          class="gt-combo"
-          data-cy-dsd="form-input-compte"
-          name="compte"
-          [options]="viewState.compteOptions"
-          [value]="form.controls.compteId.value"
-          required="true"
-          (dsdComboboxClear)="onCompteClear()"
-          (dsdComboboxSelect)="onCompteSelect($event)"
-        >
-          <span slot="label">Compte</span>
-          <span slot="error">Compte obligatoire</span>
-        </dsd-combobox>
-
-      </div>
-
-      <!-- 4) Bouton à droite -->
-      <div class="gt-actions">
-        <!-- ✅ TON BOUTON (inchangé) -->
-        <dsd-button
-          variant="tertiary"
-          icon-name="contenus_contour_periodique"
-          icon-position="start"
-          type="submit"
-          [disabled]="form.invalid"
-        >
-          Actualiser
-        </dsd-button>
-      </div>
-
-    </div>
-
-  </dsd-form>
-</dsd-container>
-
-
-
-
-
-
-/* La barre doit être une ligne */
-.gt-bar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-  flex-wrap: nowrap; /* important */
+export interface UiAlert {
+  variant: AlertVariant;
+  title?: string;
+  message: string;
+  timestamp: number;
 }
 
-/* Les fieldsets ne doivent PAS prendre 100% */
-.gt-fs {
-  flex: 0 0 auto;     /* ne grandit pas */
-  width: auto;        /* pas 100% */
-  max-width: none;
-  margin: 0;
-}
+export abstract class BaseFacade {
+  protected readonly destroyRef = inject(DestroyRef);
+  protected readonly store = inject(Store);
 
-/* ⚠️ DSD peut forcer un display:block sur fieldset => on neutralise */
-.gt-fs,
-.gt-fs dsd-radio-group {
-  display: inline-flex;
-}
+  // ---------- UI state (tu peux remplacer par NGXS si tu préfères) ----------
+  private readonly alertSubject = new Subject<UiAlert | null>();
+  readonly alert$ = this.alertSubject.asObservable();
 
-/* Radios sur une ligne */
-.gt-radio-row {
-  display: inline-flex !important;
-  align-items: center;
-  gap: 16px;
-  white-space: nowrap;
-}
+  protected setAlert(alert: UiAlert) {
+    this.alertSubject.next(alert);
+  }
+  clearAlert() {
+    this.alertSubject.next(null);
+  }
 
-/* Les séparateurs verticaux */
-.gt-sep {
-  width: 1px;
-  align-self: stretch;
-  background: #cfcfcf;
-  flex: 0 0 1px;
-}
+  // ---------- Loading ----------
+  /**
+   * Enveloppe un observable avec ton spinner global.
+   * => dispatch UpdateActiveCalls(true) au start, false au finalize.
+   */
+  protected withGlobalLoading<T>(): (source$: Observable<T>) => Observable<T> {
+    return (source$) =>
+      defer(() => {
+        this.store.dispatch(new UpdateActiveCalls(true));
+        return source$.pipe(
+          finalize(() => {
+            this.store.dispatch(new UpdateActiveCalls(false));
+          })
+        );
+      });
+  }
 
-/* Zone entité/compte : elle prend le reste */
-.gt-selects {
-  display: flex;
-  align-items: flex-end;
-  gap: 12px;
-  flex: 1 1 auto;  /* prend l’espace restant */
-  min-width: 0;
-}
+  // ---------- cache1 ----------
+  /**
+   * cache1 : crée une fonction qui renvoie un Observable partagé,
+   * qui ne fait le call qu'une fois tant que tu ne reset pas.
+   *
+   * - refCount false => reste en cache même si plus aucun subscriber
+   * - reset() permet de forcer un reload
+   */
+  protected cache1<T>(factory: () => Observable<T>) {
+    let cached$: Observable<T> | null = null;
 
-/* Largeur raisonnable des combos */
-.gt-combo {
-  flex: 0 0 320px;     /* fixe de base */
-  max-width: 420px;
-}
+    const get$ = () => {
+      if (!cached$) {
+        cached$ = factory().pipe(
+          shareReplay({ bufferSize: 1, refCount: false })
+        );
+      }
+      return cached$;
+    };
 
-/* Bouton à droite */
-.gt-actions {
-  margin-left: auto;
-  display: flex;
-  align-items: center;
-  white-space: nowrap;
-  flex: 0 0 auto;
+    const reset = () => {
+      cached$ = null;
+    };
+
+    return { get$, reset };
+  }
+
+  // ---------- runAction / runEffect ----------
+  /**
+   * runAction : pour les actions "bouton" -> on subscribe ici.
+   * - spinner global (optionnel)
+   * - mapping erreur -> AppError
+   * - alert success / error (optionnel)
+   * - pas de throw : on avale l'erreur (EMPTY) pour éviter de casser le flux UI
+   */
+  protected runAction<T>(
+    work$: Observable<T>,
+    mapError: (err: unknown) => AppError,
+    opts?: {
+      useGlobalSpinner?: boolean; // default true
+      clearAlertOnStart?: boolean; // default true (tu peux mettre false pour persistance)
+      success?: { title?: string; message: string };
+      error?: { title?: string; fallbackMessage?: string };
+      onSuccess?: (value: T) => void;
+      onError?: (appErr: AppError) => void;
+    }
+  ): void {
+    const {
+      useGlobalSpinner = true,
+      clearAlertOnStart = true,
+      success,
+      error,
+      onSuccess,
+      onError,
+    } = opts ?? {};
+
+    if (clearAlertOnStart) this.clearAlert();
+
+    let stream$ = work$.pipe(takeUntilDestroyed(this.destroyRef));
+
+    if (useGlobalSpinner) {
+      stream$ = stream$.pipe(this.withGlobalLoading());
+    }
+
+    stream$
+      .pipe(
+        tap((value) => {
+          onSuccess?.(value);
+
+          if (success) {
+            this.setAlert({
+              variant: 'success',
+              title: success.title ?? 'Succès',
+              message: success.message,
+              timestamp: Date.now(),
+            });
+          }
+        }),
+        catchError((err) => {
+          const appErr = mapError(err);
+          onError?.(appErr);
+
+          const msg =
+            appErr.message ??
+            error?.fallbackMessage ??
+            'Une erreur est survenue.';
+
+          this.setAlert({
+            variant: 'error',
+            title: error?.title ?? 'Erreur',
+            message: msg,
+            timestamp: Date.now(),
+          });
+
+          return EMPTY;
+        })
+      )
+      .subscribe();
+  }
+
+  /**
+   * runEffect : utile pour les streams "automatiques" (load initial, refresh, etc.)
+   * => renvoie un observable à binder plutôt que de subscribe.
+   */
+  protected runEffect<T>(
+    work$: Observable<T>,
+    mapError: (err: unknown) => AppError,
+    opts?: {
+      useGlobalSpinner?: boolean; // default true
+      onError?: (appErr: AppError) => void;
+    }
+  ): Observable<T> {
+    const { useGlobalSpinner = true, onError } = opts ?? {};
+
+    let stream$ = work$.pipe(takeUntilDestroyed(this.destroyRef));
+    if (useGlobalSpinner) stream$ = stream$.pipe(this.withGlobalLoading());
+
+    return stream$.pipe(
+      catchError((err) => {
+        const appErr = mapError(err);
+        onError?.(appErr);
+        this.setAlert({
+          variant: 'error',
+          title: 'Erreur',
+          message: appErr.message ?? 'Une erreur est survenue.',
+          timestamp: Date.now(),
+        });
+        return EMPTY;
+      })
+    );
+  }
 }
