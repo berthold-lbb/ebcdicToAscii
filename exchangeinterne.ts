@@ -69,3 +69,29 @@ export function appErrorify(mapper: ApiErrorMapper) {
       )
     );
 }
+
+
+import { inject, Injectable } from '@angular/core';
+import { catchError } from 'rxjs/operators';
+import { throwError } from 'rxjs';
+import { ApiErrorMapper } from 'src/app/core/errors/api-error-mapper';
+import { normalizeHttpError } from 'src/app/core/http/http-error-normalizer';
+
+@Injectable({ providedIn: 'root' })
+export class ConciliationRepository {
+  private readonly errorMapper = inject(ApiErrorMapper);
+  private readonly api = inject(ConciliationApi); // ng-openapi
+
+  obtenirExtractionCourrielFinAnnee$(params: ExtractionCourrielFinAnneeParams) {
+    return this.api.extractionCourrielFinAnnee$Response(params).pipe(
+      catchError((err) =>
+        normalizeHttpError(err).pipe(
+          catchError((normalizedErr) => {
+            const appErr = this.errorMapper.map(normalizedErr);
+            return throwError(() => appErr);
+          })
+        )
+      )
+    );
+  }
+}
