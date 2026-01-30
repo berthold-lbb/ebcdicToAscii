@@ -1,75 +1,71 @@
-extraire(): void {
-  const work$ = combineLatest([
-    this.selectedDateLabel$,   // string | null
-    this.selectedTransitId$,   // string | null
-    this.auth.isPaie$(),       // boolean
-    this.auth.isSaci$(),       // boolean
-  ]).pipe(
-    take(1),
-    switchMap(([dateRapport, transitId, isPaie, isSaci]) => {
-      // 1) validations UI
-      if (!dateRapport || !transitId) {
-        this.setAlert({
-          variant: 'warning',
-          title: this.translate.instant('GLOBAL.MESSAGE_INFORMATION'),
-          message: this.translate.instant('GLOBAL.FORMS.VEUILLEZ_SELECTIONNER_DATE_ET_TRANSIT'),
-          timestamp: Date.now(),
-        });
-        return EMPTY;
-      }
+import { HttpErrorResponse } from '@angular/common/http';
+import { from, Observable, throwError } from 'rxjs';
+import { mergeMap } from 'rxjs/operators';
 
-      // 2) rôle -> roleKey
-      const roleKey = isPaie ? 'PAIE' : isSaci ? 'SACI' : null;
-      if (!roleKey) {
-        this.setAlert({
-          variant: 'warning',
-          title: this.translate.instant('GLOBAL.MESSAGE_INFORMATION'),
-          message: this.translate.instant('GLOBAL.FORMS.ROLE_INVALIDE'),
-          timestamp: Date.now(),
-        });
-        return EMPTY;
-      }
+function isBlob(x: unknown): x is Blob {
+  return typeof Blob !== 'undefined' && x instanceof Blob;
+}
 
-      // 3) policy par rôle
-      const policy = POLICY_PAR_ROLE[roleKey];
+function isJsonBlob(b: Blob): boolean {
+  const t = (b.type || '').toLowerCase();
+  return t.includes('application/json') || t.includes('application/problem+json');
+}
 
-      const frequenceExtraction = policy.frequenceExtraction;
-      const typeFichierExtraction = policy.typeFichierExtraction;
+/**
+ * Si err.error est un Blob JSON, on le parse et on re-crée un HttpErrorResponse
+ * où error = objet (ProblemeRest)
+ */
+export function normalizeHttpError(err: unknown): Observable<never> {
+  if (!(err instanceof HttpErrorResponse)) {
+    return throwError(() => err);
+  }
 
-      // 4) payload (fidèle à ton code)
-      const payload: ExtractionConciliationFinAnneeParams = {
-        body: {
-          dateRapport: `+33${dateRapport}`,
-          numTransit: [transitId],
-          frequenceExtraction,
-          typeFichierExtraction,
-        },
-      };
+  const payload = err.error;
 
-      // 5) appel API
-      return this.conciliationRepo.obtenirExtractionConciliationFinAnnee$(payload).pipe(
-        tap((res) => {
-          const blob = res.body as Blob;
-          const cd = res.headers.get('content-disposition');
+  // cas "download" => Blob mais en fait JSON d'erreur
+  if (isBlob(payload) && isJsonBlob(payload)) {
+    return from(payload.text()).pipe(
+      mergeMap((txt) => {
+        try {
+          const parsed = JSON.parse(txt);
 
-          const fallbackName =
-            roleKey === 'PAIE'
-              ? FileUtils.getFilenameFromContentDisposition(cd) ?? `Reddition-${transitId}-${dateRapport}.zip`
-              : FileUtils.getFilenameFromContentDisposition(cd) ?? `${dateRapport}_11-2x-06_et_27-20-01.zip`;
+          const normalized = new HttpErrorResponse({
+            error: parsed,
+            headers: err.headers,
+            status: err.status,
+            statusText: err.statusText,
+            url: err.url ?? undefined,
+          });
 
-          FileUtils.openBlobFile(blob, fallbackName, true);
-        }),
-        map(() => void 0)
-      );
-    })
-  );
+          return throwError(() => normalized);
+        } catch {
+          return throwError(() => err);
+        }
+      })
+    );
+  }
 
-  // ✅ ici on centralise : spinner + mapping erreur + alerte persistante
-  this.runAction({
-    work$,
-    spinner: true, // active withGlobalSpinner(store)
-    mapError: (e) => this.apiErrorMapper.map(e),
-    successMessage: this.translate.instant('FOLIO13EOP.MESSAGE_AJOUT_FOLIO_SUCCES'),
-    errorTitle: this.translate.instant('GLOBAL.MESSAGE_ERREUR'),
-  });
+  // sinon on rethrow tel quel
+  return throwError(() => err);
+}
+
+
+catchError → normalize → map → throw AppError
+import { Observable, throwError } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { ApiErrorMapper } from './api-error-mapper';
+import { normalizeHttpError } from '../http/http-error-normalizer';
+
+export function appErrorify(mapper: ApiErrorMapper) {
+  return <T>(source$: Observable<T>): Observable<T> =>
+    source$.pipe(
+      catchError((err) =>
+        normalizeHttpError(err).pipe(
+          catchError((normalizedErr) => {
+            const appErr = mapper.map(normalizedErr);
+            return throwError(() => appErr);
+          })
+        )
+      )
+    );
 }
