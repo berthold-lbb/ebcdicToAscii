@@ -95,3 +95,16 @@ export class ConciliationRepository {
     );
   }
 }
+
+
+
+private isProblemeRest(x: any): x is ProblemeRest {
+  if (!x || typeof x !== 'object') return false;
+
+  const hasErrors = Array.isArray(x.errors);
+  const hasStatus = typeof x.status === 'string';
+  const hasHttpStatus = typeof x.httpStatus === 'string';
+
+  // ton contrat backend semble parfois renvoyer "status" au lieu de "httpStatus"
+  return hasErrors && (hasStatus || hasHttpStatus);
+}
