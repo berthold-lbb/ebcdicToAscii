@@ -7,8 +7,9 @@ import {
   inject,
 } from '@angular/core';
 import { Subject, takeUntil } from 'rxjs';
-import { AuthenticationService } from './authentication.service';
-import { Role } from './role';
+
+import { AuthenticationService } from '../../../core/services/authentication.service';
+import { Role } from '../../../core/model/enums';
 
 type RoleInput = Role | readonly Role[] | null | undefined;
 
@@ -18,7 +19,7 @@ type RoleInput = Role | readonly Role[] | null | undefined;
 })
 export class AppHasRoleDirective implements OnDestroy {
   private readonly auth = inject(AuthenticationService);
-  private readonly tpl = inject(TemplateRef<unknown>);
+  private readonly tpl = inject(TemplateRef<any>);
   private readonly vcr = inject(ViewContainerRef);
 
   private readonly destroy$ = new Subject<void>();
@@ -47,17 +48,17 @@ export class AppHasRoleDirective implements OnDestroy {
   }
 
   private normalize(value: RoleInput): Role[] {
-    if (!value) return [];
-    return Array.isArray(value) ? Array.from(value) : [value];
+    if (value == null) return [];
+    return Array.isArray(value) ? [...value] : [value];
   }
 
   private bind(): void {
-    // Reset précédent abonnement
+    // stop l'abonnement précédent (sans détruire la directive)
     this.destroy$.next();
 
-    // Liste vide = règle explicite
-    // ANY  → n'affiche pas
-    // NONE → affiche
+    // liste vide: comportement explicite
+    // ANY  -> n'affiche pas
+    // NONE -> affiche (car "n'a aucun de ces rôles" sur liste vide = true)
     if (!this.roles.length) {
       this.updateView(this.mode === 'NONE');
       return;
@@ -67,11 +68,7 @@ export class AppHasRoleDirective implements OnDestroy {
       .hasRole(...this.roles)
       .pipe(takeUntil(this.destroy$))
       .subscribe((allowed) => {
-        const shouldShow =
-          this.mode === 'ANY'
-            ? allowed
-            : !allowed;
-
+        const shouldShow = this.mode === 'ANY' ? allowed : !allowed;
         this.updateView(shouldShow);
       });
   }
