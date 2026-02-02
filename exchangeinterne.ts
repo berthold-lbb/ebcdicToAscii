@@ -1,80 +1,58 @@
-protected runEffect<T>(
-  work$: Observable<T>,
-  mapError: (err: unknown) => AppError,
-  opts: {
-    fallbackValue: T;                 // 👈 obligatoire
-    useGlobalSpinner?: boolean;       // default true
-    clearAlertOnStart?: boolean;      // default false ou true selon ton UX
-    error?: { title?: string; fallbackMessage?: string };
-    onError?: (appErr: AppError) => void;
-  }
-): Observable<T> {
-  const {
-    fallbackValue,
-    useGlobalSpinner = true,
-    clearAlertOnStart = false,
-    error,
-    onError,
-  } = opts;
+import { DestroyRef, inject } from '@angular/core';
+import { Store } from '@ngrx/store';
+import { Observable, Subject, Subscription, timer } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
-  if (clearAlertOnStart) this.clearAlert();
+export type AlertVariant = 'error' | 'confirmation' | 'information';
 
-  let stream$ = work$.pipe(takeUntilDestroyed(this.destroyRef));
-
-  if (useGlobalSpinner) {
-    stream$ = stream$.pipe(withGlobalSpinner(this.store));
-  }
-
-  return stream$.pipe(
-    catchError((err) => {
-      const appErr = mapError(err);
-      onError?.(appErr);
-
-      const msg =
-        appErr.message ??
-        error?.fallbackMessage ??
-        'Une erreur est survenue.';
-
-      this.setAlert({
-        variant: 'error',
-        title: error?.title ?? 'Erreur',
-        message: msg,
-        timestamp: Date.now(),
-      });
-
-      // ✅ au lieu de EMPTY
-      return of(fallbackValue);
-    })
-  );
+export interface UiAlert {
+  variant: AlertVariant;
+  title?: string;
+  message: string;
+  timestamp: number;
+  autoCloseMs?: number; // optionnel
 }
 
+export abstract class BaseFacade {
+  protected readonly destroyRef = inject(DestroyRef);
+  protected readonly store = inject(Store);
 
-readonly transits$ = this.runEffect(
-  this.transitRepo.obtenirTransits({ includeTransitsFusionnes: true }),
-  this.apiErrorMapper.toAppError,
-  {
-    fallbackValue: [],
-    useGlobalSpinner: true,
-    clearAlertOnStart: true,
-    error: { title: 'Chargement impossible', fallbackMessage: 'Impossible de charger les transits.' }
+  private readonly alertSubject = new Subject<UiAlert | null>();
+  readonly alert$ = this.alertSubject.asObservable();
+
+  private alertAutoClearSub: Subscription | null = null;
+
+  protected setAlert(alert: UiAlert): void {
+    // 1) annule le timer précédent
+    this.cancelAutoClear();
+
+    // 2) push l’alert
+    this.alertSubject.next(alert);
+
+    // 3) auto-clear UNIQUEMENT pour succès (confirmation)
+    //    - par défaut: 5s
+    //    - override possible via alert.autoCloseMs
+    if (alert.variant === 'confirmation') {
+      const ms = alert.autoCloseMs ?? 5000;
+
+      this.alertAutoClearSub = timer(ms)
+        .pipe(takeUntilDestroyed(this.destroyRef))
+        .subscribe(() => {
+          this.clearAlert();
+        });
+    }
+
+    // (optionnel) tu peux aussi auto-clear 'information' avec un autre timing
+    // if (alert.variant === 'information') { ... }
   }
-).pipe(
-  shareReplay({ bufferSize: 1, refCount: true }) // 👈 important pour éviter multi appels/alertes
-);
 
-
-readonly transits$ = this.runEffect(
-  this.transitRepo.obtenirTransits({ includeTransitsFusionnes: true }),
-  this.apiErrorMapper.toAppError,
-  {
-    fallbackValue: [],               // 👈 clé ici
-    useGlobalSpinner: true,
-    clearAlertOnStart: true,
-    error: {
-      title: 'Chargement impossible',
-      fallbackMessage: 'Impossible de charger les transits.',
-    },
+  clearAlert(): void {
+    this.cancelAutoClear();
+    this.alertSubject.next(null);
   }
-).pipe(
-  shareReplay({ bufferSize: 1, refCount: true })
-);
+
+  private cancelAutoClear(): void {
+    this.alertAutoClearSub?.unsubscribe();
+    this.alertAutoClearSub = null;
+  }
+}
