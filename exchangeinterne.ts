@@ -1,92 +1,80 @@
-import {
-  Directive,
-  Input,
-  OnDestroy,
-  TemplateRef,
-  ViewContainerRef,
-  inject,
-} from '@angular/core';
-import { Subject, takeUntil } from 'rxjs';
+protected runEffect<T>(
+  work$: Observable<T>,
+  mapError: (err: unknown) => AppError,
+  opts: {
+    fallbackValue: T;                 // 👈 obligatoire
+    useGlobalSpinner?: boolean;       // default true
+    clearAlertOnStart?: boolean;      // default false ou true selon ton UX
+    error?: { title?: string; fallbackMessage?: string };
+    onError?: (appErr: AppError) => void;
+  }
+): Observable<T> {
+  const {
+    fallbackValue,
+    useGlobalSpinner = true,
+    clearAlertOnStart = false,
+    error,
+    onError,
+  } = opts;
 
-import { AuthenticationService } from '../../../core/services/authentication.service';
-import { Role } from '../../../core/model/enums';
+  if (clearAlertOnStart) this.clearAlert();
 
-type RoleInput = Role | readonly Role[] | null | undefined;
+  let stream$ = work$.pipe(takeUntilDestroyed(this.destroyRef));
 
-@Directive({
-  selector: '[appHasAnyRole],[appHasNoRole]',
-  standalone: true,
-})
-export class AppHasRoleDirective implements OnDestroy {
-  private readonly auth = inject(AuthenticationService);
-  private readonly tpl = inject(TemplateRef<any>);
-  private readonly vcr = inject(ViewContainerRef);
-
-  private readonly destroy$ = new Subject<void>();
-  private hasView = false;
-
-  private roles: Role[] = [];
-  private mode: 'ANY' | 'NONE' = 'ANY';
-
-  @Input('appHasAnyRole')
-  set appHasAnyRole(value: RoleInput) {
-    this.mode = 'ANY';
-    this.roles = this.normalize(value);
-    this.bind();
+  if (useGlobalSpinner) {
+    stream$ = stream$.pipe(withGlobalSpinner(this.store));
   }
 
-  @Input('appHasNoRole')
-  set appHasNoRole(value: RoleInput) {
-    this.mode = 'NONE';
-    this.roles = this.normalize(value);
-    this.bind();
-  }
+  return stream$.pipe(
+    catchError((err) => {
+      const appErr = mapError(err);
+      onError?.(appErr);
 
-  ngOnDestroy(): void {
-    this.destroy$.next();
-    this.destroy$.complete();
-  }
+      const msg =
+        appErr.message ??
+        error?.fallbackMessage ??
+        'Une erreur est survenue.';
 
-  private bind(): void {
-    // stop l'abonnement précédent (rebinding)
-    this.destroy$.next();
-
-    // liste vide => règle explicite
-    // ANY  -> n'affiche pas
-    // NONE -> affiche
-    if (this.roles.length === 0) {
-      this.updateView(this.mode === 'NONE');
-      return;
-    }
-
-    this.auth
-      .hasRole(...this.roles)
-      .pipe(takeUntil(this.destroy$))
-      .subscribe((allowed) => {
-        const shouldShow = this.mode === 'ANY' ? allowed : !allowed;
-        this.updateView(shouldShow);
+      this.setAlert({
+        variant: 'error',
+        title: error?.title ?? 'Erreur',
+        message: msg,
+        timestamp: Date.now(),
       });
-  }
 
-  private updateView(show: boolean): void {
-    if (show && !this.hasView) {
-      this.vcr.createEmbeddedView(this.tpl);
-      this.hasView = true;
-      return;
-    }
-    if (!show && this.hasView) {
-      this.vcr.clear();
-      this.hasView = false;
-    }
-  }
-
-  private normalize(value: RoleInput): Role[] {
-    if (value == null) return [];
-    if (this.isRoleArray(value)) return [...value];
-    return [value]; // ici value est bien Role grâce au type guard
-  }
-
-  private isRoleArray(value: Role | readonly Role[]): value is readonly Role[] {
-    return Array.isArray(value);
-  }
+      // ✅ au lieu de EMPTY
+      return of(fallbackValue);
+    })
+  );
 }
+
+
+readonly transits$ = this.runEffect(
+  this.transitRepo.obtenirTransits({ includeTransitsFusionnes: true }),
+  this.apiErrorMapper.toAppError,
+  {
+    fallbackValue: [],
+    useGlobalSpinner: true,
+    clearAlertOnStart: true,
+    error: { title: 'Chargement impossible', fallbackMessage: 'Impossible de charger les transits.' }
+  }
+).pipe(
+  shareReplay({ bufferSize: 1, refCount: true }) // 👈 important pour éviter multi appels/alertes
+);
+
+
+readonly transits$ = this.runEffect(
+  this.transitRepo.obtenirTransits({ includeTransitsFusionnes: true }),
+  this.apiErrorMapper.toAppError,
+  {
+    fallbackValue: [],               // 👈 clé ici
+    useGlobalSpinner: true,
+    clearAlertOnStart: true,
+    error: {
+      title: 'Chargement impossible',
+      fallbackMessage: 'Impossible de charger les transits.',
+    },
+  }
+).pipe(
+  shareReplay({ bufferSize: 1, refCount: true })
+);
