@@ -47,19 +47,14 @@ export class AppHasRoleDirective implements OnDestroy {
     this.destroy$.complete();
   }
 
-  private normalize(value: RoleInput): Role[] {
-    if (value == null) return [];
-    return Array.isArray(value) ? [...value] : [value];
-  }
-
   private bind(): void {
-    // stop l'abonnement précédent (sans détruire la directive)
+    // stop l'abonnement précédent (rebinding)
     this.destroy$.next();
 
-    // liste vide: comportement explicite
+    // liste vide => règle explicite
     // ANY  -> n'affiche pas
-    // NONE -> affiche (car "n'a aucun de ces rôles" sur liste vide = true)
-    if (!this.roles.length) {
+    // NONE -> affiche
+    if (this.roles.length === 0) {
       this.updateView(this.mode === 'NONE');
       return;
     }
@@ -79,10 +74,19 @@ export class AppHasRoleDirective implements OnDestroy {
       this.hasView = true;
       return;
     }
-
     if (!show && this.hasView) {
       this.vcr.clear();
       this.hasView = false;
     }
+  }
+
+  private normalize(value: RoleInput): Role[] {
+    if (value == null) return [];
+    if (this.isRoleArray(value)) return [...value];
+    return [value]; // ici value est bien Role grâce au type guard
+  }
+
+  private isRoleArray(value: Role | readonly Role[]): value is readonly Role[] {
+    return Array.isArray(value);
   }
 }
