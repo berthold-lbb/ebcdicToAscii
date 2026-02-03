@@ -511,3 +511,46 @@ export const initialVm: GestionTachesViewState = {
     <app-gestion-taches-grid [rows]="vm.rows"></app-gestion-taches-grid>
   }
 </div>
+
+
+
+function isIsoDateStrict(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const [y, m, d] = value.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return (
+    dt.getUTCFullYear() === y &&
+    dt.getUTCMonth() === (m - 1) &&
+    dt.getUTCDate() === d
+  );
+}
+
+function lastDayOfPreviousMonthIso(fromIso: string): string {
+  const [y, m] = fromIso.split('-').map(Number);
+  const lastPrev = new Date(Date.UTC(y, m - 1, 0));
+
+  const yyyy = lastPrev.getUTCFullYear();
+  const mm = String(lastPrev.getUTCMonth() + 1).padStart(2, '0');
+  const dd = String(lastPrev.getUTCDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+onDateChange(evt: CustomEvent): void {
+  const raw = (evt as any).detail?.value as string;
+
+  // 1) vide -> clear
+  if (!raw) {
+    this.facade.setSelectedDate('');
+    return;
+  }
+
+  // 2) saisie incomplète -> on ignore (pas de conversion)
+  if (!isIsoDateStrict(raw)) {
+    return;
+  }
+
+  // 3) saisie complète et valide -> conversion safe
+  const converted = lastDayOfPreviousMonthIso(raw);
+  this.facade.setSelectedDate(converted);
+}
