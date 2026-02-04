@@ -662,3 +662,57 @@ onDateCommit(): void {
   this.facade.setSelectedDate(normalized);
   this.redditionDatePicker.value = normalized;
 }
+
+
+export class DateUtils {
+  static normalizeToEndOfMonthOrInvalid(input: string): { value?: string; invalid?: true } {
+    const raw = (input ?? '').trim();
+    if (!raw) return { value: '' };
+
+    // 1) "YYYY" => YYYY-01-31
+    const yearOnly = /^(\d{4})$/.exec(raw);
+    if (yearOnly) {
+      const y = Number(yearOnly[1]);
+      return { value: `${y}-01-31` };
+    }
+
+    // 2) "YYYY-MM"
+    const ym = /^(\d{4})-(\d{2})$/.exec(raw);
+    if (ym) {
+      const y = Number(ym[1]);
+      const m = Number(ym[2]);
+      if (m < 1 || m > 12) return { invalid: true }; // mois invalide => on ne touche pas
+      return { value: this.endOfMonthFromYearMonth(y, m) };
+    }
+
+    // 3) "YYYY-MM-DD"
+    const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    if (ymd) {
+      const y = Number(ymd[1]);
+      const m = Number(ymd[2]);
+      const d = Number(ymd[3]);
+
+      if (m < 1 || m > 12) return { invalid: true }; // mois invalide => on ne touche pas
+
+      const lastDay = this.lastDayOfMonth(y, m);
+
+      // jour invalide => on ne touche pas (00, 48, etc.)
+      if (d < 1 || d > lastDay) return { invalid: true };
+
+      // jour valide => fin du mois
+      return { value: `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}` };
+    }
+
+    // 4) autre format => invalide (on ne touche pas)
+    return { invalid: true };
+  }
+
+  private static lastDayOfMonth(y: number, m: number): number {
+    return new Date(Date.UTC(y, m, 0)).getUTCDate(); // m=2 => dernier jour février
+  }
+
+  private static endOfMonthFromYearMonth(y: number, m: number): string {
+    const lastDay = this.lastDayOfMonth(y, m);
+    return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  }
+}
