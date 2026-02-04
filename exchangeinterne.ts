@@ -554,3 +554,14 @@ onDateChange(evt: CustomEvent): void {
   const converted = lastDayOfPreviousMonthIso(raw);
   this.facade.setSelectedDate(converted);
 }
+
+export function withGlobalSpinner<T>(store: Store): MonoTypeOperatorFunction<T> {
+  return (source) =>
+    defer(() => {
+      store.dispatch(new UpdateActiveCalls(true));
+      return source.pipe(
+        finalize(() => store.dispatch(new UpdateActiveCalls(false)))
+      );
+    });
+}
+
