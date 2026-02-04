@@ -565,3 +565,32 @@ export function withGlobalSpinner<T>(store: Store): MonoTypeOperatorFunction<T> 
     });
 }
 
+
+
+import { HttpErrorResponse } from '@angular/common/http';
+import { Observable, of } from 'rxjs';
+
+private normalizeBody(err: HttpErrorResponse): unknown {
+  const body = err.error;
+
+  // Déjà un objet JSON
+  if (body !== null && typeof body === 'object') return body;
+
+  // String (souvent JSON stringifié)
+  if (typeof body === 'string') {
+    const trimmed = body.trim();
+
+    // essaye de parser si ça ressemble à du JSON
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        return body; // string non JSON ou JSON invalide
+      }
+    }
+
+    return body; // texte simple/HTML
+  }
+
+  return body; // null/undefined/other
+}
