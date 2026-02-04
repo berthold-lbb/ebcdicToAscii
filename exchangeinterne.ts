@@ -612,3 +612,53 @@ static endOfMonthIso(dateIso: string): string {
   const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
   return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
 }
+
+
+private saisieIncomplete = false;
+private saisieInvalid = false;
+
+onDateChange(evt: CustomEvent): void {
+  this.selectedvalueDate = Array.isArray(evt.detail?.value) ? evt.detail.value[0] : evt.detail?.value;
+
+  // vide -> clear
+  if (!this.selectedvalueDate) {
+    this.facade.setSelectedDate('');
+    this.redditionDatePicker.value = '';
+    this.saisieIncomplete = false;
+    this.saisieInvalid = false;
+    return;
+  }
+
+  // Pendant la saisie: on considère "incomplete" si ce n'est pas un format complet attendu
+  // (on évite le message rouge à chaque frappe)
+  const raw = this.selectedvalueDate.trim();
+  this.saisieIncomplete = !/^(\d{4}|\d{4}-\d{2}|\d{4}-\d{2}-\d{2})$/.test(raw);
+
+  // Tant que c'est incomplet: on ne valide pas, on ne commit pas
+  if (this.saisieIncomplete) {
+    this.saisieInvalid = false;
+    return;
+  }
+
+  // Si c'est complet (YYYY / YYYY-MM / YYYY-MM-DD), on attend le commit pour normaliser
+  this.saisieInvalid = false;
+}
+
+onDateCommit(): void {
+  if (!this.selectedvalueDate) return;
+  if (this.saisieIncomplete) return;
+
+  const result = DateUtils.normalizeToEndOfMonthOrInvalid(this.selectedvalueDate);
+
+  if (result.invalid) {
+    // IMPORTANT: on ne touche pas à l'input, on affiche juste le message
+    this.saisieInvalid = true;
+    return;
+  }
+
+  // OK => on applique la valeur normalisée
+  this.saisieInvalid = false;
+  const normalized = result.value ?? '';
+  this.facade.setSelectedDate(normalized);
+  this.redditionDatePicker.value = normalized;
+}
