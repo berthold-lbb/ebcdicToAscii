@@ -614,14 +614,12 @@ static endOfMonthIso(dateIso: string): string {
 }
 
 
-private saisieIncomplete = false;
-private saisieInvalid = false;
-
 onDateChange(evt: CustomEvent): void {
-  this.selectedvalueDate = Array.isArray(evt.detail?.value) ? evt.detail.value[0] : evt.detail?.value;
+  const raw = Array.isArray(evt.detail?.value) ? evt.detail?.value?.[0] : evt.detail?.value;
+  this.selectedValueDate = (raw ?? '').trim();
 
   // vide -> clear
-  if (!this.selectedvalueDate) {
+  if (!this.selectedValueDate) {
     this.facade.setSelectedDate('');
     this.redditionDatePicker.value = '';
     this.saisieIncomplete = false;
@@ -629,90 +627,140 @@ onDateChange(evt: CustomEvent): void {
     return;
   }
 
-  // Pendant la saisie: on considère "incomplete" si ce n'est pas un format complet attendu
-  // (on évite le message rouge à chaque frappe)
-  const raw = this.selectedvalueDate.trim();
-  this.saisieIncomplete = !/^(\d{4}|\d{4}-\d{2}|\d{4}-\d{2}-\d{2})$/.test(raw);
+  // Ici on tag juste "incomplet" tant que ce n'est pas complet (YYYY / YYYY-MM / YYYY-MM-DD)
+  this.saisieIncomplete = !DateUtils.isCompleteIsoInput(this.selectedValueDate);
 
-  // Tant que c'est incomplet: on ne valide pas, on ne commit pas
+  // On n'affiche pas invalide pendant la frappe
   if (this.saisieIncomplete) {
     this.saisieInvalid = false;
     return;
   }
 
-  // Si c'est complet (YYYY / YYYY-MM / YYYY-MM-DD), on attend le commit pour normaliser
+  // complet => on attend commit pour normaliser/fallback
   this.saisieInvalid = false;
 }
 
+
 onDateCommit(): void {
-  if (!this.selectedvalueDate) return;
-  if (this.saisieIncomplete) return;
+  const res = DateUtils.fallbackToEndOfMonthOrInvalid(this.selectedValueDate);
 
-  const result = DateUtils.normalizeToEndOfMonthOrInvalid(this.selectedvalueDate);
+  if (res.kind === 'EMPTY') {
+    this.saisieIncomplete = false;
+    this.saisieInvalid = false;
+    return;
+  }
 
-  if (result.invalid) {
-    // IMPORTANT: on ne touche pas à l'input, on affiche juste le message
+  if (res.kind === 'INCOMPLETE') {
+    // tu peux choisir: soit laisser la saisie et demander à l'user de finir,
+    // soit nettoyer. Ici on laisse + message "incomplet" via ton flag.
+    this.saisieIncomplete = true;
+    this.saisieInvalid = false;
+    return;
+  }
+
+  if (res.kind === 'INVALID') {
+    // IMPORTANT: pas de fallback, on laisse la valeur intacte + message rouge
+    this.saisieIncomplete = false;
     this.saisieInvalid = true;
     return;
   }
 
-  // OK => on applique la valeur normalisée
+  // OK => fallback appliqué
+  const normalized = res.value;
+  this.saisieIncomplete = false;
   this.saisieInvalid = false;
-  const normalized = result.value ?? '';
+
   this.facade.setSelectedDate(normalized);
   this.redditionDatePicker.value = normalized;
+  this.selectedValueDate = normalized;
 }
 
 
+export type FallbackResult =
+  | { kind: 'EMPTY' }
+  | { kind: 'INCOMPLETE' }
+  | { kind: 'OK'; value: string }
+  | { kind: 'INVALID' };
+
 export class DateUtils {
-  static normalizeToEndOfMonthOrInvalid(input: string): { value?: string; invalid?: true } {
-    const raw = (input ?? '').trim();
-    if (!raw) return { value: '' };
-
-    // 1) "YYYY" => YYYY-01-31
-    const yearOnly = /^(\d{4})$/.exec(raw);
-    if (yearOnly) {
-      const y = Number(yearOnly[1]);
-      return { value: `${y}-01-31` };
-    }
-
-    // 2) "YYYY-MM"
-    const ym = /^(\d{4})-(\d{2})$/.exec(raw);
-    if (ym) {
-      const y = Number(ym[1]);
-      const m = Number(ym[2]);
-      if (m < 1 || m > 12) return { invalid: true }; // mois invalide => on ne touche pas
-      return { value: this.endOfMonthFromYearMonth(y, m) };
-    }
-
-    // 3) "YYYY-MM-DD"
-    const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-    if (ymd) {
-      const y = Number(ymd[1]);
-      const m = Number(ymd[2]);
-      const d = Number(ymd[3]);
-
-      if (m < 1 || m > 12) return { invalid: true }; // mois invalide => on ne touche pas
-
-      const lastDay = this.lastDayOfMonth(y, m);
-
-      // jour invalide => on ne touche pas (00, 48, etc.)
-      if (d < 1 || d > lastDay) return { invalid: true };
-
-      // jour valide => fin du mois
-      return { value: `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}` };
-    }
-
-    // 4) autre format => invalide (on ne touche pas)
-    return { invalid: true };
+  static isCompleteIsoInput(value: string): boolean {
+    return /^(\d{4}|\d{4}-\d{2}|\d{4}-\d{2}-\d{2})$/.test(value.trim());
   }
 
-  private static lastDayOfMonth(y: number, m: number): number {
-    return new Date(Date.UTC(y, m, 0)).getUTCDate(); // m=2 => dernier jour février
+  static isIsoDateStrict(value: string): boolean {
+    const v = value.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+
+    const [y, m, d] = v.split('-').map(Number);
+    if (m < 1 || m > 12) return false;
+    if (d < 1 || d > 31) return false;
+
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    return (
+      dt.getUTCFullYear() === y &&
+      dt.getUTCMonth() === m - 1 &&
+      dt.getUTCDate() === d
+    );
   }
 
-  private static endOfMonthFromYearMonth(y: number, m: number): string {
-    const lastDay = this.lastDayOfMonth(y, m);
-    return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+  static pad2(n: number): string {
+    return String(n).padStart(2, '0');
+  }
+
+  static lastDayOfMonth(y: number, m: number): number {
+    // m: 1..12
+    return new Date(Date.UTC(y, m, 0)).getUTCDate();
+  }
+
+  /**
+   * Règles:
+   * 2025 -> 2025-01-31
+   * 2025-02 -> 2025-02-28
+   * 2025-02-01 -> 2025-02-28
+   * 2025-02-00 / 2025-02-48 / 2025-14 -> INVALID (pas de fallback)
+   */
+  static fallbackToEndOfMonthOrInvalid(raw: string | null | undefined): FallbackResult {
+    const v = (raw ?? '').trim();
+    if (!v) return { kind: 'EMPTY' };
+
+    // si c'est "autre chose" (lettres, etc.) => invalide
+    if (!/^\d{1,4}(-\d{0,2}(-\d{0,2})?)?$/.test(v)) {
+      return { kind: 'INVALID' };
+    }
+
+    // incomplet pendant saisie
+    if (!this.isCompleteIsoInput(v)) {
+      return { kind: 'INCOMPLETE' };
+    }
+
+    // YYYY
+    if (/^\d{4}$/.test(v)) {
+      return { kind: 'OK', value: `${v}-01-31` };
+    }
+
+    // YYYY-MM
+    if (/^\d{4}-\d{2}$/.test(v)) {
+      const [yStr, mStr] = v.split('-');
+      const y = Number(yStr);
+      const m = Number(mStr);
+      if (m < 1 || m > 12) return { kind: 'INVALID' };
+
+      const last = this.lastDayOfMonth(y, m);
+      return { kind: 'OK', value: `${yStr}-${mStr}-${this.pad2(last)}` };
+    }
+
+    // YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
+      if (!this.isIsoDateStrict(v)) return { kind: 'INVALID' };
+
+      const [yStr, mStr] = v.split('-');
+      const y = Number(yStr);
+      const m = Number(mStr);
+
+      const last = this.lastDayOfMonth(y, m);
+      return { kind: 'OK', value: `${yStr}-${mStr}-${this.pad2(last)}` };
+    }
+
+    return { kind: 'INVALID' };
   }
 }
