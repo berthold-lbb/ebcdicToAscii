@@ -594,3 +594,16 @@ private normalizeBody(err: HttpErrorResponse): unknown {
 
   return body; // null/undefined/other
 }
+
+
+static endOfMonthIso(dateIso: string): string {
+  if (!dateIso || !/^\d{4}-\d{2}/.test(dateIso)) {
+    return '';
+  }
+
+  const [y, m] = dateIso.split('-').map(Number);
+  if (!y || !m) return '';
+
+  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+  return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+}
