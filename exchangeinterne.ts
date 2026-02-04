@@ -614,11 +614,12 @@ static endOfMonthIso(dateIso: string): string {
 }
 
 
+
+
 onDateChange(evt: CustomEvent): void {
   const raw = Array.isArray(evt.detail?.value) ? evt.detail?.value?.[0] : evt.detail?.value;
   this.selectedValueDate = (raw ?? '').trim();
 
-  // vide -> clear
   if (!this.selectedValueDate) {
     this.facade.setSelectedDate('');
     this.redditionDatePicker.value = '';
@@ -627,73 +628,29 @@ onDateChange(evt: CustomEvent): void {
     return;
   }
 
-  // Ici on tag juste "incomplet" tant que ce n'est pas complet (YYYY / YYYY-MM / YYYY-MM-DD)
-  this.saisieIncomplete = !DateUtils.isCompleteIsoInput(this.selectedValueDate);
-
-  // On n'affiche pas invalide pendant la frappe
-  if (this.saisieIncomplete) {
-    this.saisieInvalid = false;
-    return;
-  }
-
-  // complet => on attend commit pour normaliser/fallback
-  this.saisieInvalid = false;
+  this.saisieIncomplete = !DateUtils.isCommitableIsoInput(this.selectedValueDate);
+  if (this.saisieIncomplete) this.saisieInvalid = false;
 }
 
 
-onDateCommit(): void {
-  const res = DateUtils.fallbackToEndOfMonthOrInvalid(this.selectedValueDate);
-
-  if (res.kind === 'EMPTY') {
-    this.saisieIncomplete = false;
-    this.saisieInvalid = false;
-    return;
-  }
-
-  if (res.kind === 'INCOMPLETE') {
-    // tu peux choisir: soit laisser la saisie et demander à l'user de finir,
-    // soit nettoyer. Ici on laisse + message "incomplet" via ton flag.
-    this.saisieIncomplete = true;
-    this.saisieInvalid = false;
-    return;
-  }
-
-  if (res.kind === 'INVALID') {
-    // IMPORTANT: pas de fallback, on laisse la valeur intacte + message rouge
-    this.saisieIncomplete = false;
-    this.saisieInvalid = true;
-    return;
-  }
-
-  // OK => fallback appliqué
-  const normalized = res.value;
-  this.saisieIncomplete = false;
-  this.saisieInvalid = false;
-
-  this.facade.setSelectedDate(normalized);
-  this.redditionDatePicker.value = normalized;
-  this.selectedValueDate = normalized;
-}
-
-
-export type FallbackResult =
+export type DateCommitResult =
   | { kind: 'EMPTY' }
   | { kind: 'INCOMPLETE' }
-  | { kind: 'OK'; value: string }
-  | { kind: 'INVALID' };
+  | { kind: 'INVALID' }
+  | { kind: 'OK'; value: string };
 
 export class DateUtils {
-  static isCompleteIsoInput(value: string): boolean {
-    return /^(\d{4}|\d{4}-\d{2}|\d{4}-\d{2}-\d{2})$/.test(value.trim());
+  // Formats “commitables” : YYYY | YYYY-MM | YYYY-MM-DD
+  static isCommitableIsoInput(raw: string): boolean {
+    return /^(\d{4}|\d{4}-\d{2}|\d{4}-\d{2}-\d{2})$/.test(raw);
   }
 
+  // Strict YYYY-MM-DD (calendrier réel)
   static isIsoDateStrict(value: string): boolean {
-    const v = value.trim();
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return false;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
 
-    const [y, m, d] = v.split('-').map(Number);
-    if (m < 1 || m > 12) return false;
-    if (d < 1 || d > 31) return false;
+    const [y, m, d] = value.split('-').map(Number);
+    if (m < 1 || m > 12 || d < 1 || d > 31) return false;
 
     const dt = new Date(Date.UTC(y, m - 1, d));
     return (
@@ -703,35 +660,19 @@ export class DateUtils {
     );
   }
 
-  static pad2(n: number): string {
-    return String(n).padStart(2, '0');
+  static endOfMonthIso(dateIso: string): string {
+    // Accepte YYYY-MM-DD (valide) OU YYYY-MM (déjà validé ailleurs)
+    const parts = dateIso.split('-').map(Number);
+    const y = parts[0];
+    const m = parts[1]; // 1..12
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate(); // m,0 => dernier jour du mois m
+    return `${y}-${String(m).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
   }
 
-  static lastDayOfMonth(y: number, m: number): number {
-    // m: 1..12
-    return new Date(Date.UTC(y, m, 0)).getUTCDate();
-  }
-
-  /**
-   * Règles:
-   * 2025 -> 2025-01-31
-   * 2025-02 -> 2025-02-28
-   * 2025-02-01 -> 2025-02-28
-   * 2025-02-00 / 2025-02-48 / 2025-14 -> INVALID (pas de fallback)
-   */
-  static fallbackToEndOfMonthOrInvalid(raw: string | null | undefined): FallbackResult {
-    const v = (raw ?? '').trim();
+  static fallbackToEndOfMonthOrInvalid(raw: string): DateCommitResult {
+    const v = raw.trim();
     if (!v) return { kind: 'EMPTY' };
-
-    // si c'est "autre chose" (lettres, etc.) => invalide
-    if (!/^\d{1,4}(-\d{0,2}(-\d{0,2})?)?$/.test(v)) {
-      return { kind: 'INVALID' };
-    }
-
-    // incomplet pendant saisie
-    if (!this.isCompleteIsoInput(v)) {
-      return { kind: 'INCOMPLETE' };
-    }
+    if (!this.isCommitableIsoInput(v)) return { kind: 'INCOMPLETE' };
 
     // YYYY
     if (/^\d{4}$/.test(v)) {
@@ -740,27 +681,46 @@ export class DateUtils {
 
     // YYYY-MM
     if (/^\d{4}-\d{2}$/.test(v)) {
-      const [yStr, mStr] = v.split('-');
-      const y = Number(yStr);
-      const m = Number(mStr);
+      const [y, m] = v.split('-').map(Number);
       if (m < 1 || m > 12) return { kind: 'INVALID' };
-
-      const last = this.lastDayOfMonth(y, m);
-      return { kind: 'OK', value: `${yStr}-${mStr}-${this.pad2(last)}` };
+      return { kind: 'OK', value: this.endOfMonthIso(`${y}-${String(m).padStart(2, '0')}-01`) };
     }
 
     // YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(v)) {
-      if (!this.isIsoDateStrict(v)) return { kind: 'INVALID' };
-
-      const [yStr, mStr] = v.split('-');
-      const y = Number(yStr);
-      const m = Number(mStr);
-
-      const last = this.lastDayOfMonth(y, m);
-      return { kind: 'OK', value: `${yStr}-${mStr}-${this.pad2(last)}` };
-    }
-
-    return { kind: 'INVALID' };
+    // - si strict valide => fallback fin de mois
+    // - sinon => invalid (ex: day=00 / 48 / month=14)
+    if (!this.isIsoDateStrict(v)) return { kind: 'INVALID' };
+    return { kind: 'OK', value: this.endOfMonthIso(v) };
   }
+}
+
+
+onDateCommit(): void {
+  const res = DateUtils.fallbackToEndOfMonthOrInvalid(this.selectedValueDate ?? '');
+
+  if (res.kind === 'EMPTY') {
+    this.saisieIncomplete = false;
+    this.saisieInvalid = false;
+    return;
+  }
+
+  if (res.kind === 'INCOMPLETE') {
+    this.saisieIncomplete = true;
+    this.saisieInvalid = false;
+    return;
+  }
+
+  if (res.kind === 'INVALID') {
+    this.saisieIncomplete = false;
+    this.saisieInvalid = true; // on laisse la saisie intacte
+    return;
+  }
+
+  // OK
+  this.saisieIncomplete = false;
+  this.saisieInvalid = false;
+
+  this.selectedValueDate = res.value;
+  this.facade.setSelectedDate(res.value);
+  this.redditionDatePicker.value = res.value;
 }
