@@ -1,115 +1,64 @@
-import { Component, OnInit } from '@angular/core';
-import { Router, NavigationEnd, Event } from '@angular/router';
-import { filter, map, shareReplay } from 'rxjs/operators';
+// app-navigation.service.ts
+import { Injectable } from '@angular/core';
+import { Router } from '@angular/router';
 import { Observable, combineLatest, of } from 'rxjs';
-
-import { TranslateService } from '@ngx-translate/core';
-import { Overlay } from '@angular/cdk/overlay';
-import { Store } from '@ngxs/store';
+import { map, shareReplay } from 'rxjs/operators';
 
 import { AuthenticationService } from '.../core/services/authentication.service';
 import { Role } from '.../core/model/enums';
 import { RapportsNav } from './rapports-nav';
 
-// adapte si tu extends BaseComponent
 export type TabKey = 'conciliation' | 'recherche' | 'rapports' | 'utilitaires' | 'parametres';
 
-type TabRule = {
-  anyOf?: readonly Role[];   // doit avoir au moins 1 rôle de la liste
-  noneOf?: readonly Role[];  // ne doit avoir aucun rôle de la liste
+export type TabRule = {
+  anyOf?: readonly Role[];   // visible si l'user a au moins 1 rôle
+  noneOf?: readonly Role[];  // visible si l'user n'a aucun rôle
 };
 
-type TabDef = {
+export type TabDef = {
   key: TabKey;
   labelKey: string;
   rule?: TabRule;
 };
 
-@Component({
-  selector: 'app-root',
-  templateUrl: './app.component.html',
-})
-export class AppComponent implements OnInit {
-  // ---------- Tabs ----------
+@Injectable({ providedIn: 'root' })
+export class AppNavigationService {
+  // 1) Déclaration unique des onglets
   readonly allTabs: readonly TabDef[] = [
     { key: 'conciliation', labelKey: 'ONGLETS.CONCILIATION_LABEL' },
     { key: 'recherche', labelKey: 'ONGLETS.RECHERCHE_LABEL' },
 
-    // ✅ visible si ANY rôle
     { key: 'rapports', labelKey: 'ONGLETS.RAPPORTS_LABEL', rule: { anyOf: RapportsNav.RAPPORTS_VIEW_ROLES } },
-
     { key: 'utilitaires', labelKey: 'ONGLETS.UTILITAIRES_LABEL', rule: { anyOf: RapportsNav.UTILITAIRES_VIEW_ROLES } },
-
-    // ✅ caché si l'user a un rôle de blocage
-    { key: 'parametres', labelKey: 'ONGLETS.PARAMETRES_LABEL', rule: { noneOf: RapportsNav.PARAMETRES_BLOCK_ROLES } },
+    { key: 'parametres', labelKey: 'ONGLETS.PARAMETRES_LABEL', rule: { anyOf: RapportsNav.PARAMETRES_VIEW_ROLES } },
   ] as const;
 
+  // 2) Tabs visibles selon rôles
   readonly visibleTabs$: Observable<readonly TabDef[]> = combineLatest(
-    this.allTabs.map(tab =>
-      this.isTabAllowed$(tab).pipe(map(allowed => ({ tab, allowed })))
-    )
+    this.allTabs.map(t => this.isAllowed$(t).pipe(map(allowed => ({ t, allowed }))))
   ).pipe(
-    map(results => results.filter(x => x.allowed).map(x => x.tab)),
+    map(xs => xs.filter(x => x.allowed).map(x => x.t)),
     shareReplay({ bufferSize: 1, refCount: true })
   );
 
-  private visibleTabsSnapshot: readonly TabDef[] = [];
-
-  activePanel: TabKey = 'conciliation';
-
   constructor(
-    private readonly translateService: TranslateService,
-    protected readonly router: Router,
-    private readonly overlay: Overlay,
-    private readonly store: Store,
-    private readonly auth: AuthenticationService
-  ) {
-    this.translateService.setTranslation('fr-CA', {}, true);
-    this.translateService.setDefaultLang('fr-CA');
+    private readonly auth: AuthenticationService,
+    private readonly router: Router
+  ) {}
 
-    document.body.className += ' dsd-mode-compact';
-  }
-
-  ngOnInit(): void {
-    // snapshot des tabs visibles pour onTabsChange (index)
-    this.visibleTabs$.subscribe(tabs => (this.visibleTabsSnapshot = tabs));
-
-    // sync panel depuis l'URL
-    this.router.events
-      .pipe(filter((e: Event): e is NavigationEnd => e instanceof NavigationEnd))
-      .subscribe(() => this.syncPanelFromUrl());
-
-    this.syncPanelFromUrl();
-  }
-
-  onTabsChange(evt: any): void {
-    const idx = Number(evt?.detail?.activeItemIndex ?? 0);
-    const key = this.visibleTabsSnapshot[idx]?.key ?? 'conciliation';
+  navigateTo(key: TabKey): void {
     this.router.navigate(['/', key]);
   }
 
-  isActive(key: TabKey): boolean {
-    return this.activePanel === key;
-  }
-
-  private syncPanelFromUrl(): void {
-    const urlPath = this.router.url.split('?')[0].split('#')[0];
-    const firstSeg = urlPath.split('/')[1] as TabKey | undefined;
-
-    // ⚠️ important : on se base sur les tabs visibles (pas allTabs)
-    const found = this.visibleTabsSnapshot.some(t => t.key === firstSeg);
-    this.activePanel = found ? (firstSeg as TabKey) : (this.visibleTabsSnapshot[0]?.key ?? 'conciliation');
-  }
-
-  private isTabAllowed$(tab: TabDef): Observable<boolean> {
+  private isAllowed$(tab: TabDef): Observable<boolean> {
     const rule = tab.rule;
     if (!rule) return of(true);
 
-    if (rule.anyOf && rule.anyOf.length > 0) {
+    if (rule.anyOf?.length) {
       return this.auth.hasRole(...rule.anyOf);
     }
 
-    if (rule.noneOf && rule.noneOf.length > 0) {
+    if (rule.noneOf?.length) {
       return this.auth.hasRole(...rule.noneOf).pipe(map(has => !has));
     }
 
@@ -118,38 +67,93 @@ export class AppComponent implements OnInit {
 }
 
 
-<app-header></app-header>
 
-<div class="onglets">
-  <div class="libelle-app">
-    <h4 class="dsd-color-font-brand dsd-m-0 dsd-p-0">
-      {{ 'GLOBAL.LABELS.TITRE_APPLICATION' | translate }}
-    </h4>
+// app-navigation.component.ts
+import { Component, OnDestroy, OnInit } from '@angular/core';
+import { Router, NavigationEnd } from '@angular/router';
+import { Subscription } from 'rxjs';
+import { filter } from 'rxjs/operators';
+
+import { AppNavigationService, TabKey, TabDef } from './app-navigation.service';
+
+@Component({
+  selector: 'app-navigation',
+  templateUrl: './app-navigation.component.html',
+})
+export class AppNavigationComponent implements OnInit, OnDestroy {
+  readonly tabs$ = this.nav.visibleTabs$;
+
+  private sub = new Subscription();
+  private tabsSnapshot: readonly TabDef[] = [];
+
+  activePanel: TabKey = 'conciliation';
+
+  constructor(
+    private readonly nav: AppNavigationService,
+    private readonly router: Router
+  ) {}
+
+  ngOnInit(): void {
+    // snapshot pour gérer l'index du dsdTabsChange
+    this.sub.add(this.tabs$.subscribe(t => (this.tabsSnapshot = t)));
+
+    // sync avec l'URL
+    this.sub.add(
+      this.router.events
+        .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
+        .subscribe(() => this.syncActiveFromUrl())
+    );
+
+    this.syncActiveFromUrl();
+  }
+
+  ngOnDestroy(): void {
+    this.sub.unsubscribe();
+  }
+
+  onTabsChange(evt: any): void {
+    const idx = Number(evt?.detail?.activeItemIndex ?? 0);
+    const key = this.tabsSnapshot[idx]?.key ?? this.tabsSnapshot[0]?.key ?? 'conciliation';
+    this.nav.navigateTo(key);
+  }
+
+  isActive(key: TabKey): boolean {
+    return this.activePanel === key;
+  }
+
+  private syncActiveFromUrl(): void {
+    const urlPath = this.router.url.split('?')[0].split('#')[0];
+    const firstSeg = urlPath.split('/')[1] as TabKey | undefined;
+
+    const found = !!firstSeg && this.tabsSnapshot.some(t => t.key === firstSeg);
+    this.activePanel = found
+      ? (firstSeg as TabKey)
+      : (this.tabsSnapshot[0]?.key ?? 'conciliation');
+  }
+}
+
+
+<dsd-tab-group (dsdTabsChange)="onTabsChange($event)" remove-container="true">
+
+  <div slot="tabs">
+    @for (t of (tabs$ | async) ?? []; track t.key) {
+      <dsd-tab [panel]="t.key">
+        {{ t.labelKey | translate }}
+      </dsd-tab>
+    }
   </div>
 
-  <dsd-tab-group
-    (dsdTabsChange)="onTabsChange($event)"
-    remove-container="true"
-    background-color="dsd-color-background-page"
-    class="dsd-w-100">
+  <div slot="panels">
+    @for (t of (tabs$ | async) ?? []; track t.key) {
+      <dsd-tab-panel [name]="t.key">
+        @if (isActive(t.key)) {
+          <router-outlet></router-outlet>
+        }
+      </dsd-tab-panel>
+    }
+  </div>
 
-    <div slot="tabs" id="dsd-tab-group-main-menu-tabs">
-      @for (t of (visibleTabs$ | async) ?? []; track t.key) {
-        <dsd-tab [panel]="t.key">
-          {{ t.labelKey | translate }}
-        </dsd-tab>
-      }
-    </div>
+</dsd-tab-group>
 
-    <div slot="panels">
-      @for (t of (visibleTabs$ | async) ?? []; track t.key) {
-        <dsd-tab-panel [name]="t.key">
-          @if (isActive(t.key)) {
-            <router-outlet></router-outlet>
-          }
-        </dsd-tab-panel>
-      }
-    </div>
 
-  </dsd-tab-group>
-</div>
+<app-navigation></app-navigation>
