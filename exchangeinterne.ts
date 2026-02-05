@@ -1,51 +1,155 @@
-dateTouched = false;   // devient true après la 1ère interaction
-dateSubmitted = false; // true quand tu valides le formulaire (bouton chercher, etc.)
+import { Component, OnInit } from '@angular/core';
+import { Router, NavigationEnd, Event } from '@angular/router';
+import { filter, map, shareReplay } from 'rxjs/operators';
+import { Observable, combineLatest, of } from 'rxjs';
 
+import { TranslateService } from '@ngx-translate/core';
+import { Overlay } from '@angular/cdk/overlay';
+import { Store } from '@ngxs/store';
 
-this.dateTouched = true;
+import { AuthenticationService } from '.../core/services/authentication.service';
+import { Role } from '.../core/model/enums';
+import { RapportsNav } from './rapports-nav';
 
-const raw = (this.selectedRawDate ?? '').trim();
+// adapte si tu extends BaseComponent
+export type TabKey = 'conciliation' | 'recherche' | 'rapports' | 'utilitaires' | 'parametres';
 
-// vide => clear + pas d’erreur
-if (!raw) {
-  this.saisieIncomplete = false;
-  this.saisieInvalid = false;
-  this.facade.setSelectedDate({ input: '' });
-  this.redditionDatePicker.value = '';
-  return;
-}
+type TabRule = {
+  anyOf?: readonly Role[];   // doit avoir au moins 1 rôle de la liste
+  noneOf?: readonly Role[];  // ne doit avoir aucun rôle de la liste
+};
 
-// sinon ton flux habituel…
-this.saisieIncomplete = !DateUtils.isAllowedIsoShape(raw);
-if (this.saisieIncomplete) {
-  this.saisieInvalid = false;
-  return;
-}
+type TabDef = {
+  key: TabKey;
+  labelKey: string;
+  rule?: TabRule;
+};
 
+@Component({
+  selector: 'app-root',
+  templateUrl: './app.component.html',
+})
+export class AppComponent implements OnInit {
+  // ---------- Tabs ----------
+  readonly allTabs: readonly TabDef[] = [
+    { key: 'conciliation', labelKey: 'ONGLETS.CONCILIATION_LABEL' },
+    { key: 'recherche', labelKey: 'ONGLETS.RECHERCHE_LABEL' },
 
-get showDateError(): boolean {
-  // “required” seulement après interaction ou submit
-  const raw = (this.selectedRawDate ?? '').trim();
-  const requiredMissing = !raw;
+    // ✅ visible si ANY rôle
+    { key: 'rapports', labelKey: 'ONGLETS.RAPPORTS_LABEL', rule: { anyOf: RapportsNav.RAPPORTS_VIEW_ROLES } },
 
-  const canShow = this.dateTouched || this.dateSubmitted;
+    { key: 'utilitaires', labelKey: 'ONGLETS.UTILITAIRES_LABEL', rule: { anyOf: RapportsNav.UTILITAIRES_VIEW_ROLES } },
 
-  return canShow && (requiredMissing || this.saisieInvalid);
-}
+    // ✅ caché si l'user a un rôle de blocage
+    { key: 'parametres', labelKey: 'ONGLETS.PARAMETRES_LABEL', rule: { noneOf: RapportsNav.PARAMETRES_BLOCK_ROLES } },
+  ] as const;
 
-<dsd-datepicker
-  required="true"
-  [error]="showDateError"
-  (dsdDatepickerChange)="onDateChange($event)"
-  (focusout)="onDateCommit(vm?.dateMaxLabel)"
->
-  <span slot="error">
-    @if ((dateTouched || dateSubmitted) && !(selectedRawDate?.trim())) {
-      Champ obligatoire
-    } @else if (saisieInvalid) {
-      Date invalide
-    } @else {
-      {{ 'MESSAGES.FORMS.DATE_CHAMP_OBLIG' | translate }}
+  readonly visibleTabs$: Observable<readonly TabDef[]> = combineLatest(
+    this.allTabs.map(tab =>
+      this.isTabAllowed$(tab).pipe(map(allowed => ({ tab, allowed })))
+    )
+  ).pipe(
+    map(results => results.filter(x => x.allowed).map(x => x.tab)),
+    shareReplay({ bufferSize: 1, refCount: true })
+  );
+
+  private visibleTabsSnapshot: readonly TabDef[] = [];
+
+  activePanel: TabKey = 'conciliation';
+
+  constructor(
+    private readonly translateService: TranslateService,
+    protected readonly router: Router,
+    private readonly overlay: Overlay,
+    private readonly store: Store,
+    private readonly auth: AuthenticationService
+  ) {
+    this.translateService.setTranslation('fr-CA', {}, true);
+    this.translateService.setDefaultLang('fr-CA');
+
+    document.body.className += ' dsd-mode-compact';
+  }
+
+  ngOnInit(): void {
+    // snapshot des tabs visibles pour onTabsChange (index)
+    this.visibleTabs$.subscribe(tabs => (this.visibleTabsSnapshot = tabs));
+
+    // sync panel depuis l'URL
+    this.router.events
+      .pipe(filter((e: Event): e is NavigationEnd => e instanceof NavigationEnd))
+      .subscribe(() => this.syncPanelFromUrl());
+
+    this.syncPanelFromUrl();
+  }
+
+  onTabsChange(evt: any): void {
+    const idx = Number(evt?.detail?.activeItemIndex ?? 0);
+    const key = this.visibleTabsSnapshot[idx]?.key ?? 'conciliation';
+    this.router.navigate(['/', key]);
+  }
+
+  isActive(key: TabKey): boolean {
+    return this.activePanel === key;
+  }
+
+  private syncPanelFromUrl(): void {
+    const urlPath = this.router.url.split('?')[0].split('#')[0];
+    const firstSeg = urlPath.split('/')[1] as TabKey | undefined;
+
+    // ⚠️ important : on se base sur les tabs visibles (pas allTabs)
+    const found = this.visibleTabsSnapshot.some(t => t.key === firstSeg);
+    this.activePanel = found ? (firstSeg as TabKey) : (this.visibleTabsSnapshot[0]?.key ?? 'conciliation');
+  }
+
+  private isTabAllowed$(tab: TabDef): Observable<boolean> {
+    const rule = tab.rule;
+    if (!rule) return of(true);
+
+    if (rule.anyOf && rule.anyOf.length > 0) {
+      return this.auth.hasRole(...rule.anyOf);
     }
-  </span>
-</dsd-datepicker>
+
+    if (rule.noneOf && rule.noneOf.length > 0) {
+      return this.auth.hasRole(...rule.noneOf).pipe(map(has => !has));
+    }
+
+    return of(true);
+  }
+}
+
+
+<app-header></app-header>
+
+<div class="onglets">
+  <div class="libelle-app">
+    <h4 class="dsd-color-font-brand dsd-m-0 dsd-p-0">
+      {{ 'GLOBAL.LABELS.TITRE_APPLICATION' | translate }}
+    </h4>
+  </div>
+
+  <dsd-tab-group
+    (dsdTabsChange)="onTabsChange($event)"
+    remove-container="true"
+    background-color="dsd-color-background-page"
+    class="dsd-w-100">
+
+    <div slot="tabs" id="dsd-tab-group-main-menu-tabs">
+      @for (t of (visibleTabs$ | async) ?? []; track t.key) {
+        <dsd-tab [panel]="t.key">
+          {{ t.labelKey | translate }}
+        </dsd-tab>
+      }
+    </div>
+
+    <div slot="panels">
+      @for (t of (visibleTabs$ | async) ?? []; track t.key) {
+        <dsd-tab-panel [name]="t.key">
+          @if (isActive(t.key)) {
+            <router-outlet></router-outlet>
+          }
+        </dsd-tab-panel>
+      }
+    </div>
+
+  </dsd-tab-group>
+</div>
