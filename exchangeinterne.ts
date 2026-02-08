@@ -316,3 +316,138 @@ export class GestionTachesFacade {
     this.criteriaSubject.next({ ...c, entiteId: null, compteId: null });
   }
 }
+
+
+
+
+
+export type Affichage = 'GESTION_TACHES' | 'TOUS_COMPTES';
+export type ModeTravail = 'ENTITE' | 'COMPTE';
+
+export interface GestionTachesCriteria {
+  affichage: Affichage;
+  modeTravail: ModeTravail;
+  entiteId: string | null;
+  compteId: string | null;
+}
+
+/** Ce qui est affiché dans la grid + contexte technique caché */
+export interface ConciliationTask {
+  entite: string;
+  compte: string;
+  typeDeCompte: string;
+
+  ctx: ConciliationTaskContext;
+}
+
+/** Contexte à envoyer à l’écran B (sans URL params) */
+export interface ConciliationTaskContext {
+  affichage: Affichage;
+  modeTravail: ModeTravail;
+  entiteId: string | null;
+  compteId: string | null;
+}
+
+export interface GestionTachesInitialLists {
+  entites: TransitBffDto[];
+  comptes: InformationCompteGlBffDto[];
+}
+
+export interface GestionTachesSelectionResult {
+  dependentEntites: TransitBffDto[];
+  dependentComptes: InformationCompteGlBffDto[];
+  rows: ConciliationTask[];
+}
+
+export interface GestionTachesViewState {
+  affichage: Affichage;
+  modeTravail: ModeTravail;
+
+  entiteOptions: string[][];
+  compteOptions: string[][];
+
+  selectedEntiteId: string | null;
+  selectedCompteId: string | null;
+
+  isEntiteDisabled: boolean;
+  isCompteDisabled: boolean;
+
+  gridRows: ConciliationTask[];
+}
+
+
+export function toEntiteOption(t: TransitBffDto, isPaie: boolean, isSaci: boolean): string[] {
+  // value = identifiant (id)
+  const value = t.identifiantTransit ?? t.transitEntite ?? '';
+
+  // label selon rôle
+  // PAIE: tu avais un rendu plus simple (ex: transitEntite)
+  if (isPaie) {
+    const label = t.transitEntite ?? value;
+    return [value, label];
+  }
+
+  // SACI: tu avais un rendu "numeroInstitution + transitEntite"
+  if (isSaci) {
+    const label = `${t.numeroInstitution ?? ''}${t.transitEntite ?? ''}`.trim();
+    return [value, label || value];
+  }
+
+  // fallback si aucun rôle connu
+  const label = t.transitEntite ?? value;
+  return [value, label];
+}
+
+export function toCompteOption(c: InformationCompteGlBffDto): string[] {
+  // IdentifiantCompteGL = ID, numeroCompteGL = libellé
+  const value = c.identifiantCompteGL ?? '';
+  const label = c.numeroCompteGL ?? value;
+  return [value, label];
+}
+
+export function computeTypeDeCompte(c: InformationCompteGlBffDto | null | undefined): string {
+  if (!c) return '';
+
+  // Ajuste selon TES règles exactes (tu as donné l'exemple compteGL)
+  if (c.compteGL) return 'compteGL';
+  if (c.compteGLOracle) return 'compteGLOracle';
+  if (c.folioEop) return 'folioEop';
+  if (c.fractionnable) return 'fractionnable';
+
+  return '';
+}
+
+export function findLabel(options: string[][], value: string | null): string {
+  if (!value) return '';
+  return options.find(o => o[0] === value)?.[1] ?? '';
+}
+
+
+import { Component, inject } from '@angular/core';
+import { Router } from '@angular/router';
+import { GestionTachesFacade } from '../facade/gestion-taches.facade';
+import { ConciliationTask } from '../domain/gestion-taches.models';
+
+@Component({
+  selector: 'app-gestion-taches-page',
+  templateUrl: './gestion-taches-page.html',
+})
+export class GestionTachesPage {
+  private readonly router = inject(Router);
+  readonly facade = inject(GestionTachesFacade);
+
+  readonly vm$ = this.facade.viewState$;
+
+  ngOnInit(): void {
+    const state = history.state as any;
+    if (state?.restore?.affichage || state?.restore?.modeTravail) {
+      this.facade.restoreModeAffichage(state.restore);
+    }
+  }
+
+  onProcessRow(row: ConciliationTask): void {
+    this.router.navigate(['/process-task'], {
+      state: { ctx: row.ctx },
+    });
+  }
+}
