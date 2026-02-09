@@ -1,68 +1,71 @@
-import { AfterViewInit, Component, DestroyRef, OnInit, inject } from '@angular/core';
-import { ReplaySubject, combineLatest } from 'rxjs';
-import { map } from 'rxjs/operators';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+ajouterFolioEop(): void {
+  combineLatest([
+    this.numFolioEnAjout$,
+    this.foliosEop$,
+    this.selectedTransitId$, // si tu en as besoin pour la requête
+  ])
+    .pipe(take(1))
+    .subscribe(([rawInput, folios, selectedTransitId]) => {
+      // 1) normaliser
+      const normalized = normalizeFolio7(rawInput);
 
-@Component({
-  selector: 'app-folio-13-eop',
-  templateUrl: './folio-13-eop.component.html',
-  providers: [Folio13EopFacade],
-})
-export class Folio13EopComponent implements OnInit, AfterViewInit {
-  private readonly destroyRef = inject(DestroyRef);
+      if (!normalized.ok) {
+        // Alert métier (tu peux mettre variant warning/error selon ton DS)
+        this.setAlert({
+          variant: 'error',
+          title: 'Validation',
+          message: normalized.reason === 'EMPTY'
+            ? 'Le folio est obligatoire.'
+            : 'Le folio ne doit pas dépasser 7 chiffres.',
+        });
 
-  private readonly gridReady$ = new ReplaySubject<GridApi>(1); // ✅ rejoue l’api aux futurs subscribers
-  private gridApi?: GridApi;
+        // si ton alert doit apparaître dans le modal
+        this.isAlertOnModalSubject.next(true);
+        return;
+      }
 
-  // UI vars (optionnel si tu veux garder des champs TS)
-  foliosEopCount = 0;
+      const folio7 = normalized.folio7;
 
-  constructor(public readonly facade: Folio13EopFacade) {}
-
-  ngOnInit(): void {
-    // ✅ Le binding TS -> grid se fait ici (1 seul subscribe)
-    combineLatest([this.facade.viewState$, this.gridReady$])
-      .pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe(([vm, api]) => {
-        // variables TS si tu veux
-        this.foliosEopCount = vm.foliosEopCount;
-
-        // grid impérative
-        api.setGridOption('columnDefs', this.buildColumnDefs(vm.selectedTransitId));
-        api.setGridOption('rowData', vm.foliosEop);
+      // 2) vérifier doublon (comparaison sur la version normalisée)
+      const exists = Array.isArray(folios) && folios.some(f => {
+        const existingRaw = (f as any)?.numFolio ?? (f as any)?.folio ?? '';
+        const n = normalizeFolio7(String(existingRaw));
+        return n.ok && n.folio7 === folio7;
       });
-  }
 
-  ngAfterViewInit(): void {
-    const el = document.querySelector('#folioEopGrid') as HTMLElement;
+      if (exists) {
+        this.setAlert({
+          variant: 'error',
+          title: 'Validation',
+          message: 'Ce folio existe déjà.',
+        });
+        this.isAlertOnModalSubject.next(true);
+        return;
+      }
 
-    this.gridApi = createGrid(el, {
-      ...createDefaultGridOptions(),
-      columnDefs: [],
-      rowData: [],
+      // 3) construire la requête (padding conservé)
+      const requete = {
+        idTransit: selectedTransitId === 'tous' ? '' : selectedTransitId,
+        numFolio: folio7, // <-- IMPORTANT: c'est "0000100" etc.
+      };
+
+      // 4) appel backend (remplace par ton repo exact)
+      this.runEffect(
+        this.parametre13EopRepo.ajouterFolio(requete), // <- adapte le nom
+        (err: unknown) => err as AppError,
+        {
+          useGlobalSpinner: true,
+          clearAlertOnStart: true,
+          fallbackValue: null,
+          error: { title: 'Ajout impossible', fallbackMessage: "Impossible d'ajouter le folio." },
+        }
+      ).subscribe(() => {
+        // 5) clean / refresh
+        this.setNumFolioEnAjout('');
+        this.isAlertOnModalSubject.next(false);
+
+        // Si tu as un refresh folios:
+        this.rafraichirFoliosEopsSubject.next(void 0);
+      });
     });
-
-    // ✅ déclenche immédiatement le rendu si vm est déjà arrivé
-    this.gridReady$.next(this.gridApi);
-  }
-
-  onRefresh(): void {
-    this.facade.refresh();
-  }
-
-  onTransitChange(id: string): void {
-    this.facade.setSelectedTransit(id);
-  }
-
-  private buildColumnDefs(selectedTransitId: string): ColDef[] {
-    const cols: ColDef[] = [{ field: 'numFolio' }];
-
-    if (selectedTransitId === 'tous') {
-      cols.push({ field: 'nombreTransitsAssocies' });
-    } else {
-      cols.push({ colId: 'actions' });
-    }
-
-    return cols;
-  }
 }
