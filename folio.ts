@@ -69,3 +69,18 @@ ajouterFolioEop(): void {
       });
     });
 }
+
+
+
+function keepDigitsOnly(raw: string): string {
+  return (raw ?? '').toString().replace(/\D/g, '');
+}
+
+function normalizeFolio7(raw: string): { ok: true; folio7: string } | { ok: false; reason: 'EMPTY' | 'TOO_LONG' } {
+  const digits = keepDigitsOnly(raw);
+
+  if (!digits.length) return { ok: false, reason: 'EMPTY' };
+  if (digits.length > 7) return { ok: false, reason: 'TOO_LONG' };
+
+  return { ok: true, folio7: digits.padStart(7, '0') };
+}
