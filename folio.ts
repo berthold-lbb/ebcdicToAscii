@@ -1,86 +1,61 @@
-ajouterFolioEop(): void {
-  combineLatest([
-    this.numFolioEnAjout$,
-    this.foliosEop$,
-    this.selectedTransitId$, // si tu en as besoin pour la requête
-  ])
-    .pipe(take(1))
-    .subscribe(([rawInput, folios, selectedTransitId]) => {
-      // 1) normaliser
-      const normalized = normalizeFolio7(rawInput);
+// base-component.spec.ts
+import { Component } from '@angular/core';
+import { TestBed, ComponentFixture } from '@angular/core/testing';
+import { Location } from '@angular/common';
 
-      if (!normalized.ok) {
-        // Alert métier (tu peux mettre variant warning/error selon ton DS)
-        this.setAlert({
-          variant: 'error',
-          title: 'Validation',
-          message: normalized.reason === 'EMPTY'
-            ? 'Le folio est obligatoire.'
-            : 'Le folio ne doit pas dépasser 7 chiffres.',
-        });
+import { BaseComponent } from './base-component'; // <-- ajuste le path si besoin
 
-        // si ton alert doit apparaître dans le modal
-        this.isAlertOnModalSubject.next(true);
-        return;
-      }
+@Component({
+  standalone: true,
+  template: '',
+})
+class HostBaseComponent extends BaseComponent {
+  // On expose la méthode protected pour pouvoir la tester proprement
+  public goBack(): void {
+    this.retourPagePrecedente();
+  }
 
-      const folio7 = normalized.folio7;
-
-      // 2) vérifier doublon (comparaison sur la version normalisée)
-      const exists = Array.isArray(folios) && folios.some(f => {
-        const existingRaw = (f as any)?.numFolio ?? (f as any)?.folio ?? '';
-        const n = normalizeFolio7(String(existingRaw));
-        return n.ok && n.folio7 === folio7;
-      });
-
-      if (exists) {
-        this.setAlert({
-          variant: 'error',
-          title: 'Validation',
-          message: 'Ce folio existe déjà.',
-        });
-        this.isAlertOnModalSubject.next(true);
-        return;
-      }
-
-      // 3) construire la requête (padding conservé)
-      const requete = {
-        idTransit: selectedTransitId === 'tous' ? '' : selectedTransitId,
-        numFolio: folio7, // <-- IMPORTANT: c'est "0000100" etc.
-      };
-
-      // 4) appel backend (remplace par ton repo exact)
-      this.runEffect(
-        this.parametre13EopRepo.ajouterFolio(requete), // <- adapte le nom
-        (err: unknown) => err as AppError,
-        {
-          useGlobalSpinner: true,
-          clearAlertOnStart: true,
-          fallbackValue: null,
-          error: { title: 'Ajout impossible', fallbackMessage: "Impossible d'ajouter le folio." },
-        }
-      ).subscribe(() => {
-        // 5) clean / refresh
-        this.setNumFolioEnAjout('');
-        this.isAlertOnModalSubject.next(false);
-
-        // Si tu as un refresh folios:
-        this.rafraichirFoliosEopsSubject.next(void 0);
-      });
-    });
+  // Optionnel: exposer destroyRef pour l’assert
+  public getDestroyRef(): unknown {
+    return this.destroyRef;
+  }
 }
 
+describe('BaseComponent', () => {
+  let fixture: ComponentFixture<HostBaseComponent>;
+  let component: HostBaseComponent;
 
+  let locationSpy: jasmine.SpyObj<Location>;
 
-function keepDigitsOnly(raw: string): string {
-  return (raw ?? '').toString().replace(/\D/g, '');
-}
+  beforeEach(async () => {
+    locationSpy = jasmine.createSpyObj<Location>('Location', ['back']);
 
-function normalizeFolio7(raw: string): { ok: true; folio7: string } | { ok: false; reason: 'EMPTY' | 'TOO_LONG' } {
-  const digits = keepDigitsOnly(raw);
+    await TestBed.configureTestingModule({
+      imports: [HostBaseComponent],
+      providers: [{ provide: Location, useValue: locationSpy }],
+    }).compileComponents();
 
-  if (!digits.length) return { ok: false, reason: 'EMPTY' };
-  if (digits.length > 7) return { ok: false, reason: 'TOO_LONG' };
+    fixture = TestBed.createComponent(HostBaseComponent);
+    component = fixture.componentInstance;
+    fixture.detectChanges();
+  });
 
-  return { ok: true, folio7: digits.padStart(7, '0') };
-}
+  it('should create the host component (BaseComponent is constructed)', () => {
+    expect(component).toBeTruthy();
+  });
+
+  it('should inject DestroyRef (destroyRef is defined)', () => {
+    expect(component.getDestroyRef()).toBeTruthy();
+  });
+
+  it('retourPagePrecedente() should call Location.back()', () => {
+    component.goBack();
+    expect(locationSpy.back).toHaveBeenCalledTimes(1);
+  });
+
+  it('retourPagePrecedente() should call Location.back() each time', () => {
+    component.goBack();
+    component.goBack();
+    expect(locationSpy.back).toHaveBeenCalledTimes(2);
+  });
+});
