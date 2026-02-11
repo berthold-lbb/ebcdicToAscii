@@ -1,49 +1,53 @@
-function setDsdButtonSlotText(btn: HTMLElement, text: string): void {
-  const value = (text ?? '').toString();
+import { Directive, ElementRef, forwardRef, HostListener } from '@angular/core';
+import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 
-  // AG-Grid recycle parfois : on reset d'abord le contenu
-  btn.textContent = '';
+@Directive({
+  // adapte selon ton tag exact si besoin
+  selector: 'dsd-radio-group[formControlName],dsd-radio-group[formControl],dsd-radio-group[ngModel]',
+  providers: [
+    {
+      provide: NG_VALUE_ACCESSOR,
+      useExisting: forwardRef(() => DsdRadioGroupValueAccessorDirective),
+      multi: true,
+    },
+  ],
+})
+export class DsdRadioGroupValueAccessorDirective implements ControlValueAccessor {
+  private onChange: (value: any) => void = () => {};
+  private onTouched: () => void = () => {};
 
-  // ✅ slot default = contenu entre <dsd-button>...</dsd-button>
-  btn.textContent = value;
+  constructor(private host: ElementRef<HTMLElement>) {}
 
-  // fallback accessibilité/tooltip
-  btn.setAttribute('title', value);
+  // ⚠️ adapte le nom de l’event DSD EXACT
+  // Dans ton code je vois (dsdRadioGroupChange)
+  @HostListener('dsdRadioGroupChange', ['$event'])
+  handleChange(event: any) {
+    const value = event?.detail?.value ?? event?.target?.value ?? event;
+    this.onChange(value);
+  }
+
+  @HostListener('blur')
+  handleBlur() {
+    this.onTouched();
+  }
+
+  writeValue(value: any): void {
+    // ⚠️ adapte si DSD attend une prop "value" ou une méthode
+    (this.host.nativeElement as any).value = value ?? null;
+  }
+
+  registerOnChange(fn: any): void {
+    this.onChange = fn;
+  }
+
+  registerOnTouched(fn: any): void {
+    this.onTouched = fn;
+  }
+
+  setDisabledState(isDisabled: boolean): void {
+    // ⚠️ adapte si DSD attend "disabled" property
+    (this.host.nativeElement as any).disabled = isDisabled;
+  }
 }
 
-export function buildActionCellRenderer<T>(buttons: ButtonSpec<T>[]) {
-  return (params: ICellRendererParams): Node => {
-    const frag = document.createDocumentFragment();
-    if (!Array.isArray(buttons) || buttons.length === 0) return frag;
-
-    for (const spec of buttons) {
-      const btn = document.createElement('dsd-button') as any;
-
-      // props DSD
-      btn.variant = spec.variant ?? 'compact';
-      btn.size = spec.size ?? 'small';
-      btn.iconName = spec.iconName;
-      btn.iconPosition = spec.iconPosition ?? 'start'; // ⚠️ pas "standalone" si tu veux voir le texte
-
-      // ✅ TEXTE DANS LE SLOT (entre les balises)
-      setDsdButtonSlotText(btn, spec.title);
-
-      // attrs optionnels
-      if (spec.attrs) {
-        for (const [k, v] of Object.entries(spec.attrs)) btn.setAttribute(k, v);
-      }
-
-      // style optionnel
-      if (spec.styles) Object.assign((btn as HTMLElement).style, spec.styles);
-
-      btn.addEventListener('click', (e: Event) => {
-        e.stopPropagation();
-        spec.onClick(params.data as T, params);
-      });
-
-      frag.appendChild(btn);
-    }
-
-    return frag;
-  };
-}
+dsd-radio-group.value-accessor.ts
