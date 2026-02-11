@@ -1,96 +1,49 @@
-import { TestBed } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+function setDsdButtonSlotText(btn: HTMLElement, text: string): void {
+  const value = (text ?? '').toString();
 
-import { TransitRepository } from './transit.repository';
-import { ConciliationService } from '../../api/services/conciliation.service';
-import { ApiErrorMapper } from '../../errors/api-error-mapper';
+  // AG-Grid recycle parfois : on reset d'abord le contenu
+  btn.textContent = '';
 
-// Types (ajuste les imports si tes chemins diffèrent)
-import { TransitBffDto } from '../../api/models/transit-bff-dto';
-import { GetTransitsPourConciliation$Params } from '../../api/services/conciliation.service';
-import { AppError } from '../../errors/app-error';
+  // ✅ slot default = contenu entre <dsd-button>...</dsd-button>
+  btn.textContent = value;
 
-describe('TransitRepository', () => {
-  let repo: TransitRepository;
+  // fallback accessibilité/tooltip
+  btn.setAttribute('title', value);
+}
 
-  let conciliationServiceSpy: jasmine.SpyObj<ConciliationService>;
-  let errorMapperSpy: jasmine.SpyObj<ApiErrorMapper>;
+export function buildActionCellRenderer<T>(buttons: ButtonSpec<T>[]) {
+  return (params: ICellRendererParams): Node => {
+    const frag = document.createDocumentFragment();
+    if (!Array.isArray(buttons) || buttons.length === 0) return frag;
 
-  beforeEach(() => {
-    conciliationServiceSpy = jasmine.createSpyObj<ConciliationService>('ConciliationService', [
-      'getTransitsPourConciliation',
-    ]);
+    for (const spec of buttons) {
+      const btn = document.createElement('dsd-button') as any;
 
-    errorMapperSpy = jasmine.createSpyObj<ApiErrorMapper>('ApiErrorMapper', ['map']);
+      // props DSD
+      btn.variant = spec.variant ?? 'compact';
+      btn.size = spec.size ?? 'small';
+      btn.iconName = spec.iconName;
+      btn.iconPosition = spec.iconPosition ?? 'start'; // ⚠️ pas "standalone" si tu veux voir le texte
 
-    TestBed.configureTestingModule({
-      providers: [
-        TransitRepository,
-        { provide: ConciliationService, useValue: conciliationServiceSpy },
-        { provide: ApiErrorMapper, useValue: errorMapperSpy },
-      ],
-    });
+      // ✅ TEXTE DANS LE SLOT (entre les balises)
+      setDsdButtonSlotText(btn, spec.title);
 
-    repo = TestBed.inject(TransitRepository);
-  });
+      // attrs optionnels
+      if (spec.attrs) {
+        for (const [k, v] of Object.entries(spec.attrs)) btn.setAttribute(k, v);
+      }
 
-  it('doit se créer', () => {
-    expect(repo).toBeTruthy();
-  });
+      // style optionnel
+      if (spec.styles) Object.assign((btn as HTMLElement).style, spec.styles);
 
-  it('obtenirTransits() doit appeler conciliationService.getTransitsPourConciliation avec le param fourni et retourner la liste', (done) => {
-    const param: GetTransitsPourConciliation$Params = {
-      // mets seulement ce qui existe vraiment dans ton type
-      // ex: inclureTransitsFusionnes: true
-    } as GetTransitsPourConciliation$Params;
+      btn.addEventListener('click', (e: Event) => {
+        e.stopPropagation();
+        spec.onClick(params.data as T, params);
+      });
 
-    const transits: TransitBffDto[] = [
-      { idSociete: null } as TransitBffDto,
-      { idSociete: 123 } as TransitBffDto,
-    ];
+      frag.appendChild(btn);
+    }
 
-    conciliationServiceSpy.getTransitsPourConciliation.and.returnValue(of(transits));
-
-    repo.obtenirTransits(param).subscribe({
-      next: (value) => {
-        expect(conciliationServiceSpy.getTransitsPourConciliation).toHaveBeenCalledWith(param);
-        expect(value).toEqual(transits);
-        done();
-      },
-      error: done.fail,
-    });
-  });
-
-  it('obtenirTransits() sans param doit appeler conciliationService.getTransitsPourConciliation avec undefined', (done) => {
-    const transits: TransitBffDto[] = [];
-    conciliationServiceSpy.getTransitsPourConciliation.and.returnValue(of(transits));
-
-    repo.obtenirTransits().subscribe({
-      next: (value) => {
-        expect(conciliationServiceSpy.getTransitsPourConciliation).toHaveBeenCalledWith(undefined);
-        expect(value).toEqual(transits);
-        done();
-      },
-      error: done.fail,
-    });
-  });
-
-  it('obtenirTransits() doit mapper l’erreur via errorMapper.map et rethrow AppError', (done) => {
-    const rawErr = { status: 500, message: 'boom' };
-    const mappedErr = { code: 'X', message: 'mapped' } as unknown as AppError;
-
-    conciliationServiceSpy.getTransitsPourConciliation.and.returnValue(
-      throwError(() => rawErr)
-    );
-    errorMapperSpy.map.and.returnValue(mappedErr);
-
-    repo.obtenirTransits().subscribe({
-      next: () => done.fail('devait échouer'),
-      error: (e) => {
-        expect(errorMapperSpy.map).toHaveBeenCalledWith(rawErr);
-        expect(e).toBe(mappedErr);
-        done();
-      },
-    });
-  });
-});
+    return frag;
+  };
+}
