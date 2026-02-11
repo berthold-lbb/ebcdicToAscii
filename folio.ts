@@ -1,6 +1,6 @@
-import { TestBed } from '@angular/core/testing';
+AuthContextFacadeimport { TestBed } from '@angular/core/testing';
 import { NgxsModule } from '@ngxs/store';
-import { defer, of } from 'rxjs';
+import { defer, of, Observable } from 'rxjs';
 import { take } from 'rxjs/operators';
 
 import { AuthContextFacade } from './auth-context.facade';
@@ -8,19 +8,28 @@ import { AuthenticationService } from '../services/authentication.service';
 import { Role } from '../models/role';
 
 describe('AuthContextFacade', () => {
-  let facade: AuthContextFacade;
   let authSpy: jasmine.SpyObj<AuthenticationService>;
 
-  beforeEach(() => {
+  /**
+   * IMPORTANT:
+   * - On configure authSpy.hasRole() AVANT d'injecter la façade
+   * - On reset le TestBed pour permettre des retours différents selon le test
+   */
+  function createFacade(hasRoleResult$: Observable<boolean>): AuthContextFacade {
+    TestBed.resetTestingModule();
+
     authSpy = jasmine.createSpyObj<AuthenticationService>('AuthenticationService', [
       'hasRole',
-      'refresh',
       'load',
+      'refresh',
     ]);
+
+    // ✅ CRITIQUE : returnValue défini AVANT l'injection de la façade
+    authSpy.hasRole.and.returnValue(hasRoleResult$);
 
     TestBed.configureTestingModule({
       imports: [
-        // ✅ IMPORTANT : fournit NGXS_OPTIONS / Store / InternalStateOperations etc.
+        // ✅ évite NGXS_OPTIONS / Store manquant si BaseFacade utilise NGXS
         NgxsModule.forRoot([]),
       ],
       providers: [
@@ -29,15 +38,16 @@ describe('AuthContextFacade', () => {
       ],
     });
 
-    facade = TestBed.inject(AuthContextFacade);
-  });
+    return TestBed.inject(AuthContextFacade);
+  }
 
-  it('doit être créé', () => {
+  it('doit se créer', () => {
+    const facade = createFacade(of(false));
     expect(facade).toBeTruthy();
   });
 
-  it('isPaie$ -> appelle hasRole avec PAIE_FULL', (done) => {
-    authSpy.hasRole.and.returnValue(of(true));
+  it('isPaie$ appelle hasRole avec PAIE_FULL', (done) => {
+    const facade = createFacade(of(true));
 
     facade.isPaie$.pipe(take(1)).subscribe((value) => {
       expect(value).toBeTrue();
@@ -46,8 +56,8 @@ describe('AuthContextFacade', () => {
     });
   });
 
-  it('isSaci$ -> appelle hasRole avec SACI_FULL', (done) => {
-    authSpy.hasRole.and.returnValue(of(false));
+  it('isSaci$ appelle hasRole avec SACI_FULL', (done) => {
+    const facade = createFacade(of(false));
 
     facade.isSaci$.pipe(take(1)).subscribe((value) => {
       expect(value).toBeFalse();
@@ -56,10 +66,10 @@ describe('AuthContextFacade', () => {
     });
   });
 
-  it('shareReplay -> 2 abonnements sur isPaie$ ne relancent pas hasRole', (done) => {
+  it('shareReplay : 2 abonnements sur isPaie$ ne relancent pas hasRole', (done) => {
     let executions = 0;
 
-    authSpy.hasRole.and.returnValue(
+    const facade = createFacade(
       defer(() => {
         executions++;
         return of(true);
