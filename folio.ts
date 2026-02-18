@@ -673,3 +673,19 @@ function takeOne<T>() {
 
 // local import to avoid clutter in the facade section
 import { take } from 'rxjs/operators';
+
+
+ngOnInit(): void {
+  this.applyStateIfAny(); // 1er rendu
+
+  this.router.events
+    .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
+    .subscribe(() => this.applyStateIfAny()); // back/forward inclus
+}
+
+private applyStateIfAny(): void {
+  const ctx = history.state?.gestionTachesCriteria;
+  if (ctx) {
+    this.facade.initFromCtx(ctx); // met à jour criteriaSubject etc.
+  }
+}
