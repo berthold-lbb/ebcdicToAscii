@@ -675,17 +675,29 @@ function takeOne<T>() {
 import { take } from 'rxjs/operators';
 
 
-ngOnInit(): void {
-  this.applyStateIfAny(); // 1er rendu
-
-  this.router.events
-    .pipe(filter((e): e is NavigationEnd => e instanceof NavigationEnd))
-    .subscribe(() => this.applyStateIfAny()); // back/forward inclus
-}
-
-private applyStateIfAny(): void {
-  const ctx = history.state?.gestionTachesCriteria;
-  if (ctx) {
-    this.facade.initFromCtx(ctx); // met à jour criteriaSubject etc.
+function shouldResetSecondary(
+  c: GestionTachesCriteria,
+  initial: { entites: { identifiantTransit: string }[]; comptes: { identifiantCompteGL: string }[] }
+): Partial<GestionTachesCriteria> | null {
+  if (c.modeTravail === 'ENTITE') {
+    if (!hasValue(c.entiteId)) return null;
+    const exists = initial.entites.some(x => x.identifiantTransit === c.entiteId);
+    return exists ? null : { entiteId: '' };
   }
+
+  // mode COMPTE
+  if (!hasValue(c.compteId)) return null;
+  const exists = initial.comptes.some(x => x.identifiantCompteGL === c.compteId);
+  return exists ? null : { compteId: '' };
 }
+
+// --- dans ta façade ---
+// Après reload initialLists, si primary n’existe plus => reset primary + secondaire
+this.initialLists$
+  .pipe(withLatestFrom(this.criteria$), take(1))
+  .subscribe(([initial, c]) => {
+    const patch = shouldResetSecondary(c, initial);
+    if (!patch) return; // rien à faire
+
+    this.criteriaSubject.next({ ...c, ...patch });
+  });
