@@ -1,55 +1,53 @@
-private comboInteracting = false;
+H CAD, [Feb 26, 2026 at 12:49:18 PM]:
+<div class="gestion-taches-wrapper">
+  @if (rows.length > 0) {
+    <dsd-container>
+      <div class="ag-theme-dsd grid-container dsd-fw-bold">
+        <ag-grid-angular
+          class="taille-grid-gestion-taches"
+          [gridOptions]="gridOptions"
+          [rowData]="rows"
+          [columnDefs]="columDefs" />
+      </div>
+    </dsd-container>
+  } @else {
+    <div class="empty-state">
+      <dsd-icon size="xl" icon-name="contenus_contour_dossier"></dsd-icon>
+      <div class="empty-text">Aucune donnée à afficher</div>
+      <p class="empty-text-description">Vérifiez les critères sélectionnés</p>
+    </div>
+  }
+</div>
 
-// Optionnel: si tu veux distinguer
-private lastSelectAt = 0;
 
-onEntiteSelect(_: unknown) {
-  this.comboInteracting = true;
-  this.lastSelectAt = Date.now();
-  // on relâche juste après que le composant ait fini sa sélection (évite le double-trigger)
-  queueMicrotask(() => (this.comboInteracting = false));
+.gestion-taches-wrapper {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%; // important si le parent a déjà une hauteur
+  min-height: 520px; // ajuste selon ton layout (ou 60vh)
 }
 
-onCompteSelect(_: unknown) {
-  this.comboInteracting = true;
-  this.lastSelectAt = Date.now();
-  queueMicrotask(() => (this.comboInteracting = false));
+.grid-container {
+  flex: 1 1 auto; // la grille prend l’espace
+  min-height: 0;  // évite certains bugs de flex + overflow
 }
 
-onEntiteClear() {
-  this.comboInteracting = false;
-}
-onCompteClear() {
-  this.comboInteracting = false;
-}
-
-onEntiteFocusOut() {
-  // on sort du champ -> plus d’interaction dropdown
-  this.comboInteracting = false;
-}
-onCompteFocusOut() {
-  this.comboInteracting = false;
+.empty-state {
+  flex: 1 1 auto;              // prend l’espace restant
+  display: flex;
+  flex-direction: column;
+  align-items: center;          // centre horizontalement
+  justify-content: center;      // centre verticalement
+  text-align: center;
+  gap: 8px;
 }
 
-private isReady(): boolean {
-  // adapte selon ton viewState / facade
-  return !!this.viewState.selectedEntiteId && !!this.viewState.selectedCompteId;
+.empty-text {
+  margin-top: 8px;
+  font-weight: 600;
 }
 
-@HostListener('document:keydown.enter', ['$event'])
-onEnter(e: KeyboardEvent) {
-  // 1) si l’utilisateur vient de faire un select, Enter doit servir au composant → on ne fait rien
-  if (this.comboInteracting) return;
-
-  // 2) garde-fou anti “double enter instant” après select (au cas où)
-  if (Date.now() - this.lastSelectAt < 80) return;
-
-  // 3) si pas prêt
-  if (!this.isReady()) return;
-
-  // 4) empêcher que ça déclenche le bouton "Actualiser" / autre élément focusable
-  e.preventDefault();
-  e.stopPropagation();
-
-  this.onSubmit();
+.empty-text-description {
+  margin: 0;
 }
