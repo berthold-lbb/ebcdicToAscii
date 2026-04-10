@@ -1,15 +1,35 @@
 @InputFile
-public fun getTranslationsFile(): File {
-    val file = File(project.projectDir, translationsFilePath).canonicalFile
-    require(file.path.startsWith(project.projectDir.canonicalPath))
-    return file
+fun getTranslationsFile(): File {
+    val basePath = project.projectDir.toPath().toAbsolutePath().normalize()
+
+    require(!Paths.get(translationsFilePath).isAbsolute) {
+        "translationsFilePath must be a relative path. Received: '$translationsFilePath'"
+    }
+
+    val resolvedPath = basePath.resolve(translationsFilePath).normalize()
+
+    require(resolvedPath.startsWith(basePath)) {
+        "translationsFilePath must not escape the project directory."
+    }
+
+    return resolvedPath.toFile()
 }
 
 @OutputDirectory
-public fun getTranslationsJsonFile(): File {
-    val dir = File(project.projectDir, enumDirectoryPath).canonicalFile
-    require(dir.path.startsWith(project.projectDir.canonicalPath))
-    return dir
+fun getTranslationsJsonFile(): File {
+    val basePath = project.projectDir.toPath().toAbsolutePath().normalize()
+
+    require(!Paths.get(enumDirectoryPath).isAbsolute) {
+        "enumDirectoryPath must be a relative path. Received: '$enumDirectoryPath'"
+    }
+
+    val resolvedPath = basePath.resolve(enumDirectoryPath).normalize()
+
+    require(resolvedPath.startsWith(basePath)) {
+        "enumDirectoryPath must not escape the project directory."
+    }
+
+    return resolvedPath.toFile()
 }
 
 
