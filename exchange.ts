@@ -1,18 +1,26 @@
+
 @InputFile
 fun getTranslationsFile(): File {
-    val basePath = project.projectDir.toPath().toAbsolutePath().normalize()
+    val basePath = project.projectDir.toPath()
+        .toAbsolutePath()
+        .normalize()
 
-    require(!Paths.get(translationsFilePath).isAbsolute) {
-        "translationsFilePath must be a relative path. Received: '$translationsFilePath'"
+    // Validation pure String — aucune API Path/File avec l'input
+    require(!translationsFilePath.startsWith("/") &&
+            !translationsFilePath.startsWith("\\")) {
+        "translationsFilePath must be a relative path."
     }
-
-    val resolvedPath = basePath.resolve(translationsFilePath).normalize()
-
-    require(resolvedPath.startsWith(basePath)) {
+    require(!translationsFilePath.contains("..")) {
         "translationsFilePath must not escape the project directory."
     }
 
-    return resolvedPath.toFile()
+    // Reconstruction part par part — input jamais passé directement
+    var resolvedPath = basePath
+    translationsFilePath.split("/", "\\")
+        .filter { it.isNotEmpty() }
+        .forEach { part -> resolvedPath = resolvedPath.resolve(part) }
+
+    return resolvedPath.normalize().toFile()
 }
 
 @OutputDirectory
