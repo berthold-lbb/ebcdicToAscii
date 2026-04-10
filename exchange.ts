@@ -1,44 +1,19 @@
 
 @InputFile
-fun getTranslationsFile(): File {
-    val basePath = project.projectDir.toPath()
-        .toAbsolutePath()
-        .normalize()
-
-    // Validation pure String — aucune API Path/File avec l'input
-    require(!translationsFilePath.startsWith("/") &&
-            !translationsFilePath.startsWith("\\")) {
-        "translationsFilePath must be a relative path."
-    }
-    require(!translationsFilePath.contains("..")) {
-        "translationsFilePath must not escape the project directory."
-    }
-
-    // Reconstruction part par part — input jamais passé directement
-    var resolvedPath = basePath
-    translationsFilePath.split("/", "\\")
-        .filter { it.isNotEmpty() }
-        .forEach { part -> resolvedPath = resolvedPath.resolve(part) }
-
-    return resolvedPath.normalize().toFile()
-}
-
+    public fun getTranslationsFile(): File =
+        PathHelper.resolveSafePath(
+            base = project.projectDir,
+            relativePath = translationsFilePath,
+            paramName = "translationsFilePath"
+        ).toFile()
+ 
 @OutputDirectory
-fun getTranslationsJsonFile(): File {
-    val basePath = project.projectDir.toPath().toAbsolutePath().normalize()
-
-    require(!Paths.get(enumDirectoryPath).isAbsolute) {
-        "enumDirectoryPath must be a relative path. Received: '$enumDirectoryPath'"
-    }
-
-    val resolvedPath = basePath.resolve(enumDirectoryPath).normalize()
-
-    require(resolvedPath.startsWith(basePath)) {
-        "enumDirectoryPath must not escape the project directory."
-    }
-
-    return resolvedPath.toFile()
-}
+  public fun getTranslationsJsonFile(): File =
+      PathHelper.resolveSafePath(
+          base = project.projectDir,
+          relativePath = enumDirectoryPath,
+          paramName = "enumDirectoryPath"
+      ).toFile()
 
 
 vulnerabilite 1 
@@ -68,3 +43,47 @@ require(outputDir.canonicalPath.startsWith(projectDir.canonicalPath)) {
     "Path traversal detected in enumDirectoryPath"
 }
 outputDir.mkdirs()
+
+
+
+
+
+
+
+
+
+///////////////////
+package helper
+
+import java.io.File
+import java.nio.file.Path
+
+object PathHelper {
+
+    fun resolveSafePath(
+        base: File,
+        relativePath: String,
+        paramName: String
+    ): Path {
+        val basePath = base.toPath().toAbsolutePath().normalize()
+
+        // Validation pure String — aucune API Path/File avec l'input
+        require(
+            !relativePath.startsWith("/") &&
+            !relativePath.startsWith("\\")
+        ) {
+            "$paramName must be a relative path. Received: '$relativePath'"
+        }
+        require(!relativePath.contains("..")) {
+            "$paramName must not escape the project directory. Received: '$relativePath'"
+        }
+
+        // Reconstruction part par part — input jamais passé directement
+        var resolvedPath = basePath
+        relativePath.split("/", "\\")
+            .filter { it.isNotEmpty() }
+            .forEach { part -> resolvedPath = resolvedPath.resolve(part) }
+
+        return resolvedPath.normalize()
+    }
+}
