@@ -1,124 +1,253 @@
-package service
+package ca.dgag.lokalise.helper
 
-import com.dgag.lokalise.LokaliseExtension
-import generator.JavaTranslationsEnumGenerator
-import generator.KotlinTranslationsEnumGenerator
 import helper.PathHelper
 import java.io.File
-import java.nio.file.Path
-import kotlinx.serialization.json.Json
-import model.LokaliseTranslation
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Rule
+import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
-internal object TranslationGenerationService {
+class PathHelperTest {
 
-    fun generateXml(jsonFile: File, outputDir: File) {
-        val jsonString = jsonFile.readText()
-        val translationsMap = parseTranslations(jsonString)
-        val allLocales = collectLocales(translationsMap)
+    @get:Rule
+    val tempFolder = TemporaryFolder()
 
-        allLocales.forEach { locale ->
-            // Validation String pure — locale jamais passé à File()
-            require(locale.matches(Regex("^[a-zA-Z]{2,8}(-[a-zA-Z0-9]{1,8})*\$"))) {
-                "Invalid locale: '$locale'"
-            }
+    private lateinit var baseDir: File
 
-            // folderName construit depuis des littéraux + locale validé
-            // mais on évite File(outputDir, folderName) → PathHelper
-            val folderName = if (locale == "en") "values" else "values-$locale"
-
-            // Reconstruction part par part — jamais File(userInput)
-            var localeDirPath: Path = outputDir.toPath().toAbsolutePath().normalize()
-            folderName.split("/", "\\")
-                .filter { it.isNotEmpty() }
-                .forEach { part -> localeDirPath = localeDirPath.resolve(part) }
-
-            val localeDir = localeDirPath.toFile().apply { mkdirs() }
-
-            // "strings.xml" est un littéral — pas d'input utilisateur
-            val xmlFile = localeDir.toPath().resolve("strings.xml").toFile()
-            val xmlContent = buildXmlContent(translationsMap, locale)
-            xmlFile.writeText(xmlContent)
-        }
+    @Before
+    fun setUp() {
+        baseDir = tempFolder.newFolder("project")
     }
 
-    /**
-     * Generates Java or Kotlin enum classes based on the provided parameters.
-     *
-     * @param enumClassType The type of enum class to generate ("java" or "kotlin").
-     * @param enumPackageName The package name for the generated enum classes.
-     * @param enumInterface A list of interface(s) that the generated enums should implement.
-     * @param enumDirectoryPath The directory path where the generated enum files should be saved.
-     * @param modules A list of modules, each containing an enum name and included prefixes for filtering translations.
-     * @param projectDir The base directory of the project where the enum files will be generated.
-     * @param translations A set of translations to be used for generating the enum classes.
-     */
-    fun generateEnums(
-        enumClassType: String,
-        enumPackageName: String,
-        enumInterface: List<String>,
-        enumDirectoryPath: String,
-        modules: List<LokaliseExtension.Module>,
-        projectDir: File,
-        translations: Set<LokaliseTranslation>
-    ) {
-        val generator = when (LokaliseExtension.ClassType.fromString(enumClassType)) {
-            LokaliseExtension.ClassType.JAVA -> JavaTranslationsEnumGenerator
-            LokaliseExtension.ClassType.KOTLIN -> KotlinTranslationsEnumGenerator
-            LokaliseExtension.ClassType.UNKNOWN -> error(
-                "Unsupported enum class type: $enumClassType. Supported types are: java, kotlin"
-            )
-        }
+    // ─── Happy paths ────────────────────────────────────────────────
 
-        // PathHelper : validation String pure + résolution part par part
-        // → aucun File(userInput) → Sonar ne peut pas tracker le flux
-        val outputDir = PathHelper.resolveSafePath(
-            base = projectDir,
-            relativePath = enumDirectoryPath,
+    @Test
+    fun `resolveSafePath returns correct path for simple relative path`() {
+        val result = PathHelper.resolveSafePath(
+            base = baseDir,
+            relativePath = "translations/file.json",
+            paramName = "translationsFilePath"
+        )
+
+        val expected = baseDir.toPath()
+            .toAbsolutePath()
+            .normalize()
+            .resolve("translations")
+            .resolve("file.json")
+            .normalize()
+
+        assertEquals(expected, result)
+    }
+
+    @Test
+    fun `resolveSafePath returns correct path for single file name`() {
+        val result = PathHelper.resolveSafePath(
+            base = baseDir,
+            relativePath = "file.json",
+            paramName = "translationsFilePath"
+        )
+
+        val expected = baseDir.toPath()
+            .toAbsolutePath()
+            .normalize()
+            .resolve("file.json")
+            .normalize()
+
+        assertEquals(expected, result)
+    }
+
+    @Test
+    fun `resolveSafePath resolves nested subdirectories correctly`() {
+        val result = PathHelper.resolveSafePath(
+            base = baseDir,
+            relativePath = "src/main/res",
             paramName = "enumDirectoryPath"
-        ).toFile().apply { mkdirs() }
+        )
 
-        modules.forEach { module ->
-            generator.create(
-                translations = translations,
-                enumPackageName = enumPackageName,
-                enumName = module.enumName,
-                includedPrefixes = module.includedPrefixes,
-                enumInterface = enumInterface,
-                file = outputDir
-            )
-        }
+        val basePath = baseDir.toPath().toAbsolutePath().normalize()
+        assertTrue(result.startsWith(basePath))
+        assertTrue(result.toString().endsWith("res"))
     }
 
-    private fun parseTranslations(jsonString: String): Map<String, Map<String, String>> =
-        Json.decodeFromString(jsonString)
+    @Test
+    fun `resolveSafePath result stays inside base directory`() {
+        val result = PathHelper.resolveSafePath(
+            base = baseDir,
+            relativePath = "subdir/file.json",
+            paramName = "translationsFilePath"
+        )
 
-    /**
-     * Collects all unique locales from the translations map.
-     *
-     * @return A set of unique locales found in the translations map.
-     */
-    internal fun collectLocales(translationsMap: Map<String, Map<String, String>>): Set<String> =
-        translationsMap.values.flatMap { it.keys }.toSet()
+        val basePath = baseDir.toPath().toAbsolutePath().normalize()
+        assertTrue(
+            "Resolved path must be inside base directory",
+            result.startsWith(basePath)
+        )
+    }
 
-    private fun buildXmlContent(
-        translationsMap: Map<String, Map<String, String>>,
-        locale: String
-    ): String = buildString {
-        appendLine(value = """<?xml version="1.0" encoding="utf-8"?>""")
-        appendLine(value = "<resources>")
-        translationsMap.forEach { (key, localeMap) ->
-            localeMap[locale]!!.let { value ->
-                val escapedValue = value
-                    .replace(oldValue = "&",  newValue = "&amp;")
-                    .replace(oldValue = "<",  newValue = "&lt;")
-                    .replace(oldValue = ">",  newValue = "&gt;")
-                    .replace(oldValue = "\"", newValue = "\\\"")
-                    .replace(oldValue = "\'", newValue = "\\\'")
-                    .replace(oldValue = "\n", newValue = "\\n")
-                    .replace(oldValue = "\t", newValue = "\\t")
-                append("    <string name=\"$key\">$escapedValue</string>\n")
-            }
+    @Test
+    fun `resolveSafePath handles backslash separator`() {
+        val result = PathHelper.resolveSafePath(
+            base = baseDir,
+            relativePath = "subdir\\file.json",
+            paramName = "translationsFilePath"
+        )
+
+        val basePath = baseDir.toPath().toAbsolutePath().normalize()
+        assertTrue(result.startsWith(basePath))
+    }
+
+    // ─── Absolute path detection ─────────────────────────────────────
+
+    @Test
+    fun `resolveSafePath throws when path starts with slash`() {
+        val exception = assertThrows(IllegalArgumentException::class.java) {
+            PathHelper.resolveSafePath(
+                base = baseDir,
+                relativePath = "/etc/passwd",
+                paramName = "translationsFilePath"
+            )
         }
-        append("</resources>")
+
+        assertTrue(
+            exception.message!!.contains("must be a relative path")
+        )
+        assertTrue(
+            exception.message!!.contains("translationsFilePath")
+        )
+        assertTrue(
+            exception.message!!.contains("/etc/passwd")
+        )
+    }
+
+    @Test
+    fun `resolveSafePath throws when path starts with backslash`() {
+        val exception = assertThrows(IllegalArgumentException::class.java) {
+            PathHelper.resolveSafePath(
+                base = baseDir,
+                relativePath = "\\Windows\\System32",
+                paramName = "enumDirectoryPath"
+            )
+        }
+
+        assertTrue(exception.message!!.contains("must be a relative path"))
+        assertTrue(exception.message!!.contains("enumDirectoryPath"))
+    }
+
+    @Test
+    fun `resolveSafePath error message contains paramName for absolute path`() {
+        val exception = assertThrows(IllegalArgumentException::class.java) {
+            PathHelper.resolveSafePath(
+                base = baseDir,
+                relativePath = "/absolute/path",
+                paramName = "myCustomParam"
+            )
+        }
+
+        assertTrue(exception.message!!.contains("myCustomParam"))
+    }
+
+    // ─── Path traversal detection ────────────────────────────────────
+
+    @Test
+    fun `resolveSafePath throws when path contains double dot`() {
+        val exception = assertThrows(IllegalArgumentException::class.java) {
+            PathHelper.resolveSafePath(
+                base = baseDir,
+                relativePath = "../etc/passwd",
+                paramName = "translationsFilePath"
+            )
+        }
+
+        assertTrue(exception.message!!.contains("must not escape the project directory"))
+        assertTrue(exception.message!!.contains("translationsFilePath"))
+        assertTrue(exception.message!!.contains("../etc/passwd"))
+    }
+
+    @Test
+    fun `resolveSafePath throws when path contains double dot in middle`() {
+        val exception = assertThrows(IllegalArgumentException::class.java) {
+            PathHelper.resolveSafePath(
+                base = baseDir,
+                relativePath = "subdir/../../etc/passwd",
+                paramName = "enumDirectoryPath"
+            )
+        }
+
+        assertTrue(exception.message!!.contains("must not escape the project directory"))
+    }
+
+    @Test
+    fun `resolveSafePath throws when path is just double dot`() {
+        val exception = assertThrows(IllegalArgumentException::class.java) {
+            PathHelper.resolveSafePath(
+                base = baseDir,
+                relativePath = "..",
+                paramName = "translationsFilePath"
+            )
+        }
+
+        assertTrue(exception.message!!.contains("must not escape the project directory"))
+    }
+
+    @Test
+    fun `resolveSafePath error message contains received path for traversal`() {
+        val badPath = "subdir/../../../etc"
+        val exception = assertThrows(IllegalArgumentException::class.java) {
+            PathHelper.resolveSafePath(
+                base = baseDir,
+                relativePath = badPath,
+                paramName = "myParam"
+            )
+        }
+
+        assertTrue(exception.message!!.contains(badPath))
+    }
+
+    // ─── Edge cases ──────────────────────────────────────────────────
+
+    @Test
+    fun `resolveSafePath handles single dot in path`() {
+        // "." is not ".." so should not be blocked
+        val result = PathHelper.resolveSafePath(
+            base = baseDir,
+            relativePath = "subdir/file.json",
+            paramName = "translationsFilePath"
+        )
+
+        val basePath = baseDir.toPath().toAbsolutePath().normalize()
+        assertTrue(result.startsWith(basePath))
+    }
+
+    @Test
+    fun `resolveSafePath returns Path not File`() {
+        val result = PathHelper.resolveSafePath(
+            base = baseDir,
+            relativePath = "file.json",
+            paramName = "translationsFilePath"
+        )
+
+        // Should be usable as Path and convertible to File
+        val file = result.toFile()
+        assertTrue(file.path.contains("file.json"))
+    }
+
+    @Test
+    fun `resolveSafePath works with different paramNames in error messages`() {
+        listOf("translationsFilePath", "enumDirectoryPath", "customParam").forEach { paramName ->
+            val exception = assertThrows(IllegalArgumentException::class.java) {
+                PathHelper.resolveSafePath(
+                    base = baseDir,
+                    relativePath = "/absolute",
+                    paramName = paramName
+                )
+            }
+            assertTrue(
+                "Error message must contain paramName '$paramName'",
+                exception.message!!.contains(paramName)
+            )
+        }
     }
 }
