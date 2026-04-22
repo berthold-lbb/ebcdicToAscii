@@ -5,29 +5,29 @@ import com.squareup.kotlinpoet.CodeBlock
 import com.squareup.kotlinpoet.FileSpec
 import com.squareup.kotlinpoet.FunSpec
 import com.squareup.kotlinpoet.KModifier
+import com.squareup.kotlinpoet.ParameterizedTypeName.Companion.parameterizedBy
 import com.squareup.kotlinpoet.PropertySpec
 import com.squareup.kotlinpoet.TypeSpec
 import model.LokaliseTranslation
 import java.io.File
 
 /**
- * Génère une classe enum Kotlin pour les clés de traduction,
- * en utilisant KotlinPoet pour construire la classe de manière programmatique.
+ * Génère une classe enum Kotlin pour les clés de traduction, en utilisant KotlinPoet.
  *
- * Chaque clé de traduction est représentée comme une constante d'énumération,
- * avec des propriétés pour les traductions en français et en anglais.
- * La classe enum implémente une interface spécifiée, qui peut être utilisée
- * pour accéder aux clés de traduction de manière générique dans le code.
- *
+ * ARCHITECTURE (pattern Map lookup — identique à la version Java) :
+ *   - L'enum contient uniquement la clé dans son constructeur primaire.
+ *   - Les traductions fr/en sont stockées dans un inner `object Translations`
+ *     avec deux Maps, peuplées par des fonctions `init0()`, `init1()`, ...
+ *     chaque fonction traitant INIT_BATCH_SIZE paires.
+ *   - Les propriétés fr/en sont initialisées via lookup dans les Maps.
+ *   - Les propriétés fr/en restent `val` → immuables, aucune régression d'API.
  */
 internal object KotlinTranslationsEnumGenerator : BaseTranslationsEnumGenerator() {
 
-    /**
-     * Nombre de constantes par inner holder object.
-     * Chaque constante génère ~19 bytes de bytecode dans le <clinit> du holder ;
-     * 300 par lot donne ~5.7 Ko, bien sous la limite de 64 Ko.
-     */
-    private const val HOLDER_SIZE = 300
+    private const val INIT_BATCH_SIZE = 200
+    private const val HOLDER_NAME = "Translations"
+    private const val FR_MAP = "FR"
+    private const val EN_MAP = "EN"
 
     override fun create(
         translations: Set<LokaliseTranslation>,
@@ -37,146 +37,120 @@ internal object KotlinTranslationsEnumGenerator : BaseTranslationsEnumGenerator(
         enumInterface: List<String>,
         file: File
     ) {
-        val filteredTranslations = translations
+        val filtered = translations
             .filter { shouldAddKey(it.key, includedPrefixes) }
-            .sortedBy { it.key } // ordre déterministe pour les tests
+            .sortedBy { it.key }
 
-        // ── Enum principal ─────────────────────────────────────────────────────
+        val interfacesName = enumInterface.map { ClassName.bestGuess(it) }
+
+        // ── Enum avec constructeur primaire prenant SEULEMENT la clé ──────────
         val enumBuilder = TypeSpec.enumBuilder(enumName)
-            .addConstructor(enumInterface)
-            .addEnumValues(filteredTranslations)
-
-        // ── Inner holder objects ───────────────────────────────────────────────
-        // Chaque holder a son propre <clinit> distinct de l'enum outer.
-        val groups = filteredTranslations.chunked(HOLDER_SIZE)
-        groups.forEachIndexed { index, group ->
-            enumBuilder.addType(
-                buildHolderObject(
-                    holderName = "_Holder$index",
-                    group = group,
-                    enumName = enumName,
-                    enumPackageName = enumPackageName
-                )
-            )
-        }
-
-        // ── Companion object : délègue vers les holders ────────────────────────
-        // outer <clinit> : ~6 bytes/constante × 4285 = ~25 Ko ✅
-        val companionBuilder = TypeSpec.companionObjectBuilder()
-        groups.forEachIndexed { groupIndex, group ->
-            group.forEach { translation ->
-                val constantName = translation.key.cleanKey().uppercase()
-                companionBuilder.addProperty(
-                    PropertySpec.builder(
-                        constantName,
-                        ClassName(enumPackageName, enumName)
-                    )
-                        .initializer("_Holder$groupIndex.$constantName")
-                        .build()
-                )
-            }
-        }
-        enumBuilder.addType(companionBuilder.build())
-
-        enumBuilder.addGetter()
-
-        // ── Fichier Kotlin final ───────────────────────────────────────────────
-        val kotlinFile = FileSpec.builder(enumPackageName, enumName)
-            .addType(enumBuilder.build())
-            .build()
-
-        kotlinFile.writeTo(file)
-    }
-
-    // ── Inner holder object ────────────────────────────────────────────────────
-    // Contient HOLDER_SIZE constantes val.
-    // Son <clinit> est distinct de celui de l'enum → résout "code too large".
-    private fun buildHolderObject(
-        holderName: String,
-        group: List<LokaliseTranslation>,
-        enumName: String,
-        enumPackageName: String
-    ): TypeSpec {
-        val holderBuilder = TypeSpec.objectBuilder(holderName)
-            .addModifiers(KModifier.PRIVATE)
-
-        group.forEach { translation ->
-            val constantName = translation.key.cleanKey().uppercase()
-            holderBuilder.addProperty(
-                PropertySpec.builder(
-                    constantName,
-                    ClassName(enumPackageName, enumName)
-                )
-                    .initializer(
-                        "%L(%S, %S, %S)",
-                        enumName,
-                        translation.key.cleanKey(),
-                        translation.fr.escapeText(),
-                        translation.en.escapeText()
-                    )
+            .primaryConstructor(
+                FunSpec.constructorBuilder()
+                    .addParameter(key, String::class)
                     .build()
             )
-        }
-        return holderBuilder.build()
-    }
-
-    // ── Constructeur primaire avec interface ──────────────────────────────────
-    private fun TypeSpec.Builder.addConstructor(enumInterface: List<String>): TypeSpec.Builder {
-        val interfacesName = enumInterface.map { ClassName.bestGuess(it) }
-        return this.primaryConstructor(
-            FunSpec.constructorBuilder()
-                .addParameter(key, String::class)
-                .addParameter(frAttribute, String::class)
-                .addParameter(enAttribute, String::class)
-                .build()
-        )
             .addSuperinterfaces(interfacesName)
             .addProperty(
                 PropertySpec.builder(key, String::class, KModifier.PUBLIC, KModifier.OVERRIDE)
                     .initializer(key)
                     .build()
             )
+            // fr — initialisé via lookup Map ; reste val (immuable) ✅
             .addProperty(
                 PropertySpec.builder(frAttribute, String::class, KModifier.PUBLIC)
-                    .initializer(frAttribute)
+                    .initializer("$HOLDER_NAME.$FR_MAP[$key] ?: %S", "")
+                    .build()
+            )
+            // en — initialisé via lookup Map ; reste val (immuable) ✅
+            .addProperty(
+                PropertySpec.builder(enAttribute, String::class, KModifier.PUBLIC)
+                    .initializer("$HOLDER_NAME.$EN_MAP[$key] ?: %S", "")
+                    .build()
+            )
+
+        // ── Constantes enum (clé uniquement) ─────────────────────────────────
+        filtered.forEach { t ->
+            enumBuilder.addEnumConstant(
+                t.key.cleanKey().uppercase(),
+                TypeSpec.anonymousClassBuilder()
+                    .addSuperclassConstructorParameter("%S", t.key.cleanKey())
+                    .build()
+            )
+        }
+
+        // ── Inner object Translations avec Maps FR/EN ─────────────────────────
+        enumBuilder.addType(buildTranslationsHolder(filtered))
+
+        // ── Override key() ────────────────────────────────────────────────────
+        enumBuilder.addFunction(
+            FunSpec.builder(key)
+                .addModifiers(KModifier.OVERRIDE, KModifier.PUBLIC)
+                .returns(String::class)
+                .addStatement("return $key")
+                .build()
+        )
+
+        FileSpec.builder(enumPackageName, enumName)
+            .addType(enumBuilder.build())
+            .build()
+            .writeTo(file)
+    }
+
+    /**
+     * Construit l'inner `object Translations` (équivalent d'une inner static final
+     * class en JVM) avec les Maps FR et EN, peuplées par des fonctions en lots.
+     */
+    private fun buildTranslationsHolder(filtered: List<LokaliseTranslation>): TypeSpec {
+        val hashMapType = ClassName("kotlin.collections", "HashMap")
+            .parameterizedBy(
+                ClassName("kotlin", "String"),
+                ClassName("kotlin", "String")
+            )
+
+        val holderBuilder = TypeSpec.objectBuilder(HOLDER_NAME)
+            .addModifiers(KModifier.PRIVATE)
+            .addProperty(
+                PropertySpec.builder(FR_MAP, hashMapType)
+                    .initializer("HashMap()")
                     .build()
             )
             .addProperty(
-                PropertySpec.builder(enAttribute, String::class, KModifier.PUBLIC)
-                    .initializer(enAttribute)
+                PropertySpec.builder(EN_MAP, hashMapType)
+                    .initializer("HashMap()")
                     .build()
             )
-    }
 
-    // ── Constantes d'enum (key, fr, en dans le constructeur) ─────────────────
-    private fun TypeSpec.Builder.addEnumValues(
-        filteredTranslations: List<LokaliseTranslation>
-    ): TypeSpec.Builder = filteredTranslations.fold(this) { builder, translation ->
-        builder.addEnumConstant(
-            translation.key.cleanKey().uppercase(),
-            TypeSpec.anonymousClassBuilder()
-                .addSuperclassConstructorParameter("%S", translation.key.cleanKey())
-                .addSuperclassConstructorParameter("%S", translation.fr.escapeText())
-                .addSuperclassConstructorParameter("%S", translation.en.escapeText())
-                .build()
-        )
-    }
+        // Fonctions d'init par lots
+        val initFunctionNames = mutableListOf<String>()
+        filtered.chunked(INIT_BATCH_SIZE).forEachIndexed { index, batch ->
+            val funcName = "init$index"
+            initFunctionNames.add(funcName)
+            val func = FunSpec.builder(funcName).addModifiers(KModifier.PRIVATE)
+            batch.forEach { t ->
+                func.addStatement(
+                    "$FR_MAP[%S] = %S",
+                    t.key.cleanKey(), t.fr.escapeText()
+                )
+                func.addStatement(
+                    "$EN_MAP[%S] = %S",
+                    t.key.cleanKey(), t.en.escapeText()
+                )
+            }
+            holderBuilder.addFunction(func.build())
+        }
 
-    // ── Override key() de LocalizedStringKey ──────────────────────────────────
-    private fun TypeSpec.Builder.addGetter(): TypeSpec.Builder = this.addFunction(
-        FunSpec.builder(key)
-            .addModifiers(KModifier.OVERRIDE, KModifier.PUBLIC)
-            .addStatement("return $key")
-            .returns(String::class)
-            .build()
-    )
+        // init block (équivalent <clinit>) qui appelle toutes les fonctions d'init
+        val initBlock = CodeBlock.builder()
+        initFunctionNames.forEach { name -> initBlock.addStatement("$name()") }
+        holderBuilder.addInitializerBlock(initBlock.build())
+
+        return holderBuilder.build()
+    }
 }
 
 /**
- * Nettoie une chaîne de caractères en échappant les caractères spéciaux
- * qui pourraient poser problème dans le code généré.
- *
- * @return La chaîne de caractères nettoyée, avec les caractères spéciaux échappés.
+ * Nettoie une chaîne de caractères en échappant les caractères spéciaux.
  */
 private fun String.escapeText(): String = this
     .replace(oldValue = "\\", newValue = "\\\\")

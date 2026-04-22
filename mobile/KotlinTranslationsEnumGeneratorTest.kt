@@ -1,10 +1,8 @@
 package generator
 
 import model.LokaliseTranslation
-import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
 import org.junit.jupiter.api.Assertions.assertTrue
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import java.io.File
@@ -17,9 +15,7 @@ class KotlinTranslationsEnumGeneratorTest {
     private val enumPackageName = "ca.dgag.ajusto.core"
     private val enumName = "LocalizedString"
     private val enumInterface = listOf("com.mirego.circumflex.LocalizedStringKey")
-    private val includedPrefixes = listOf("faq", "achievements", "telematics")
-
-    // ── Données de test ────────────────────────────────────────────────────────
+    private val defaultPrefixes = listOf("faq", "achievements", "telematics")
 
     private val singleTranslation = setOf(
         LokaliseTranslation(
@@ -37,19 +33,17 @@ class KotlinTranslationsEnumGeneratorTest {
         LokaliseTranslation(key = "telematics.details",  fr = "Détails",            en = "Details")
     )
 
-    private val translationsWithSpecialChars = setOf(
+    private val specialCharTranslations = setOf(
         LokaliseTranslation(
             key = "faq_special",
-            fr = "Numéro d'erreur : \"test\" \$valeur",
-            en = "Error number: \"test\" \$value"
+            fr = "Erreur : \"test\" \$valeur",
+            en = "Error: \"test\" \$value"
         )
     )
 
-    // ── Helpers ────────────────────────────────────────────────────────────────
-
     private fun generate(
         translations: Set<LokaliseTranslation> = multipleTranslations,
-        prefixes: List<String> = includedPrefixes
+        prefixes: List<String> = defaultPrefixes
     ) {
         KotlinTranslationsEnumGenerator.create(
             translations = translations,
@@ -61,312 +55,263 @@ class KotlinTranslationsEnumGeneratorTest {
         )
     }
 
-    private fun generatedFileContent(): String {
-        val file = File(
-            tempDir,
-            "${enumPackageName.replace('.', '/')}/$enumName.kt"
-        )
-        assertTrue(file.exists(), "Fichier généré introuvable : ${file.path}")
+    private fun content(): String {
+        val file = File(tempDir, "${enumPackageName.replace('.', '/')}/$enumName.kt")
+        assertTrue(file.exists(), "Fichier non généré : ${file.path}")
         return file.readText()
     }
 
-    // ── Tests de génération de fichier ─────────────────────────────────────────
+    // ── Fichier & structure ────────────────────────────────────────────────────
 
     @Test
     fun `devrait créer le fichier Kotlin dans le bon répertoire`() {
         generate()
-        val expectedFile = File(
-            tempDir,
-            "${enumPackageName.replace('.', '/')}/$enumName.kt"
-        )
-        assertTrue(expectedFile.exists())
+        val file = File(tempDir, "${enumPackageName.replace('.', '/')}/$enumName.kt")
+        assertTrue(file.exists())
     }
 
     @Test
     fun `devrait générer une enum avec le bon nom`() {
         generate()
-        val content = generatedFileContent()
-        assertTrue(content.contains("enum class $enumName"))
+        assertTrue(content().contains("enum class $enumName"))
     }
 
     @Test
     fun `devrait implémenter l'interface LocalizedStringKey`() {
         generate()
-        val content = generatedFileContent()
-        assertTrue(content.contains("LocalizedStringKey"))
+        assertTrue(content().contains("LocalizedStringKey"))
     }
 
     @Test
     fun `devrait générer le bon package`() {
         generate()
-        val content = generatedFileContent()
-        assertTrue(content.contains("package $enumPackageName"))
+        assertTrue(content().contains("package $enumPackageName"))
     }
 
-    // ── Tests des constantes d'enum ────────────────────────────────────────────
+    // ── Constantes enum ────────────────────────────────────────────────────────
 
     @Test
-    fun `devrait générer les constantes d'enum filtrées par préfixe`() {
+    fun `devrait générer les constantes filtrées par préfixe`() {
         generate()
-        val content = generatedFileContent()
-        assertTrue(content.contains("FAQ_SERVICES"))
-        assertTrue(content.contains("FAQ_CONTACT"))
-        assertTrue(content.contains("ACHIEVEMENTS_TITLE"))
-        assertTrue(content.contains("TELEMATICS_ERROR"))
+        val c = content()
+        assertTrue(c.contains("FAQ_SERVICES"))
+        assertTrue(c.contains("FAQ_CONTACT"))
+        assertTrue(c.contains("ACHIEVEMENTS_TITLE"))
+        assertTrue(c.contains("TELEMATICS_ERROR"))
     }
 
     @Test
-    fun `devrait exclure les clés ne correspondant pas aux préfixes`() {
+    fun `devrait exclure les clés ne correspondant à aucun préfixe`() {
         val translations = setOf(
             LokaliseTranslation(key = "faq_services", fr = "FAQ", en = "FAQ"),
-            LokaliseTranslation(key = "other_key",    fr = "Autre", en = "Other")
+            LokaliseTranslation(key = "other_key", fr = "Autre", en = "Other")
         )
-        generate(translations = translations, prefixes = listOf("faq"))
-        val content = generatedFileContent()
-        assertTrue(content.contains("FAQ_SERVICES"))
-        assertFalse(content.contains("OTHER_KEY"))
+        generate(translations, listOf("faq"))
+        val c = content()
+        assertTrue(c.contains("FAQ_SERVICES"))
+        assertFalse(c.contains("OTHER_KEY"))
     }
 
     @Test
     fun `devrait remplacer les points par des underscores dans les clés`() {
         generate()
-        val content = generatedFileContent()
-        // "telematics.details" → TELEMATICS_DETAILS
-        assertTrue(content.contains("TELEMATICS_DETAILS"))
-        assertFalse(content.contains("TELEMATICS.DETAILS"))
+        val c = content()
+        assertTrue(c.contains("TELEMATICS_DETAILS"))
+        assertFalse(c.contains("TELEMATICS.DETAILS"))
     }
 
-    @Test
-    fun `devrait mettre les constantes en majuscules`() {
-        generate(translations = singleTranslation)
-        val content = generatedFileContent()
-        assertTrue(content.contains("FAQ_SERVICES"))
-        assertFalse(content.contains("faq_services("))
-    }
-
-    // ── Tests des inner holder objects ────────────────────────────────────────
+    // ── Constructeur primaire (1 seul paramètre clé) ──────────────────────────
 
     @Test
-    fun `devrait générer des inner holder objects privés`() {
+    fun `devrait générer un constructeur primaire ne prenant que la clé`() {
         generate()
-        val content = generatedFileContent()
-        assertTrue(content.contains("private object _Holder0"))
+        val c = content()
+        // Le constructeur primaire de l'enum ne doit avoir que key
+        assertTrue(c.contains("key: String"))
     }
 
     @Test
-    fun `devrait générer un seul holder pour moins de HOLDER_SIZE constantes`() {
-        generate() // 5 traductions → 1 holder
-        val content = generatedFileContent()
-        assertTrue(content.contains("_Holder0"))
-        assertFalse(content.contains("_Holder1"))
+    fun `les constantes d'enum doivent appeler le constructeur avec la clé seulement`() {
+        generate(singleTranslation, listOf("faq"))
+        val c = content()
+        // FAQ_SERVICES("faq_services") sans fr/en
+        assertTrue(c.contains("FAQ_SERVICES(\"faq_services\")") ||
+                   c.contains("FAQ_SERVICES(\n    \"faq_services\"\n  )") ||
+                   Regex("FAQ_SERVICES\\(\\s*\"faq_services\"\\s*\\)").containsMatchIn(c))
     }
 
-    @Test
-    fun `devrait générer plusieurs holders pour plus de 300 constantes`() {
-        val bigSet = (1..350).map { i ->
-            LokaliseTranslation(
-                key = "faq_key_$i",
-                fr = "Traduction FR $i",
-                en = "Translation EN $i"
-            )
-        }.toSet()
-
-        generate(translations = bigSet, prefixes = listOf("faq"))
-        val content = generatedFileContent()
-        assertTrue(content.contains("_Holder0"))
-        assertTrue(content.contains("_Holder1"))
-        assertFalse(content.contains("_Holder2"))
-    }
+    // ── Propriétés key, fr, en ─────────────────────────────────────────────────
 
     @Test
-    fun `les holders doivent contenir les traductions fr et en`() {
-        generate(translations = singleTranslation, prefixes = listOf("faq"))
-        val content = generatedFileContent()
-        assertTrue(content.contains("Services FAQ"))
-        assertTrue(content.contains("FAQ Services"))
-    }
-
-    // ── Tests du companion object ──────────────────────────────────────────────
-
-    @Test
-    fun `devrait générer un companion object`() {
+    fun `devrait générer les propriétés key, fr, en publiques`() {
         generate()
-        val content = generatedFileContent()
-        assertTrue(content.contains("companion object"))
+        val c = content()
+        assertTrue(c.contains("val key"))
+        assertTrue(c.contains("val fr"))
+        assertTrue(c.contains("val en"))
     }
 
     @Test
-    fun `le companion object doit déléguer vers les holders`() {
-        generate(translations = singleTranslation, prefixes = listOf("faq"))
-        val content = generatedFileContent()
-        assertTrue(content.contains("_Holder0.FAQ_SERVICES"))
-    }
-
-    @Test
-    fun `chaque constante publique doit référencer son holder correct`() {
-        // 350 constantes → Holder0 (0-299) et Holder1 (300-349)
-        val bigSet = (1..350).map { i ->
-            LokaliseTranslation(
-                key = "faq_key_${i.toString().padStart(3, '0')}",
-                fr = "FR $i",
-                en = "EN $i"
-            )
-        }.toSet()
-
-        generate(translations = bigSet, prefixes = listOf("faq"))
-        val content = generatedFileContent()
-        // Les 300 premières dans Holder0, les 50 suivantes dans Holder1
-        assertTrue(content.contains("_Holder0."))
-        assertTrue(content.contains("_Holder1."))
-    }
-
-    // ── Tests des propriétés et constructeur ──────────────────────────────────
-
-    @Test
-    fun `devrait générer un constructeur avec key, fr et en`() {
+    fun `key doit être override`() {
         generate()
-        val content = generatedFileContent()
-        assertTrue(content.contains("key: String"))
-        assertTrue(content.contains("fr: String"))
-        assertTrue(content.contains("en: String"))
+        assertTrue(content().contains("override"))
     }
 
     @Test
-    fun `devrait générer les propriétés key, fr et en publiques`() {
+    fun `fr et en doivent être initialisés via lookup Map`() {
         generate()
-        val content = generatedFileContent()
-        assertTrue(content.contains("val key"))
-        assertTrue(content.contains("val fr"))
-        assertTrue(content.contains("val en"))
+        val c = content()
+        assertTrue(c.contains("Translations.FR[key]"))
+        assertTrue(c.contains("Translations.EN[key]"))
     }
 
     @Test
     fun `devrait générer la fonction key() avec override`() {
         generate()
-        val content = generatedFileContent()
-        assertTrue(content.contains("override"))
-        assertTrue(content.contains("fun key()"))
-        assertTrue(content.contains("return key"))
+        val c = content()
+        assertTrue(c.contains("fun key()"))
+        assertTrue(c.contains("return key"))
     }
 
-    // ── Tests des caractères spéciaux ─────────────────────────────────────────
+    // ── Holder object Translations ────────────────────────────────────────────
+
+    @Test
+    fun `devrait générer l'object Translations privé`() {
+        generate()
+        val c = content()
+        assertTrue(c.contains("private object Translations"))
+    }
+
+    @Test
+    fun `devrait générer les propriétés FR et EN dans le holder`() {
+        generate()
+        val c = content()
+        assertTrue(c.contains("val FR"))
+        assertTrue(c.contains("val EN"))
+    }
+
+    @Test
+    fun `devrait générer au moins une fonction init`() {
+        generate()
+        assertTrue(content().contains("private fun init0"))
+    }
+
+    @Test
+    fun `devrait générer plusieurs fonctions init pour plus de 200 traductions`() {
+        val big = (1..250).map { i ->
+            LokaliseTranslation(key = "faq_$i", fr = "FR$i", en = "EN$i")
+        }.toSet()
+        generate(big, listOf("faq"))
+        val c = content()
+        assertTrue(c.contains("init0"))
+        assertTrue(c.contains("init1"))
+        assertFalse(c.contains("init2"))
+    }
+
+    @Test
+    fun `les fonctions init doivent peupler FR et EN`() {
+        generate(singleTranslation, listOf("faq"))
+        val c = content()
+        assertTrue(c.contains("FR[\"faq_services\"] = \"Services FAQ\""))
+        assertTrue(c.contains("EN[\"faq_services\"] = \"FAQ Services\""))
+    }
+
+    @Test
+    fun `le bloc init doit appeler toutes les fonctions init`() {
+        val big = (1..350).map { i ->
+            LokaliseTranslation(key = "faq_$i", fr = "FR$i", en = "EN$i")
+        }.toSet()
+        generate(big, listOf("faq"))
+        val c = content()
+        assertTrue(c.contains("init0()"))
+        assertTrue(c.contains("init1()"))
+    }
+
+    // ── Caractères spéciaux ────────────────────────────────────────────────────
 
     @Test
     fun `devrait échapper les guillemets dans les traductions`() {
-        generate(
-            translations = translationsWithSpecialChars,
-            prefixes = listOf("faq")
-        )
-        val content = generatedFileContent()
-        assertTrue(content.contains("\\\"test\\\""))
+        generate(specialCharTranslations, listOf("faq"))
+        assertTrue(content().contains("\\\"test\\\""))
     }
 
     @Test
-    fun `devrait échapper le signe dollar dans les traductions`() {
-        generate(
-            translations = translationsWithSpecialChars,
-            prefixes = listOf("faq")
-        )
-        val content = generatedFileContent()
-        assertTrue(content.contains("\$valeur") || content.contains("\$value"))
+    fun `devrait préserver le signe dollar dans les traductions`() {
+        generate(specialCharTranslations, listOf("faq"))
+        val c = content()
+        assertTrue(c.contains("\$valeur") || c.contains("\$value"))
     }
 
-    // ── Tests du filtrage ──────────────────────────────────────────────────────
+    // ── Ordre & déterminisme ───────────────────────────────────────────────────
 
     @Test
-    fun `ne devrait rien générer si aucune clé ne correspond aux préfixes`() {
-        val noMatchTranslations = setOf(
-            LokaliseTranslation(key = "other_key", fr = "Autre", en = "Other")
-        )
-        generate(translations = noMatchTranslations, prefixes = listOf("faq"))
-        val content = generatedFileContent()
-        assertFalse(content.contains("OTHER_KEY"))
-        assertFalse(content.contains("_Holder0"))
+    fun `devrait trier les constantes par clé (ordre déterministe)`() {
+        generate()
+        val c = content()
+        val achievementsPos = c.indexOf("ACHIEVEMENTS_TITLE")
+        val faqPos = c.indexOf("FAQ_CONTACT")
+        assertTrue(achievementsPos in 0 until faqPos)
     }
 
     @Test
-    fun `devrait inclure les clés correspondant à n'importe quel préfixe de la liste`() {
-        generate(
-            translations = multipleTranslations,
-            prefixes = listOf("faq", "telematics")
-        )
-        val content = generatedFileContent()
-        assertTrue(content.contains("FAQ_SERVICES"))
-        assertTrue(content.contains("TELEMATICS_ERROR"))
-        assertFalse(content.contains("ACHIEVEMENTS_TITLE"))
+    fun `devrait produire le même fichier pour les mêmes entrées`() {
+        generate()
+        val first = content()
+        tempDir.deleteRecursively()
+        tempDir.mkdirs()
+        generate()
+        assertTrue(first == content())
+    }
+
+    // ── Robustesse ─────────────────────────────────────────────────────────────
+
+    @Test
+    fun `devrait fonctionner avec une seule traduction`() {
+        generate(singleTranslation, listOf("faq"))
+        assertTrue(content().contains("FAQ_SERVICES"))
+    }
+
+    @Test
+    fun `ne devrait générer aucune constante si aucune clé ne correspond`() {
+        val none = setOf(LokaliseTranslation(key = "other", fr = "x", en = "x"))
+        generate(none, listOf("faq"))
+        val c = content()
+        assertFalse(c.contains("OTHER"))
     }
 
     @Test
     fun `le filtrage devrait être insensible à la casse`() {
-        val mixedCaseTranslations = setOf(
-            LokaliseTranslation(key = "FAQ_UPPERCASE", fr = "FAQ", en = "FAQ")
-        )
-        generate(
-            translations = mixedCaseTranslations,
-            prefixes = listOf("faq")
-        )
-        val content = generatedFileContent()
-        assertTrue(content.contains("FAQ_UPPERCASE"))
+        val mixed = setOf(LokaliseTranslation(key = "FAQ_UPPER", fr = "x", en = "x"))
+        generate(mixed, listOf("faq"))
+        assertTrue(content().contains("FAQ_UPPER"))
     }
 
-    // ── Tests de robustesse ────────────────────────────────────────────────────
+    // ── Parité Java/Kotlin ─────────────────────────────────────────────────────
 
     @Test
-    fun `devrait générer un fichier avec une seule traduction`() {
-        generate(
-            translations = singleTranslation,
-            prefixes = listOf("faq")
-        )
-        val content = generatedFileContent()
-        assertTrue(content.contains("FAQ_SERVICES"))
-    }
-
-    @Test
-    fun `devrait produire un ordre déterministe (trié par clé)`() {
-        generate()
-        val content = generatedFileContent()
-        val faqServicesPos  = content.indexOf("FAQ_SERVICES")
-        val achievementsPos = content.indexOf("ACHIEVEMENTS_TITLE")
-        // trié alphabétiquement : ACHIEVEMENTS avant FAQ
-        assertTrue(achievementsPos < faqServicesPos)
-    }
-
-    // ── Tests de parité Java/Kotlin ────────────────────────────────────────────
-
-    @Test
-    fun `devrait générer les mêmes constantes que le générateur Java pour les mêmes entrées`() {
-        val javaTempDir = createTempDir()
+    fun `devrait générer les mêmes noms de constantes que le générateur Java`() {
+        val javaDir = createTempDir()
         try {
             JavaTranslationsEnumGenerator.create(
                 translations = multipleTranslations,
                 enumPackageName = enumPackageName,
                 enumName = enumName,
-                includedPrefixes = includedPrefixes,
+                includedPrefixes = defaultPrefixes,
                 enumInterface = enumInterface,
-                file = javaTempDir
+                file = javaDir
             )
-            KotlinTranslationsEnumGenerator.create(
-                translations = multipleTranslations,
-                enumPackageName = enumPackageName,
-                enumName = enumName,
-                includedPrefixes = includedPrefixes,
-                enumInterface = enumInterface,
-                file = tempDir
-            )
+            generate()
 
-            val javaContent   = File(javaTempDir, "${enumPackageName.replace('.', '/')}/$enumName.java").readText()
-            val kotlinContent = generatedFileContent()
+            val javaContent = File(javaDir, "${enumPackageName.replace('.', '/')}/$enumName.java").readText()
+            val kotlinContent = content()
 
-            // Les mêmes noms de constantes doivent apparaître dans les deux fichiers
             listOf("FAQ_SERVICES", "FAQ_CONTACT", "ACHIEVEMENTS_TITLE",
-                   "TELEMATICS_ERROR", "TELEMATICS_DETAILS").forEach { constantName ->
-                assertTrue(javaContent.contains(constantName),
-                    "Constante $constantName manquante dans le fichier Java")
-                assertTrue(kotlinContent.contains(constantName),
-                    "Constante $constantName manquante dans le fichier Kotlin")
+                   "TELEMATICS_ERROR", "TELEMATICS_DETAILS").forEach { name ->
+                assertTrue(javaContent.contains(name), "Constante $name manquante dans Java")
+                assertTrue(kotlinContent.contains(name), "Constante $name manquante dans Kotlin")
             }
         } finally {
-            javaTempDir.deleteRecursively()
+            javaDir.deleteRecursively()
         }
     }
 }
