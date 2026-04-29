@@ -87,3 +87,8 @@ object PathHelper {
         return resolvedPath.normalize()
     }
 }
+
+
+Le problème : la JVM impose une limite de 64 Ko par méthode compilée. L'enum généré par Lokalise atteignait ~4 285 constantes, ce qui forçait javac à générer un <clinit> de ~127 Ko rien que pour les instanciations → error: code too large.
+La tentative intermédiaire (batch fr/en dans des initN()) ne suffisait pas : elle réduisait bien ces méthodes à ~6 Ko chacune, mais le <clinit> de l'enum lui-même instanciait encore 4 285 objets avec un seul argument → ~81 Ko → toujours au-dessus de 64 Ko.
+La solution retenue : pattern Map lookup dans une inner class Translations. Le constructeur de l'enum ne prend que la clé, et délègue à Translations.FR.get(key) pour récupérer fr/en. Les Maps sont peuplées par des méthodes init0(), init1(), ... de ~200 paires chacune (~6 Ko), appelées depuis le <clinit> de Translations qui est totalement distinct de celui de l'enum. Les champs fr et en restent public final — aucune régression d'API. Le code consommateur n'est pas touché.
