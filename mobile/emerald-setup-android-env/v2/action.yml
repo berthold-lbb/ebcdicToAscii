@@ -1,0 +1,93 @@
+name: 'Setup Android environment (v2)'
+description: |
+  Setup complet de l'environnement Android pour les jobs CI Desjardins.
+  Améliorations vs v1:
+    - ANDROID_HOME / ANDROID_SDK_ROOT exportés (chemins absolus, pas de ~)
+    - Installation conditionnelle de platforms;android-XX et build-tools;XX.X.X
+    - Support de packages SDK additionnels (NDK, CMake, system-images...)
+    - Version des cmdline-tools paramétrable (urgences sécurité)
+    - local.properties écrit avec un chemin absolu (corrige le bug du ~)
+    - chmod gradlew tolère son absence (multi-module avec gradlew uniquement à la racine)
+
+inputs:
+  jdkVersion:
+    description: 'JDK version'
+    required: true
+  cmdlineToolsZip:
+    description: 'URL du zip cmdline-tools (override pour environnements sans accès dl.google.com)'
+    required: false
+    default: 'https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip'
+  compileSdkVersion:
+    description: 'Version de la platform Android à installer (ex: "35"). Vide = skip'
+    required: false
+    default: ''
+  buildToolsVersion:
+    description: 'Version des build-tools (ex: "35.0.0"). Vide = skip'
+    required: false
+    default: ''
+  extraSdkPackages:
+    description: 'Packages SDK additionnels espace-séparés (ex: "ndk;26.1.10909125 cmake;3.22.1")'
+    required: false
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up JDK ${{ inputs.jdkVersion }}
+      uses: actions/setup-java@v5
+      with:
+        java-version: ${{ inputs.jdkVersion }}
+        distribution: "temurin"
+        cache: gradle
+
+    - name: Download Android command line tools
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd "$HOME"
+        wget -q "${{ inputs.cmdlineToolsZip }}" -O android-commandline-tools.zip
+        mkdir -p "$HOME/android-sdk-linux/cmdline-tools"
+        unzip -q android-commandline-tools.zip -d /tmp/
+        mv /tmp/cmdline-tools/ "$HOME/android-sdk-linux/cmdline-tools/latest"
+        rm android-commandline-tools.zip
+        echo "$HOME/android-sdk-linux/platform-tools" >> "$GITHUB_PATH"
+        echo "$HOME/android-sdk-linux/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+        echo "ANDROID_HOME=$HOME/android-sdk-linux" >> "$GITHUB_ENV"
+        echo "ANDROID_SDK_ROOT=$HOME/android-sdk-linux" >> "$GITHUB_ENV"
+
+    - name: Accept SDK licenses & update base
+      shell: bash
+      run: |
+        set -euo pipefail
+        SDKMANAGER="$HOME/android-sdk-linux/cmdline-tools/latest/bin/sdkmanager"
+        yes | "$SDKMANAGER" --sdk_root="$HOME/android-sdk-linux" --licenses
+        yes | "$SDKMANAGER" --sdk_root="$HOME/android-sdk-linux" --update --channel=0
+
+    - name: Install requested SDK packages
+      if: ${{ inputs.compileSdkVersion != '' || inputs.extraSdkPackages != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        SDKMANAGER="$HOME/android-sdk-linux/cmdline-tools/latest/bin/sdkmanager"
+        PACKAGES=""
+        if [ -n "${{ inputs.compileSdkVersion }}" ]; then
+          PACKAGES="$PACKAGES platforms;android-${{ inputs.compileSdkVersion }}"
+        fi
+        if [ -n "${{ inputs.buildToolsVersion }}" ]; then
+          PACKAGES="$PACKAGES build-tools;${{ inputs.buildToolsVersion }}"
+        fi
+        if [ -n "${{ inputs.extraSdkPackages }}" ]; then
+          PACKAGES="$PACKAGES ${{ inputs.extraSdkPackages }}"
+        fi
+        echo "Installing: $PACKAGES"
+        yes | "$SDKMANAGER" --sdk_root="$HOME/android-sdk-linux" $PACKAGES
+
+    - name: Write local.properties with absolute SDK path
+      shell: bash
+      run: |
+        echo "sdk.dir=$HOME/android-sdk-linux" > local.properties
+
+    - name: Grant execute permission for gradlew (if present)
+      shell: bash
+      run: |
+        if [ -f gradlew ]; then chmod +x gradlew; fi

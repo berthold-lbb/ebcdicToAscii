@@ -1,0 +1,74 @@
+name: 'Lancer un scan Sonar (v2)'
+description: |
+  Exécute un scan Sonar via la tâche Gradle.
+  Améliorations vs v1:
+    - Support multi-module via `gradleModule` (ex: ":keychain:sonar")
+    - Tâche Gradle paramétrable (sonar | sonarqube | autre)
+    - Properties Sonar additionnelles via `extraProperties` (multi-ligne, une par ligne)
+    - Quality gate wait paramétrable (utile pour les scans informatifs hors PR)
+    - Token + URL passés via env (plus sûr, jamais loggués)
+
+inputs:
+  sonar-token:
+    required: true
+    description: "Token SonarQube"
+  sonar-url:
+    required: true
+    description: "URL du serveur SonarQube"
+  gradle-module:
+    required: false
+    description: 'Module Gradle ciblé (ex: ":keychain"). Vide = projet racine'
+    default: ''
+  sonar-task:
+    required: false
+    description: 'Nom de la tâche Sonar (sonar par défaut, sonarqube pour anciens projets)'
+    default: 'sonar'
+  wait-for-quality-gate:
+    required: false
+    description: 'Attendre le résultat de la quality gate Sonar (true/false)'
+    default: 'true'
+  extra-properties:
+    required: false
+    description: |
+      Properties Sonar additionnelles, une par ligne au format key=value.
+      Ex:
+        sonar.coverage.jacoco.xmlReportPaths=build/reports/jacoco/test/jacocoTestReport.xml
+        sonar.exclusions=**/generated/**
+    default: ''
+  extra-arguments:
+    required: false
+    description: "Arguments supplémentaires bruts pour la commande gradle sonar"
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: SonarQube scan
+      shell: bash
+      env:
+        SONAR_TOKEN: ${{ inputs.sonar-token }}
+        SONAR_HOST_URL: ${{ inputs.sonar-url }}
+      run: |
+        set -euo pipefail
+
+        MODULE="${{ inputs.gradle-module }}"
+        TASK="${{ inputs.sonar-task }}"
+        if [ -n "$MODULE" ]; then
+          GRADLE_TASK="${MODULE}:${TASK}"
+        else
+          GRADLE_TASK="$TASK"
+        fi
+
+        # Properties par défaut
+        PROPS="-Dsonar.qualitygate.wait=${{ inputs.wait-for-quality-gate }}"
+        PROPS="$PROPS -Dsonar.scanner.skipJreProvisioning=true"
+        PROPS="$PROPS -Dsonar.plugins.downloadOnlyRequired=false"
+
+        # Properties additionnelles passées par le caller
+        while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          PROPS="$PROPS -D$line"
+        done <<< "${{ inputs.extra-properties }}"
+
+        echo "Running: ./gradlew $GRADLE_TASK $PROPS ${{ inputs.extra-arguments }}"
+        ./gradlew "$GRADLE_TASK" $PROPS ${{ inputs.extra-arguments }}

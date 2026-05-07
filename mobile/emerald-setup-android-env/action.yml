@@ -1,0 +1,40 @@
+name: 'Setup Android environment'
+description: "Download Android command line tools and install Java and Gradle within the working directory"
+inputs:
+  jdkVersion:
+    description: 'JDK version'
+    type: string
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Set up JDK ${{ inputs.jdkVersion }}
+      uses: actions/setup-java@v5
+      with:
+        java-version: ${{ inputs.jdkVersion }}
+        distribution: "temurin"
+        cache: gradle
+
+    - name: Download Android command line tools
+      shell: sh
+      run: |
+        cd ~ \
+        && wget -q https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip -O android-commandline-tools.zip \
+        && mkdir -p ~/android-sdk-linux/cmdline-tools \
+        && unzip -q android-commandline-tools.zip -d /tmp/ \
+        && mv /tmp/cmdline-tools/ ~/android-sdk-linux/cmdline-tools/latest \
+        && rm android-commandline-tools.zip \
+        && echo "~/android-sdk-linux/platform-tools:~/android-sdk-linux/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+    - name: Setup Android SDK
+      shell: sh
+      run: |
+        touch local.properties \
+        && echo "sdk.dir=~/android-sdk-linux" >> local.properties \
+        && yes | ~/android-sdk-linux/cmdline-tools/latest/bin/sdkmanager --sdk_root=~/android-sdk-linux --licenses \
+        && yes | ~/android-sdk-linux/cmdline-tools/latest/bin/sdkmanager --sdk_root=~/android-sdk-linux --update --channel=0
+
+    - name: Grant execute permission for gradlew
+      shell: sh
+      run: chmod +x gradlew

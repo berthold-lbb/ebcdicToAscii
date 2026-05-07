@@ -1,0 +1,135 @@
+name: 'Publish Android artifact (v2)'
+description: |
+  Composite unifié pour publier un artefact Android Desjardins.
+  Supporte deux formats:
+    - APK → distribution sur Applivery (cas application mobile interne / beta)
+    - AAR → publication sur JFrog Artifactory via maven-publish (cas librairie)
+
+  Améliorations vs v1 (emerald-mobile-publish-apk-android):
+    - Ajout du support AAR (la v1 ne gérait que les APK Applivery)
+    - Input `artifactType` explicite pour switcher
+    - Pour les libraries: tâche Gradle paramétrable (`publish`, `publishRelease`, etc.)
+    - Pour les libraries: support multi-module via `gradleModule`
+    - Pour les libraries: suffixe de version (-SNAPSHOT, -RC) injecté via -Pversion.suffix
+    - Pour les APK: comportement v1 préservé pour rétrocompatibilité
+
+inputs:
+  artifactType:
+    required: true
+    description: 'Type d artefact: "apk" (Applivery) ou "aar" (Artifactory via Gradle)'
+
+  # ---- Inputs communs ----
+  artifactoryToken:
+    required: false
+    description: 'Token Artifactory (requis si artifactType=aar). Exposé comme ARTIFACTORY_REF_TOKEN'
+    default: ''
+
+  # ---- Inputs APK / Applivery ----
+  appliveryToken:
+    required: false
+    description: 'Token Applivery (requis si artifactType=apk)'
+    default: ''
+  apkFilePath:
+    required: false
+    description: 'Chemin de l APK à uploader (requis si artifactType=apk)'
+    default: ''
+  gitBranch:
+    required: false
+    description: 'Branche git (utilisée pour les tags Applivery)'
+    default: ''
+  flavorAppLivery:
+    required: false
+    description: 'Flavor Applivery (vitrine/non-prod/prod)'
+    default: 'vitrine'
+  notifyCollaborators:
+    required: false
+    default: 'false'
+  notifyEmployees:
+    required: false
+    default: 'false'
+  extraArguments:
+    required: false
+    description: 'Arguments curl additionnels (apk) OU gradle additionnels (aar)'
+    default: ''
+
+  # ---- Inputs AAR / Gradle publish ----
+  gradleModule:
+    required: false
+    description: 'Module Gradle ciblé (ex: ":keychain")'
+    default: ''
+  gradleTask:
+    required: false
+    description: 'Tâche Gradle de publication (défaut: publish)'
+    default: 'publish'
+  versionSuffix:
+    required: false
+    description: 'Suffixe de version (-SNAPSHOT, -RC). Passé via -Pversion.suffix'
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+
+    - name: Validate inputs
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "${{ inputs.artifactType }}" in
+          apk)
+            for v in appliveryToken apkFilePath gitBranch; do
+              eval val="\${{ inputs.$v }}"
+              [ -z "$val" ] && echo "::error::Input '$v' requis pour artifactType=apk" && exit 1
+            done
+            ;;
+          aar)
+            [ -z "${{ inputs.artifactoryToken }}" ] && echo "::error::artifactoryToken requis pour artifactType=aar" && exit 1
+            ;;
+          *)
+            echo "::error::artifactType inconnu: ${{ inputs.artifactType }} (attendu: apk | aar)"
+            exit 1
+            ;;
+        esac
+
+    - name: Distribute APK on Applivery
+      if: ${{ inputs.artifactType == 'apk' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "Publish branchName: ${{ inputs.gitBranch }}"
+        branchSHA256=$(echo -n "${{ inputs.gitBranch }}" | sha256sum | cut -c 1-8)
+        updatedTags="${{ inputs.flavorAppLivery }},branch:$branchSHA256,platform:android"
+        echo "updatedTags=$updatedTags"
+        curl https://upload.applivery.io/v1/integrations/builds \
+          ${{ inputs.extraArguments }} \
+          --retry 5 \
+          --fail \
+          -H "Authorization: Bearer ${{ inputs.appliveryToken }}" \
+          -F "build=@${{ inputs.apkFilePath }}" \
+          -F "tags=$updatedTags" \
+          -F "notifyCollaborators=${{ inputs.notifyCollaborators }}" \
+          -F "notifyEmployees=${{ inputs.notifyEmployees }}" \
+          -F "deployer.name=GitHub Actions" \
+          -F "deployer.info.branch=${{ inputs.gitBranch }}"
+
+    - name: Publish AAR to Artifactory (via Gradle)
+      if: ${{ inputs.artifactType == 'aar' }}
+      shell: bash
+      env:
+        ARTIFACTORY_REF_TOKEN: ${{ inputs.artifactoryToken }}
+      run: |
+        set -euo pipefail
+        MODULE="${{ inputs.gradleModule }}"
+        TASK="${{ inputs.gradleTask }}"
+        SUFFIX="${{ inputs.versionSuffix }}"
+
+        ARGS=""
+        if [ -n "$SUFFIX" ]; then
+          ARGS="-Pversion.suffix=$SUFFIX"
+        fi
+        ARGS="$ARGS ${{ inputs.extraArguments }}"
+
+        if [ -n "$MODULE" ]; then
+          ./gradlew --build-cache "${MODULE}:${TASK}" $ARGS
+        else
+          ./gradlew --build-cache "$TASK" $ARGS
+        fi

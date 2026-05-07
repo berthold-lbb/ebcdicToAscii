@@ -1,0 +1,24 @@
+name: 'Lancer un scan Sonar'
+description: "Exécute un scan Sonar à partir de la tâche gradle"
+inputs:
+  sonar-token:
+    required: true
+    description: "Token Sonarqube"
+  sonar-url:
+    required: true
+    description: "URL du serveur Sonarqube"
+  extra-arguments:
+    required: false
+    description: "Arguments supplémentaires pour la commande gradle sonar"
+
+runs:
+  using: "composite"
+  steps:
+    - name: SonarQube scan
+      shell: sh
+      env:
+        SONAR_TOKEN: ${{ inputs.sonar-token }}
+        SONAR_HOST_URL: ${{ inputs.sonar-url }}
+      run: |
+        ./gradlew sonar -Dsonar.qualitygate.wait=true -Dsonar.scanner.skipJreProvisioning=true -Dsonar.plugins.downloadOnlyRequired=false
+        ${{ inputs.extra-arguments }}
