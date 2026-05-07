@@ -1,0 +1,520 @@
+name: "CI Android (v4)"
+
+# v4 — Workflow Android unifié et complet.
+#
+# Améliorations vs v3:
+#   - Distribution APK Applivery intégrée (la v3 ne gérait que la publication AAR)
+#   - Input `artifactType` qui choisit: aar | apk | none
+#       * aar  → ./gradlew :module:publish vers Artifactory (libraries comme keychain)
+#       * apk  → assemble + copy + upload Applivery (apps comme ad-digital-mobile)
+#       * none → CI sans publication ni distribution (PR uniquement)
+#   - Le token Applivery est récupéré dynamiquement depuis Vault si artifactType=apk
+#   - Le contexte du pipeline (PR/snapshot/RC/release) reste géré en interne
+#
+# Étapes:
+#   1.  Checkout
+#   2.  Determine pipeline context (publish_mode + version_suffix)
+#   3.  Evaluate gradle properties
+#   4a. Vault: secrets communs (SONAR + ARTIFACTORY)
+#   4b. Vault: secret Applivery (conditionnel sur artifactType=apk)
+#   5.  Setup Android environment
+#   6.  Install Android SDK packages (conditionnel)
+#   7.  Build (assembleDebug ou tâche custom)
+#   8.  Tests + coverage
+#   9.  SonarQube scan
+#   10. Quality gate Desjardins
+#   11a. Publish AAR → Artifactory (si artifactType=aar)
+#   11b. Build release APK (si artifactType=apk && forceRelease)
+#   11c. Copy APK to root (conditionnel)
+#   11d. Distribute APK → Applivery (si artifactType=apk)
+
+on:
+  workflow_call:
+    secrets:
+      ROLEID:
+        required: true
+      SECRETID:
+        required: true
+    inputs:
+
+      # ============================================================
+      #   Versions JDK / Android
+      # ============================================================
+      jdkVersion:
+        type: string
+        required: false
+        default: "21"
+      compileSdkVersion:
+        type: string
+        required: false
+        default: ''
+      buildToolsVersion:
+        type: string
+        required: false
+        default: ''
+      androidExtraSdkPackages:
+        type: string
+        required: false
+        default: ''
+
+      # ============================================================
+      #   Identité
+      # ============================================================
+      productName:
+        type: string
+        required: true
+      componentName:
+        type: string
+        required: true
+      defaultGroupId:
+        type: string
+        required: false
+        default: 'com.desjardins'
+
+      # ============================================================
+      #   Cibles Gradle
+      # ============================================================
+      gradleModule:
+        type: string
+        required: false
+        default: ''
+      gradleBuildTask:
+        type: string
+        required: false
+        default: 'assembleDebug'
+      gradleTestTask:
+        type: string
+        required: false
+        default: 'jacocoTestReport'
+
+      # ============================================================
+      #   Type d'artefact (le grand switch v4)
+      # ============================================================
+      artifactType:
+        description: 'aar | apk | none — détermine le mode de publication'
+        type: string
+        required: false
+        default: 'aar'
+
+      # ============================================================
+      #   Mode AAR (libraries)
+      # ============================================================
+      gradlePublishTask:
+        type: string
+        required: false
+        default: 'publish'
+      enablePublish:
+        description: 'Active la publication AAR conditionnelle (push main / tags)'
+        type: boolean
+        required: false
+        default: true
+      snapshotVersionSuffix:
+        type: string
+        required: false
+        default: '-SNAPSHOT'
+      rcVersionSuffix:
+        type: string
+        required: false
+        default: '-RC'
+
+      # ============================================================
+      #   Mode APK (apps Applivery)
+      # ============================================================
+      apkFilePath:
+        description: 'Chemin relatif de l APK à uploader sur Applivery'
+        type: string
+        required: false
+        default: ''
+      appliveryTokenName:
+        description: 'Nom du token Applivery dans Vault (concourse/<product>/<tokenName>)'
+        type: string
+        required: false
+        default: 'applivery-token'
+      appliveryFlavor:
+        description: 'Flavor Applivery: vitrine | non-prod | prod'
+        type: string
+        required: false
+        default: 'vitrine'
+      forceRelease:
+        description: 'true = assembleRelease + copyReleaseApkToRoot, false = assembleDebug'
+        type: boolean
+        required: false
+        default: false
+      apkCopyTaskDebug:
+        type: string
+        required: false
+        default: 'copyDebugApkToRoot'
+      apkCopyTaskRelease:
+        type: string
+        required: false
+        default: 'copyReleaseApkToRoot'
+      appliveryNotifyCollaborators:
+        type: boolean
+        required: false
+        default: false
+      appliveryNotifyEmployees:
+        type: boolean
+        required: false
+        default: false
+      appliveryExtraArguments:
+        description: 'Arguments curl additionnels (ex: "-v" pour les logs)'
+        type: string
+        required: false
+        default: ''
+
+      # ============================================================
+      #   Quality gate Desjardins
+      # ============================================================
+      enforceMobileCoverageRequirements:
+        type: boolean
+        required: false
+        default: true
+      gatingActionVersion:
+        type: string
+        required: false
+        default: '4.5'
+      minCoverage:
+        type: number
+        required: false
+        default: 80
+      minReliability:
+        type: string
+        required: false
+        default: 'A'
+      minSecurity:
+        type: string
+        required: false
+        default: 'A'
+      minMaintainability:
+        type: string
+        required: false
+        default: 'A'
+      maxDuplication:
+        type: number
+        required: false
+        default: 10
+      prMinCoverage:
+        type: number
+        required: false
+        default: 80
+      prMinReliability:
+        type: string
+        required: false
+        default: 'A'
+      prMinSecurity:
+        type: string
+        required: false
+        default: 'A'
+      prMinMaintainability:
+        type: string
+        required: false
+        default: 'A'
+      prMaxDuplication:
+        type: number
+        required: false
+        default: 10
+      prGatingNewCodeOnly:
+        type: boolean
+        required: false
+        default: true
+
+      # ============================================================
+      #   Sonar
+      # ============================================================
+      sonarTask:
+        type: string
+        required: false
+        default: 'sonar'
+      sonarExtraProperties:
+        type: string
+        required: false
+        default: ''
+
+      # ============================================================
+      #   Infra
+      # ============================================================
+      runnerLabel:
+        type: string
+        required: false
+        default: ${{ vars.DEFAULT_RUNNER_LABEL }}
+      vaultUrl:
+        type: string
+        required: false
+        default: ${{ vars.VAULT_URL_NPROD }}
+      vaultPath:
+        type: string
+        required: false
+        default: ${{ vars.VAULT_PATH_NPROD }}
+      sonarqubeUrl:
+        type: string
+        required: false
+        default: ${{ vars.SONARQUBE_URL }}
+
+jobs:
+  ci:
+    name: 'Build, test, scan & ${{ inputs.artifactType }}'
+    runs-on: ${{ inputs.runnerLabel }}
+
+    env:
+      ANDROID_HOME: /home/runner/android-sdk-linux
+      ANDROID_SDK_ROOT: /home/runner/android-sdk-linux
+
+    steps:
+
+      # -------------------------------------------------------------
+      # 1. Checkout
+      # -------------------------------------------------------------
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      # -------------------------------------------------------------
+      # 2. Determine pipeline context
+      # -------------------------------------------------------------
+      - name: Determine pipeline context
+        id: context
+        shell: bash
+        run: |
+          set -euo pipefail
+          PUBLISH_MODE="none"
+          VERSION_SUFFIX=""
+          if [ "${{ github.event_name }}" = "push" ]; then
+            REF="${{ github.ref }}"
+            if [ "$REF" = "refs/heads/main" ]; then
+              PUBLISH_MODE="snapshot"
+              VERSION_SUFFIX="${{ inputs.snapshotVersionSuffix }}"
+            elif [[ "$REF" == refs/tags/rc-* ]]; then
+              PUBLISH_MODE="release-candidate"
+              VERSION_SUFFIX="${{ inputs.rcVersionSuffix }}"
+            elif [[ "$REF" == refs/tags/v* ]]; then
+              PUBLISH_MODE="release"
+            fi
+          fi
+          echo "publish_mode=$PUBLISH_MODE"     >> "$GITHUB_OUTPUT"
+          echo "version_suffix=$VERSION_SUFFIX" >> "$GITHUB_OUTPUT"
+          echo "Pipeline: artifactType=${{ inputs.artifactType }} publish_mode=$PUBLISH_MODE suffix=$VERSION_SUFFIX"
+
+      # -------------------------------------------------------------
+      # 3. Evaluate gradle properties
+      # -------------------------------------------------------------
+      - name: Evaluate gradle properties
+        id: gradle-props
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROPS=./gradle.properties
+          GROUP="${{ inputs.defaultGroupId }}"
+          ARTIFACT="${{ github.event.repository.name }}"
+          VERSION="0.0.1"
+          if [ -f "$PROPS" ]; then
+            G=$(grep -m1 '^GROUP_ID=' "$PROPS" | cut -d= -f2 || true)
+            A=$(grep -m1 '^ARTIFACT_ID=' "$PROPS" | cut -d= -f2 || true)
+            V=$(grep -m1 '^VERSION_NAME=' "$PROPS" | cut -d= -f2 || true)
+            [ -n "${G:-}" ] && GROUP="$G"
+            [ -n "${A:-}" ] && ARTIFACT="$A"
+            [ -n "${V:-}" ] && VERSION="$V"
+          fi
+          echo "group=$GROUP"       >> "$GITHUB_OUTPUT"
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"   >> "$GITHUB_OUTPUT"
+
+      # -------------------------------------------------------------
+      # 4a. Vault: secrets communs (Sonar + Artifactory)
+      # -------------------------------------------------------------
+      - name: Import common secrets from Vault
+        id: secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ inputs.vaultUrl }}
+          method: approle
+          roleId: ${{ secrets.ROLEID }}
+          secretId: ${{ secrets.SECRETID }}
+          path: ${{ inputs.vaultPath }}
+          secrets: |
+            concourse/${{ inputs.productName }}/sonarqube-token value | SONAR_TOKEN ;
+            concourse/${{ inputs.productName }}/artifactory-api-key value | ARTIFACTORY_REF_TOKEN ;
+
+      # -------------------------------------------------------------
+      # 4b. Vault: secret Applivery (uniquement si artifactType=apk)
+      # -------------------------------------------------------------
+      - name: Import Applivery secret from Vault
+        id: applivery-secrets
+        if: ${{ inputs.artifactType == 'apk' }}
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ inputs.vaultUrl }}
+          method: approle
+          roleId: ${{ secrets.ROLEID }}
+          secretId: ${{ secrets.SECRETID }}
+          path: ${{ inputs.vaultPath }}
+          secrets: |
+            concourse/${{ inputs.productName }}/${{ inputs.appliveryTokenName }} value | APPLIVERY_TOKEN ;
+
+      # -------------------------------------------------------------
+      # 5. Setup Android environment
+      # -------------------------------------------------------------
+      - name: Setup Android environment
+        uses: Desjardins/emerald-setup-android-env@v0.2
+        with:
+          jdkVersion: ${{ inputs.jdkVersion }}
+
+      # -------------------------------------------------------------
+      # 6. Install Android SDK packages (optionnel)
+      # -------------------------------------------------------------
+      - name: Install Android SDK packages (optional)
+        if: ${{ inputs.compileSdkVersion != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses
+          PACKAGES="platforms;android-${{ inputs.compileSdkVersion }}"
+          if [ -n "${{ inputs.buildToolsVersion }}" ]; then
+            PACKAGES="$PACKAGES build-tools;${{ inputs.buildToolsVersion }}"
+          fi
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" $PACKAGES ${{ inputs.androidExtraSdkPackages }}
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      # -------------------------------------------------------------
+      # 7. Build (debug par défaut, release si APK + forceRelease)
+      # -------------------------------------------------------------
+      - name: Build
+        shell: bash
+        env:
+          ARTIFACTORY_REF_TOKEN: ${{ steps.secrets.outputs.ARTIFACTORY_REF_TOKEN }}
+        run: |
+          set -euo pipefail
+          MODULE="${{ inputs.gradleModule }}"
+
+          if [ "${{ inputs.artifactType }}" = "apk" ] && [ "${{ inputs.forceRelease }}" = "true" ]; then
+            TASK="assembleRelease"
+          else
+            TASK="${{ inputs.gradleBuildTask }}"
+          fi
+
+          if [ -n "$MODULE" ]; then
+            ./gradlew --build-cache "${MODULE}:${TASK}"
+          else
+            ./gradlew --build-cache "$TASK"
+          fi
+
+      # -------------------------------------------------------------
+      # 8. Tests + coverage
+      # -------------------------------------------------------------
+      - name: Tests & coverage
+        shell: bash
+        env:
+          ARTIFACTORY_REF_TOKEN: ${{ steps.secrets.outputs.ARTIFACTORY_REF_TOKEN }}
+        run: |
+          set -euo pipefail
+          MODULE="${{ inputs.gradleModule }}"
+          TASK="${{ inputs.gradleTestTask }}"
+          if [ -n "$MODULE" ]; then
+            ./gradlew --build-cache "${MODULE}:${TASK}"
+          else
+            ./gradlew --build-cache "$TASK"
+          fi
+
+      # -------------------------------------------------------------
+      # 9. SonarQube scan
+      # -------------------------------------------------------------
+      - name: SonarQube scan
+        uses: Desjardins/emerald-mobile-sonar-scan-android@v0.1
+        with:
+          sonar-token: ${{ steps.secrets.outputs.SONAR_TOKEN }}
+          sonar-url: ${{ inputs.sonarqubeUrl }}
+
+      # -------------------------------------------------------------
+      # 10. Quality gate Desjardins
+      # -------------------------------------------------------------
+      - name: Desjardins quality gate
+        if: ${{ inputs.enforceMobileCoverageRequirements == true }}
+        uses: Desjardins/emerald-gating-action@v1
+        with:
+          version:                  ${{ inputs.gatingActionVersion }}
+          product-name:             ${{ inputs.productName }}
+          component-name:           ${{ inputs.componentName }}
+          min-coverage:             ${{ inputs.minCoverage }}
+          min-reliability:          ${{ inputs.minReliability }}
+          min-security:             ${{ inputs.minSecurity }}
+          min-maintainability:      ${{ inputs.minMaintainability }}
+          max-duplication:          ${{ inputs.maxDuplication }}
+          pr-min-coverage:          ${{ inputs.prMinCoverage }}
+          pr-min-reliability:       ${{ inputs.prMinReliability }}
+          pr-min-security:          ${{ inputs.prMinSecurity }}
+          pr-min-maintainability:   ${{ inputs.prMinMaintainability }}
+          pr-max-duplication:       ${{ inputs.prMaxDuplication }}
+          pr-gating-new-code-only:  ${{ inputs.prGatingNewCodeOnly }}
+
+      # -------------------------------------------------------------
+      # 11a. Publish AAR → Artifactory (libraries)
+      # -------------------------------------------------------------
+      - name: Publish AAR to Artifactory
+        if: ${{ inputs.artifactType == 'aar' && inputs.enablePublish == true && steps.context.outputs.publish_mode != 'none' }}
+        shell: bash
+        env:
+          ARTIFACTORY_REF_TOKEN: ${{ steps.secrets.outputs.ARTIFACTORY_REF_TOKEN }}
+        run: |
+          set -euo pipefail
+          MODULE="${{ inputs.gradleModule }}"
+          TASK="${{ inputs.gradlePublishTask }}"
+          SUFFIX="${{ steps.context.outputs.version_suffix }}"
+          ARGS=""
+          [ -n "$SUFFIX" ] && ARGS="-Pversion.suffix=$SUFFIX"
+          echo "Publishing AAR: mode=${{ steps.context.outputs.publish_mode }} suffix=$SUFFIX"
+          if [ -n "$MODULE" ]; then
+            ./gradlew --build-cache "${MODULE}:${TASK}" $ARGS
+          else
+            ./gradlew --build-cache "$TASK" $ARGS
+          fi
+
+      # -------------------------------------------------------------
+      # 11b. Copy APK to root (apps)
+      # -------------------------------------------------------------
+      - name: Copy APK to root
+        if: ${{ inputs.artifactType == 'apk' }}
+        shell: bash
+        env:
+          ARTIFACTORY_REF_TOKEN: ${{ steps.secrets.outputs.ARTIFACTORY_REF_TOKEN }}
+        run: |
+          set -euo pipefail
+          MODULE="${{ inputs.gradleModule }}"
+          if [ "${{ inputs.forceRelease }}" = "true" ]; then
+            COPY="${{ inputs.apkCopyTaskRelease }}"
+          else
+            COPY="${{ inputs.apkCopyTaskDebug }}"
+          fi
+          if [ -z "$COPY" ]; then
+            echo "Copy task vide → skip"
+            exit 0
+          fi
+          if [ -n "$MODULE" ]; then
+            ./gradlew "${MODULE}:${COPY}"
+          else
+            ./gradlew "$COPY"
+          fi
+
+      # -------------------------------------------------------------
+      # 11c. Distribute APK → Applivery
+      # -------------------------------------------------------------
+      - name: Distribute APK to Applivery
+        if: ${{ inputs.artifactType == 'apk' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          BRANCH="${{ github.ref_name }}"
+          BRANCH_SHA=$(echo -n "$BRANCH" | sha256sum | cut -c 1-8)
+          TAGS="${{ inputs.appliveryFlavor }},branch:$BRANCH_SHA,platform:android"
+          echo "Uploading ${{ inputs.apkFilePath }} with tags: $TAGS"
+          curl https://upload.applivery.io/v1/integrations/builds \
+            ${{ inputs.appliveryExtraArguments }} \
+            --retry 5 \
+            --fail \
+            -H "Authorization: Bearer ${{ steps.applivery-secrets.outputs.APPLIVERY_TOKEN }}" \
+            -F "build=@${{ inputs.apkFilePath }}" \
+            -F "tags=$TAGS" \
+            -F "notifyCollaborators=${{ inputs.appliveryNotifyCollaborators }}" \
+            -F "notifyEmployees=${{ inputs.appliveryNotifyEmployees }}" \
+            -F "deployer.name=GitHub Actions" \
+            -F "deployer.info.branch=$BRANCH"

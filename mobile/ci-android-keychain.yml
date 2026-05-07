@@ -1,0 +1,61 @@
+name: CI Android Keychain (v4)
+
+# v4 — Consomme le reusable monolithique unifié mobile-gha-workflows-android v4.
+# keychain est une LIBRARY → artifactType=aar.
+# Pour une APP (ex: ad-digital-mobile), passer artifactType=apk + apkFilePath + appliveryTokenName.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*.*.*'
+      - 'rc-*'
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+jobs:
+  ci:
+    uses: Desjardins/mobile-gha-workflows-android/.github/workflows/v4/ci-android.yml@v4
+    with:
+      # ---- Versions ----
+      jdkVersion: "17"
+      # SDK laissés vides → on fait confiance au runner Desjardins.
+
+      # ---- Identité ----
+      productName: keychain-android
+      componentName: keychain-android
+
+      # ---- Cibles Gradle (multi-module: ne builder que :keychain) ----
+      gradleModule: ":keychain"
+      gradleBuildTask: "assembleDebug"
+      gradleTestTask: "jacocoTestReport"
+
+      # ---- Type d'artefact ----
+      artifactType: aar          # keychain est une library
+      gradlePublishTask: "publish"
+      enablePublish: true
+
+      # ---- Quality gate ----
+      enforceMobileCoverageRequirements: true
+      minCoverage: 80
+      minReliability: A
+      minSecurity: A
+      minMaintainability: A
+      maxDuplication: 10
+      prMinCoverage: 80
+      prMinReliability: A
+      prMinSecurity: A
+      prMinMaintainability: A
+      prMaxDuplication: 10
+      prGatingNewCodeOnly: true
+    secrets:
+      ROLEID: ${{ secrets.ROLEID }}
+      SECRETID: ${{ secrets.SECRETID }}
