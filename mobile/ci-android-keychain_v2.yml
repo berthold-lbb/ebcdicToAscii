@@ -1,0 +1,85 @@
+name: CI Android Keychain (v6.1)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - master
+
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*.*.*'
+      - 'rc-*'
+
+  workflow_dispatch:
+    inputs:
+      publishRelease:
+        description: 'Publier une version release (sans suffixe rc)'
+        type: boolean
+        required: false
+        default: false
+      module:
+        description: 'Module à builder (ex: keychain, sample, ou vide pour tous)'
+        type: string
+        required: false
+        default: 'keychain'
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci-and-publish:
+    # FIX v6.1: chemin corrigé → ci-android.yml (le reusable a été renommé)
+    uses: Desjardins/mobile-gha-workflows-android/.github/workflows/v6/ci-android.yml@v6
+    with:
+      jdkVersion: "17"
+
+      # productName dynamique via custom_properties (correctif majeur v6)
+      productName: ${{ github.event.repository.custom_properties.product }}
+      componentName: keychain-android
+
+      # Module à builder (workflow_dispatch ou défaut :keychain)
+      gradleModule: >-
+        ${{ github.event_name == 'workflow_dispatch'
+            && (inputs.module != '' && format(':{0}', inputs.module) || ':')
+            || ':keychain' }}
+      gradleBuildTask: "assembleDebug"
+      gradleTestTask: "jacocoTestReport"
+
+      artifactType: aar
+      gradlePublishTask: "publish"
+      enablePublish: true
+
+      manualPublishMode: >-
+        ${{ github.event_name == 'workflow_dispatch'
+            && inputs.publishRelease == true
+            && 'release'
+            || '' }}
+
+      enforceMobileCoverageRequirements: true
+      minCoverage: 80
+      minReliability: A
+      minSecurity: A
+      minMaintainability: A
+      maxDuplication: 10
+      prMinCoverage: 80
+      prMinReliability: A
+      prMinSecurity: A
+      prMinMaintainability: A
+      prMaxDuplication: 10
+      prGatingNewCodeOnly: true
+
+      sonarGradleJvmArgs: '-Xmx2g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
+    secrets:
+      ROLEID: ${{ secrets.ROLEID }}
+      SECRETID: ${{ secrets.SECRETID }}

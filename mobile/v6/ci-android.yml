@@ -1,0 +1,623 @@
+name: "CI Android Library (v6)"
+
+# v6 — Refonte majeure: décomposition en JOBS distincts (style emerald-ci-java)
+#
+# Architecture (graphe de jobs):
+#
+#   evaluate ──► validate-inputs ──► build-and-test ──► static-analysis ──► gating ──► publish
+#
+# Avantages vs v5 (monolithique):
+#   - Visuel: chaque étape apparaît comme une boîte dans le graphe GitHub Actions
+#   - Diagnostic: échec localisé à un job précis (build vs Sonar vs gating)
+#   - Re-run: on peut relancer juste le job échoué (re-run failed jobs)
+#   - Parallélisation future: gating et publish peuvent éventuellement tourner en parallèle
+#
+# Autres correctifs v6:
+#   - productName dynamique (fallback custom_properties.product → repo name)
+#   - Composite emerald-mobile-sonar-scan-android v3 utilisé (fix OOM Metaspace)
+#   - Upload des reports entre build-and-test et static-analysis (pas de recompile inutile)
+
+on:
+  workflow_call:
+    secrets:
+      ROLEID:
+        required: true
+      SECRETID:
+        required: true
+    inputs:
+
+      # ============================================================
+      #   Identité (productName géré dynamiquement par le job evaluate)
+      # ============================================================
+      productName:
+        description: 'Nom du produit Vault. Si vide, fallback sur custom_properties.product, puis repo name'
+        type: string
+        required: false
+        default: ''
+      componentName:
+        description: 'Nom du composant pour la quality gate. Si vide, fallback sur repo name'
+        type: string
+        required: false
+        default: ''
+      defaultGroupId:
+        type: string
+        required: false
+        default: 'com.desjardins'
+
+      # ============================================================
+      #   Versions JDK / Android
+      # ============================================================
+      jdkVersion:
+        type: string
+        required: false
+        default: "17"
+      compileSdkVersion:
+        type: string
+        required: false
+        default: ''
+      buildToolsVersion:
+        type: string
+        required: false
+        default: ''
+
+      # ============================================================
+      #   Cibles Gradle
+      # ============================================================
+      gradleModule:
+        description: 'Module Gradle (ex: ":keychain"). Vide ou ":" = projet racine'
+        type: string
+        required: false
+        default: ''
+      gradleBuildTask:
+        type: string
+        required: false
+        default: 'assembleDebug'
+      gradleTestTask:
+        type: string
+        required: false
+        default: 'jacocoTestReport'
+
+      # ============================================================
+      #   Type d'artefact + publication
+      # ============================================================
+      artifactType:
+        description: 'aar | apk | none'
+        type: string
+        required: false
+        default: 'aar'
+      gradlePublishTask:
+        type: string
+        required: false
+        default: 'publish'
+      enablePublish:
+        type: boolean
+        required: false
+        default: true
+      snapshotVersionSuffix:
+        type: string
+        required: false
+        default: '-SNAPSHOT'
+      rcVersionSuffix:
+        type: string
+        required: false
+        default: '-RC'
+
+      # ============================================================
+      #   APK / Applivery (si artifactType=apk)
+      # ============================================================
+      apkFilePath:
+        type: string
+        required: false
+        default: ''
+      appliveryTokenName:
+        type: string
+        required: false
+        default: 'applivery-token'
+      appliveryFlavor:
+        type: string
+        required: false
+        default: 'vitrine'
+      forceRelease:
+        type: boolean
+        required: false
+        default: false
+      apkCopyTaskDebug:
+        type: string
+        required: false
+        default: 'copyDebugApkToRoot'
+      apkCopyTaskRelease:
+        type: string
+        required: false
+        default: 'copyReleaseApkToRoot'
+
+      # ============================================================
+      #   Override workflow_dispatch
+      # ============================================================
+      manualPublishMode:
+        type: string
+        required: false
+        default: ''
+      dryRun:
+        type: boolean
+        required: false
+        default: false
+
+      # ============================================================
+      #   Quality gate
+      # ============================================================
+      enforceMobileCoverageRequirements:
+        type: boolean
+        required: false
+        default: true
+      gatingActionVersion:
+        type: string
+        required: false
+        default: '4.5'
+      minCoverage:
+        type: number
+        required: false
+        default: 80
+      minReliability:
+        type: string
+        required: false
+        default: 'A'
+      minSecurity:
+        type: string
+        required: false
+        default: 'A'
+      minMaintainability:
+        type: string
+        required: false
+        default: 'A'
+      maxDuplication:
+        type: number
+        required: false
+        default: 10
+      prMinCoverage:
+        type: number
+        required: false
+        default: 80
+      prMinReliability:
+        type: string
+        required: false
+        default: 'A'
+      prMinSecurity:
+        type: string
+        required: false
+        default: 'A'
+      prMinMaintainability:
+        type: string
+        required: false
+        default: 'A'
+      prMaxDuplication:
+        type: number
+        required: false
+        default: 10
+      prGatingNewCodeOnly:
+        type: boolean
+        required: false
+        default: true
+
+      # ============================================================
+      #   Sonar
+      # ============================================================
+      sonarGradleJvmArgs:
+        description: 'GRADLE_OPTS pour le step Sonar (fix OOM Metaspace)'
+        type: string
+        required: false
+        default: '-Xmx2g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
+
+      # ============================================================
+      #   Infra
+      # ============================================================
+      runnerLabel:
+        type: string
+        required: false
+        default: ${{ vars.DEFAULT_RUNNER_LABEL }}
+      vaultUrl:
+        type: string
+        required: false
+        default: ${{ vars.VAULT_URL_NPROD }}
+      vaultPath:
+        type: string
+        required: false
+        default: ${{ vars.VAULT_PATH_NPROD }}
+      sonarqubeUrl:
+        type: string
+        required: false
+        default: ${{ vars.SONARQUBE_URL }}
+
+# =============================================================================
+# JOBS
+# =============================================================================
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # JOB 1: evaluate
+  # Extrait les propriétés Gradle + détermine le mode publish + résout productName
+  # ---------------------------------------------------------------------------
+  evaluate:
+    name: Evaluate
+    runs-on: ${{ inputs.runnerLabel }}
+    outputs:
+      group:           ${{ steps.gradle-props.outputs.group }}
+      artifact:        ${{ steps.gradle-props.outputs.artifact }}
+      version:         ${{ steps.gradle-props.outputs.version }}
+      product-name:    ${{ steps.resolve.outputs.product-name }}
+      component-name:  ${{ steps.resolve.outputs.component-name }}
+      publish-mode:    ${{ steps.context.outputs.publish-mode }}
+      version-suffix:  ${{ steps.context.outputs.version-suffix }}
+      gradle-module:   ${{ steps.resolve.outputs.gradle-module }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve productName / componentName / module
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # productName: input > custom_properties.product > repo name
+          PRODUCT="${{ inputs.productName }}"
+          [ -z "$PRODUCT" ] && PRODUCT="${{ github.event.repository.custom_properties.product }}"
+          [ -z "$PRODUCT" ] && PRODUCT="${{ github.event.repository.name }}"
+          echo "product-name=$PRODUCT" >> "$GITHUB_OUTPUT"
+          echo "→ productName: $PRODUCT"
+
+          # componentName: input > repo name
+          COMPONENT="${{ inputs.componentName }}"
+          [ -z "$COMPONENT" ] && COMPONENT="${{ github.event.repository.name }}"
+          echo "component-name=$COMPONENT" >> "$GITHUB_OUTPUT"
+
+          # gradleModule: ':' tout seul = vide (workaround pour les inputs dispatch)
+          MODULE="${{ inputs.gradleModule }}"
+          [ "$MODULE" = ":" ] && MODULE=""
+          echo "gradle-module=$MODULE" >> "$GITHUB_OUTPUT"
+
+      - name: Evaluate gradle.properties
+        id: gradle-props
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROPS=./gradle.properties
+          GROUP="${{ inputs.defaultGroupId }}"
+          ARTIFACT="${{ github.event.repository.name }}"
+          VERSION="0.0.1"
+          if [ -f "$PROPS" ]; then
+            G=$(grep -m1 '^GROUP_ID=' "$PROPS" | cut -d= -f2 || true)
+            A=$(grep -m1 '^ARTIFACT_ID=' "$PROPS" | cut -d= -f2 || true)
+            V=$(grep -m1 '^VERSION_NAME=' "$PROPS" | cut -d= -f2 || true)
+            [ -n "${G:-}" ] && GROUP="$G"
+            [ -n "${A:-}" ] && ARTIFACT="$A"
+            [ -n "${V:-}" ] && VERSION="$V"
+          fi
+          echo "group=$GROUP"       >> "$GITHUB_OUTPUT"
+          echo "artifact=$ARTIFACT" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION"   >> "$GITHUB_OUTPUT"
+
+      - name: Determine pipeline context
+        id: context
+        shell: bash
+        run: |
+          set -euo pipefail
+          PUBLISH_MODE="none"
+          VERSION_SUFFIX=""
+
+          # Automatique selon l'événement
+          if [ "${{ github.event_name }}" = "push" ]; then
+            REF="${{ github.ref }}"
+            if [ "$REF" = "refs/heads/main" ] || [ "$REF" = "refs/heads/master" ]; then
+              PUBLISH_MODE="snapshot"
+              VERSION_SUFFIX="${{ inputs.snapshotVersionSuffix }}"
+            elif [[ "$REF" == refs/tags/rc-* ]]; then
+              PUBLISH_MODE="release-candidate"
+              VERSION_SUFFIX="${{ inputs.rcVersionSuffix }}"
+            elif [[ "$REF" == refs/tags/v* ]]; then
+              PUBLISH_MODE="release"
+            fi
+          fi
+
+          # Override manuel
+          MANUAL="${{ inputs.manualPublishMode }}"
+          if [ -n "$MANUAL" ] && [ "$MANUAL" != "none" ]; then
+            PUBLISH_MODE="$MANUAL"
+            case "$MANUAL" in
+              snapshot)          VERSION_SUFFIX="${{ inputs.snapshotVersionSuffix }}" ;;
+              release-candidate) VERSION_SUFFIX="${{ inputs.rcVersionSuffix }}" ;;
+              release)           VERSION_SUFFIX="" ;;
+            esac
+            echo "::notice::Manual override: $MANUAL"
+          fi
+
+          # Dry-run
+          if [ "${{ inputs.dryRun }}" = "true" ]; then
+            PUBLISH_MODE="none"
+            echo "::notice::Dry-run actif"
+          fi
+
+          echo "publish-mode=$PUBLISH_MODE"     >> "$GITHUB_OUTPUT"
+          echo "version-suffix=$VERSION_SUFFIX" >> "$GITHUB_OUTPUT"
+          echo "→ publish_mode=$PUBLISH_MODE suffix=$VERSION_SUFFIX"
+
+  # ---------------------------------------------------------------------------
+  # JOB 2: validate-inputs
+  # Vérifie que les champs critiques sont remplis avant de lancer le build lourd
+  # ---------------------------------------------------------------------------
+  validate-inputs:
+    name: Validate inputs
+    needs: evaluate
+    runs-on: ${{ inputs.runnerLabel }}
+    steps:
+      - name: Check required fields
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "productName  : ${{ needs.evaluate.outputs.product-name }}"
+          echo "componentName: ${{ needs.evaluate.outputs.component-name }}"
+          echo "artifactType : ${{ inputs.artifactType }}"
+          echo "publish-mode : ${{ needs.evaluate.outputs.publish-mode }}"
+          echo "gradleModule : ${{ needs.evaluate.outputs.gradle-module }}"
+
+          [ -z "${{ needs.evaluate.outputs.product-name }}" ] \
+            && echo "::error::productName non résolu" && exit 1
+          [ -z "${{ needs.evaluate.outputs.component-name }}" ] \
+            && echo "::error::componentName non résolu" && exit 1
+
+          if [ "${{ inputs.artifactType }}" = "apk" ] && \
+             [ "${{ needs.evaluate.outputs.publish-mode }}" != "none" ] && \
+             [ -z "${{ inputs.apkFilePath }}" ]; then
+            echo "::error::apkFilePath requis pour artifactType=apk avec publication"
+            exit 1
+          fi
+          echo "✓ Tous les inputs requis sont valides"
+
+  # ---------------------------------------------------------------------------
+  # JOB 3: build-and-test
+  # Build + tests + coverage. Upload des reports pour Sonar.
+  # ---------------------------------------------------------------------------
+  build-and-test:
+    name: Build & test
+    needs: [evaluate, validate-inputs]
+    runs-on: ${{ inputs.runnerLabel }}
+    env:
+      ANDROID_HOME: /home/runner/android-sdk-linux
+      ANDROID_SDK_ROOT: /home/runner/android-sdk-linux
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Import Artifactory token
+        id: secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ inputs.vaultUrl }}
+          method: approle
+          roleId: ${{ secrets.ROLEID }}
+          secretId: ${{ secrets.SECRETID }}
+          path: ${{ inputs.vaultPath }}
+          secrets: |
+            concourse/${{ needs.evaluate.outputs.product-name }}/artifactory-api-key value | ARTIFACTORY_REF_TOKEN ;
+
+      - name: Setup Android environment
+        uses: Desjardins/emerald-setup-android-env@v0.2
+        with:
+          jdkVersion: ${{ inputs.jdkVersion }}
+
+      - name: Install Android SDK packages (optional)
+        if: ${{ inputs.compileSdkVersion != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses
+          PACKAGES="platforms;android-${{ inputs.compileSdkVersion }}"
+          [ -n "${{ inputs.buildToolsVersion }}" ] && PACKAGES="$PACKAGES build-tools;${{ inputs.buildToolsVersion }}"
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" $PACKAGES
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+      - name: Build
+        shell: bash
+        env:
+          ARTIFACTORY_REF_TOKEN: ${{ steps.secrets.outputs.ARTIFACTORY_REF_TOKEN }}
+        run: |
+          set -euo pipefail
+          MODULE="${{ needs.evaluate.outputs.gradle-module }}"
+          if [ "${{ inputs.artifactType }}" = "apk" ] && [ "${{ inputs.forceRelease }}" = "true" ]; then
+            TASK="assembleRelease"
+          else
+            TASK="${{ inputs.gradleBuildTask }}"
+          fi
+          if [ -n "$MODULE" ]; then
+            ./gradlew --build-cache "${MODULE}:${TASK}"
+          else
+            ./gradlew --build-cache "$TASK"
+          fi
+
+      - name: Tests & coverage
+        shell: bash
+        env:
+          ARTIFACTORY_REF_TOKEN: ${{ steps.secrets.outputs.ARTIFACTORY_REF_TOKEN }}
+        run: |
+          set -euo pipefail
+          MODULE="${{ needs.evaluate.outputs.gradle-module }}"
+          TASK="${{ inputs.gradleTestTask }}"
+          if [ -n "$MODULE" ]; then
+            ./gradlew --build-cache "${MODULE}:${TASK}"
+          else
+            ./gradlew --build-cache "$TASK"
+          fi
+
+      - name: Upload build reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports-${{ github.run_id }}
+          path: |
+            **/build/reports/
+            **/build/test-results/
+            **/build/jacoco/
+            **/build/outputs/
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # JOB 4: static-analysis (Sonar)
+  # Utilise le composite emerald-mobile-sonar-scan-android v3 (fix OOM)
+  # ---------------------------------------------------------------------------
+  static-analysis:
+    name: Static analysis (Sonar)
+    needs: [evaluate, build-and-test]
+    runs-on: ${{ inputs.runnerLabel }}
+    env:
+      ANDROID_HOME: /home/runner/android-sdk-linux
+      ANDROID_SDK_ROOT: /home/runner/android-sdk-linux
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Import Sonar token
+        id: secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ inputs.vaultUrl }}
+          method: approle
+          roleId: ${{ secrets.ROLEID }}
+          secretId: ${{ secrets.SECRETID }}
+          path: ${{ inputs.vaultPath }}
+          secrets: |
+            concourse/${{ needs.evaluate.outputs.product-name }}/sonarqube-token value | SONAR_TOKEN ;
+            concourse/${{ needs.evaluate.outputs.product-name }}/artifactory-api-key value | ARTIFACTORY_REF_TOKEN ;
+
+      - name: Setup Android environment
+        uses: Desjardins/emerald-setup-android-env@v0.2
+        with:
+          jdkVersion: ${{ inputs.jdkVersion }}
+
+      - name: Download build reports
+        uses: actions/download-artifact@v4
+        with:
+          name: build-reports-${{ github.run_id }}
+          path: .
+
+      - name: SonarQube scan (composite v3, fix OOM)
+        uses: Desjardins/emerald-mobile-sonar-scan-android@v3
+        with:
+          sonar-token: ${{ steps.secrets.outputs.SONAR_TOKEN }}
+          sonar-url: ${{ inputs.sonarqubeUrl }}
+          gradle-module: ${{ needs.evaluate.outputs.gradle-module }}
+          gradle-jvm-args: ${{ inputs.sonarGradleJvmArgs }}
+
+  # ---------------------------------------------------------------------------
+  # JOB 5: gating (quality gate Desjardins)
+  # ---------------------------------------------------------------------------
+  gating:
+    name: Quality gate
+    needs: [evaluate, static-analysis]
+    if: ${{ inputs.enforceMobileCoverageRequirements == true }}
+    runs-on: ${{ inputs.runnerLabel }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Desjardins gating
+        uses: Desjardins/emerald-gating-action@v1
+        with:
+          version:                  ${{ inputs.gatingActionVersion }}
+          product-name:             ${{ needs.evaluate.outputs.product-name }}
+          component-name:           ${{ needs.evaluate.outputs.component-name }}
+          min-coverage:             ${{ inputs.minCoverage }}
+          min-reliability:          ${{ inputs.minReliability }}
+          min-security:             ${{ inputs.minSecurity }}
+          min-maintainability:      ${{ inputs.minMaintainability }}
+          max-duplication:          ${{ inputs.maxDuplication }}
+          pr-min-coverage:          ${{ inputs.prMinCoverage }}
+          pr-min-reliability:       ${{ inputs.prMinReliability }}
+          pr-min-security:          ${{ inputs.prMinSecurity }}
+          pr-min-maintainability:   ${{ inputs.prMinMaintainability }}
+          pr-max-duplication:       ${{ inputs.prMaxDuplication }}
+          pr-gating-new-code-only:  ${{ inputs.prGatingNewCodeOnly }}
+
+  # ---------------------------------------------------------------------------
+  # JOB 6: publish (conditionnel)
+  # Délègue au composite emerald-mobile-publish-android@v2 (AAR ou APK)
+  # ---------------------------------------------------------------------------
+  publish:
+    name: Publish ${{ inputs.artifactType }}
+    needs: [evaluate, build-and-test, gating]
+    # Note: gating peut être skippé (enforceMobileCoverageRequirements=false).
+    # On utilise `always()` + check explicite des needs pour ne pas bloquer.
+    if: |
+      always()
+      && needs.evaluate.result == 'success'
+      && needs.build-and-test.result == 'success'
+      && (needs.gating.result == 'success' || needs.gating.result == 'skipped')
+      && needs.evaluate.outputs.publish-mode != 'none'
+      && inputs.enablePublish == true
+    runs-on: ${{ inputs.runnerLabel }}
+    env:
+      ANDROID_HOME: /home/runner/android-sdk-linux
+      ANDROID_SDK_ROOT: /home/runner/android-sdk-linux
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Import publish secrets from Vault
+        id: secrets
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ inputs.vaultUrl }}
+          method: approle
+          roleId: ${{ secrets.ROLEID }}
+          secretId: ${{ secrets.SECRETID }}
+          path: ${{ inputs.vaultPath }}
+          secrets: |
+            concourse/${{ needs.evaluate.outputs.product-name }}/artifactory-api-key value | ARTIFACTORY_REF_TOKEN ;
+            ${{ inputs.artifactType == 'apk' && format('concourse/{0}/{1} value | APPLIVERY_TOKEN ;', needs.evaluate.outputs.product-name, inputs.appliveryTokenName) || '' }}
+
+      - name: Setup Android environment
+        uses: Desjardins/emerald-setup-android-env@v0.2
+        with:
+          jdkVersion: ${{ inputs.jdkVersion }}
+
+      - name: Copy APK to root (si APK)
+        if: ${{ inputs.artifactType == 'apk' }}
+        shell: bash
+        env:
+          ARTIFACTORY_REF_TOKEN: ${{ steps.secrets.outputs.ARTIFACTORY_REF_TOKEN }}
+        run: |
+          set -euo pipefail
+          MODULE="${{ needs.evaluate.outputs.gradle-module }}"
+          if [ "${{ inputs.forceRelease }}" = "true" ]; then
+            COPY="${{ inputs.apkCopyTaskRelease }}"
+          else
+            COPY="${{ inputs.apkCopyTaskDebug }}"
+          fi
+          [ -z "$COPY" ] && exit 0
+          if [ -n "$MODULE" ]; then
+            ./gradlew "${MODULE}:${COPY}"
+          else
+            ./gradlew "$COPY"
+          fi
+
+      - name: Publish AAR (composite emerald-mobile-publish-android v2)
+        if: ${{ inputs.artifactType == 'aar' }}
+        uses: Desjardins/emerald-mobile-publish-android@v2
+        with:
+          artifactType: aar
+          artifactoryToken: ${{ steps.secrets.outputs.ARTIFACTORY_REF_TOKEN }}
+          gradleModule: ${{ needs.evaluate.outputs.gradle-module }}
+          gradleTask: ${{ inputs.gradlePublishTask }}
+          versionSuffix: ${{ needs.evaluate.outputs.version-suffix }}
+
+      - name: Distribute APK (composite emerald-mobile-publish-android v2)
+        if: ${{ inputs.artifactType == 'apk' }}
+        uses: Desjardins/emerald-mobile-publish-android@v2
+        with:
+          artifactType: apk
+          appliveryToken: ${{ steps.secrets.outputs.APPLIVERY_TOKEN }}
+          apkFilePath: ${{ inputs.apkFilePath }}
+          gitBranch: ${{ github.ref_name }}
+          flavorAppLivery: ${{ inputs.appliveryFlavor }}

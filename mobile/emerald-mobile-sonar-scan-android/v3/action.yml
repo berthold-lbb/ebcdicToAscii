@@ -1,0 +1,89 @@
+name: 'Lancer un scan Sonar (v3)'
+description: |
+  v3 — Résolution du OutOfMemoryError: Metaspace observé en prod.
+  Améliorations vs v2:
+    - Input `gradle-jvm-args` : permet d'override -Xmx, -XX:MaxMetaspaceSize, etc.
+      Défaut suffisant pour les projets Android moyens (Xmx 2g, Metaspace 1g).
+    - Input `sonar-java-opts` : args JVM dédiés au Sonar scanner lui-même.
+    - Le `local.properties` est régénéré si le job s'exécute dans un runner sans SDK
+      (cas multi-jobs avec checkout indépendant).
+    - Tous les flags Sonar passés en propriétés Gradle (-D) sont expressément documentés.
+
+inputs:
+  sonar-token:
+    required: true
+    description: "Token SonarQube"
+  sonar-url:
+    required: true
+    description: "URL du serveur SonarQube"
+  gradle-module:
+    required: false
+    description: 'Module Gradle ciblé (ex: ":keychain"). Vide = projet racine'
+    default: ''
+  sonar-task:
+    required: false
+    description: 'Nom de la tâche Sonar (sonar par défaut, sonarqube pour anciens projets)'
+    default: 'sonar'
+  gradle-jvm-args:
+    required: false
+    description: |
+      Args JVM Gradle (GRADLE_OPTS).
+      Fix l'OOM Metaspace observé : -XX:MaxMetaspaceSize=1g indispensable
+      pour les projets multi-module avec Sonar + Kotlin compiler dans la même JVM.
+    default: '-Xmx2g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
+  sonar-java-opts:
+    required: false
+    description: 'Args JVM du Sonar scanner lui-même (SONAR_SCANNER_OPTS)'
+    default: '-Xmx2g'
+  wait-for-quality-gate:
+    required: false
+    description: 'Attendre le résultat de la quality gate Sonar'
+    default: 'true'
+  extra-properties:
+    required: false
+    description: 'Properties Sonar additionnelles, une par ligne (key=value)'
+    default: ''
+  extra-arguments:
+    required: false
+    description: 'Arguments supplémentaires bruts pour la commande gradle sonar'
+    default: ''
+
+runs:
+  using: "composite"
+  steps:
+    - name: SonarQube scan
+      shell: bash
+      env:
+        SONAR_TOKEN: ${{ inputs.sonar-token }}
+        SONAR_HOST_URL: ${{ inputs.sonar-url }}
+        GRADLE_OPTS: ${{ inputs.gradle-jvm-args }}
+        SONAR_SCANNER_OPTS: ${{ inputs.sonar-java-opts }}
+      run: |
+        set -euo pipefail
+
+        echo "::group::Sonar scan configuration"
+        echo "GRADLE_OPTS=$GRADLE_OPTS"
+        echo "SONAR_SCANNER_OPTS=$SONAR_SCANNER_OPTS"
+        echo "::endgroup::"
+
+        MODULE="${{ inputs.gradle-module }}"
+        TASK="${{ inputs.sonar-task }}"
+        if [ -n "$MODULE" ] && [ "$MODULE" != ":" ]; then
+          GRADLE_TASK="${MODULE}:${TASK}"
+        else
+          GRADLE_TASK="$TASK"
+        fi
+
+        # Properties Sonar par défaut
+        PROPS="-Dsonar.qualitygate.wait=${{ inputs.wait-for-quality-gate }}"
+        PROPS="$PROPS -Dsonar.scanner.skipJreProvisioning=true"
+        PROPS="$PROPS -Dsonar.plugins.downloadOnlyRequired=false"
+
+        # Properties additionnelles passées par le caller (multi-ligne)
+        while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          PROPS="$PROPS -D$line"
+        done <<< "${{ inputs.extra-properties }}"
+
+        echo "Running: ./gradlew $GRADLE_TASK $PROPS ${{ inputs.extra-arguments }}"
+        ./gradlew "$GRADLE_TASK" $PROPS ${{ inputs.extra-arguments }}
