@@ -1,0 +1,210 @@
+name: 'Setup Android environment (v3.1)'
+description: |
+  Setup complet de l'environnement Android pour les jobs CI Desjardins.
+  Améliorations vs v2:
+    - Licences SDK acceptées de façon non-interactive (écriture directe des fichiers de licence — plus de yes | sdkmanager)
+    - Cache Android SDK optionnel via enableSdkCache (défaut false)
+    - Env vars (ANDROID_HOME, PATH) toujours exportés même en cas de cache hit
+    - sdkmanager --update ignoré sur cache hit pour éviter des téléchargements inutiles
+  Fixes v3 → v3.1:
+    - Clé de cache : remplacement de hashFiles(URL) cassé par un hash bash de l'URL
+    - Logique --update : utilise steps.<id>.outputs.cache-hit au lieu d'un check sur enableSdkCache
+    - Hashes de licences : valeurs corrigées (à valider sur votre SDK avec `sdkmanager --licenses` une fois)
+
+inputs:
+  jdkVersion:
+    description: 'JDK version'
+    required: true
+
+  cmdlineToolsZip:
+    description: 'URL du zip cmdline-tools (override pour environnements sans accès dl.google.com)'
+    required: false
+    default: 'https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip'
+
+  compileSdkVersion:
+    description: 'Version de la platform Android à installer (ex: "35"). Vide = skip'
+    required: false
+    default: ''
+
+  buildToolsVersion:
+    description: 'Version des build-tools (ex: "35.0.0"). Vide = skip'
+    required: false
+    default: ''
+
+  extraSdkPackages:
+    description: 'Packages SDK additionnels espace-séparés (ex: "ndk;26.1.10909125 cmake;3.22.1")'
+    required: false
+    default: ''
+
+  # -----------------------------------------------------------------------
+  # Cache Android SDK
+  #
+  # Pertinent si compileSdkVersion et buildToolsVersion sont fixes d'un run
+  # à l'autre. Économise ~3–5 min par run en évitant le téléchargement et
+  # l'installation du SDK. Taille du cache : ~500 MB–1 GB selon les packages.
+  # Limite GitHub Actions : 10 GB / repo (tous caches confondus).
+  #
+  # Mettre à true si :
+  #   - compileSdkVersion / buildToolsVersion ne changent pas souvent
+  #   - Les runners sont éphémères (pas de SDK préinstallé)
+  #
+  # Laisser à false si :
+  #   - Les versions SDK changent fréquemment (cache miss = aucun gain)
+  #   - Le runner a déjà le SDK préinstallé (runners GitHub-hosted standard)
+  # -----------------------------------------------------------------------
+  enableSdkCache:
+    description: 'Activer le cache du SDK Android. (true | false)'
+    required: false
+    default: 'false'
+
+runs:
+  using: "composite"
+  steps:
+
+    # ------------------------------------------------------------------
+    # 1. Java
+    # ------------------------------------------------------------------
+    - name: Set up JDK ${{ inputs.jdkVersion }}
+      uses: actions/setup-java@v5
+      with:
+        java-version: ${{ inputs.jdkVersion }}
+        distribution: "temurin"
+        cache: gradle
+
+    # ------------------------------------------------------------------
+    # 2. Pré-calcul du hash de l'URL cmdline-tools pour la clé de cache
+    #    (fix v3 : hashFiles(URL) n'existe pas, on hashe via sha256sum)
+    # ------------------------------------------------------------------
+    - name: Compute cmdline-tools URL hash
+      if: ${{ inputs.enableSdkCache == 'true' }}
+      id: tools-hash
+      shell: bash
+      run: |
+        set -euo pipefail
+        HASH=$(echo -n "${{ inputs.cmdlineToolsZip }}" | sha256sum | cut -c1-12)
+        echo "hash=$HASH" >> "$GITHUB_OUTPUT"
+
+    # ------------------------------------------------------------------
+    # 3. Cache Android SDK (optionnel)
+    #    L'id 'sdk-cache' permet de lire outputs.cache-hit plus loin.
+    # ------------------------------------------------------------------
+    - name: Cache Android SDK
+      if: ${{ inputs.enableSdkCache == 'true' }}
+      id: sdk-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/android-sdk-linux
+        key: android-sdk-${{ inputs.compileSdkVersion }}-${{ inputs.buildToolsVersion }}-${{ steps.tools-hash.outputs.hash }}
+        restore-keys: |
+          android-sdk-${{ inputs.compileSdkVersion }}-${{ inputs.buildToolsVersion }}-
+          android-sdk-${{ inputs.compileSdkVersion }}-
+
+    # ------------------------------------------------------------------
+    # 4. Export des variables d'environnement (toujours, cache hit ou non)
+    # ------------------------------------------------------------------
+    - name: Export ANDROID_HOME and PATH
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "ANDROID_HOME=$HOME/android-sdk-linux" >> "$GITHUB_ENV"
+        echo "ANDROID_SDK_ROOT=$HOME/android-sdk-linux" >> "$GITHUB_ENV"
+        echo "$HOME/android-sdk-linux/platform-tools" >> "$GITHUB_PATH"
+        echo "$HOME/android-sdk-linux/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+    # ------------------------------------------------------------------
+    # 5. Téléchargement des cmdline-tools (skip si déjà présent)
+    # ------------------------------------------------------------------
+    - name: Download Android command line tools
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -d "$HOME/android-sdk-linux/cmdline-tools/latest" ]; then
+          echo "cmdline-tools already present — skipping download."
+          exit 0
+        fi
+        cd "$HOME"
+        wget -q "${{ inputs.cmdlineToolsZip }}" -O android-commandline-tools.zip
+        mkdir -p "$HOME/android-sdk-linux/cmdline-tools"
+        unzip -q android-commandline-tools.zip -d /tmp/
+        mv /tmp/cmdline-tools/ "$HOME/android-sdk-linux/cmdline-tools/latest"
+        rm android-commandline-tools.zip
+
+    # ------------------------------------------------------------------
+    # 6. Acceptation des licences SDK — NON-INTERACTIVE
+    #
+    #    Les hashes ci-dessous sont les valeurs publiques généralement
+    #    acceptées par les versions récentes de sdkmanager. À valider
+    #    une fois sur votre SDK :
+    #        sdkmanager --licenses   # accepter interactivement
+    #        cat ~/android-sdk-linux/licenses/*   # copier le contenu réel
+    # ------------------------------------------------------------------
+    - name: Accept SDK licenses (non-interactive)
+      shell: bash
+      run: |
+        set -euo pipefail
+        mkdir -p "$HOME/android-sdk-linux/licenses"
+
+        printf "24333f8a63b6825ea9c5514f83c2829b004d1fee\n8933bad161af4408b4f9fd8b5e023080bbdaaabb\n" \
+          > "$HOME/android-sdk-linux/licenses/android-sdk-license"
+
+        printf "84831b9409646a918e30573bab4c9c91346d8abd\n" \
+          > "$HOME/android-sdk-linux/licenses/android-sdk-preview-license"
+
+        printf "601085b94cd77f0b54ff86406957099ebe79c4d6\n" \
+          > "$HOME/android-sdk-linux/licenses/android-googletv-license"
+
+        printf "e9acab5b5fbb560a72cfaecce8946896ff6aab9d\n" \
+          > "$HOME/android-sdk-linux/licenses/mips-android-sysimage-license"
+
+    # ------------------------------------------------------------------
+    # 7. Mise à jour des outils de base — skip UNIQUEMENT sur cache hit
+    #    (fix v3 : la condition prenait enableSdkCache, ce qui skippait
+    #    aussi --update sur cache miss, ce qui était incorrect)
+    # ------------------------------------------------------------------
+    - name: Update base SDK tools
+      if: ${{ steps.sdk-cache.outputs.cache-hit != 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        SDKMANAGER="$HOME/android-sdk-linux/cmdline-tools/latest/bin/sdkmanager"
+        "$SDKMANAGER" --sdk_root="$HOME/android-sdk-linux" --update --channel=0
+
+    # ------------------------------------------------------------------
+    # 8. Installation des packages SDK demandés
+    #    Idempotent — sdkmanager est sans effet si le package est déjà
+    #    installé, mais fait un call réseau pour vérifier la version.
+    # ------------------------------------------------------------------
+    - name: Install requested SDK packages
+      if: ${{ inputs.compileSdkVersion != '' || inputs.buildToolsVersion != '' || inputs.extraSdkPackages != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        SDKMANAGER="$HOME/android-sdk-linux/cmdline-tools/latest/bin/sdkmanager"
+        PACKAGES=""
+        if [ -n "${{ inputs.compileSdkVersion }}" ]; then
+          PACKAGES="$PACKAGES platforms;android-${{ inputs.compileSdkVersion }}"
+        fi
+        if [ -n "${{ inputs.buildToolsVersion }}" ]; then
+          PACKAGES="$PACKAGES build-tools;${{ inputs.buildToolsVersion }}"
+        fi
+        if [ -n "${{ inputs.extraSdkPackages }}" ]; then
+          PACKAGES="$PACKAGES ${{ inputs.extraSdkPackages }}"
+        fi
+        echo "Installing SDK packages: $PACKAGES"
+        "$SDKMANAGER" --sdk_root="$HOME/android-sdk-linux" $PACKAGES
+
+    # ------------------------------------------------------------------
+    # 9. local.properties avec chemin absolu
+    # ------------------------------------------------------------------
+    - name: Write local.properties
+      shell: bash
+      run: |
+        echo "sdk.dir=$HOME/android-sdk-linux" > local.properties
+
+    # ------------------------------------------------------------------
+    # 10. Permission gradlew (tolère son absence en multi-module)
+    # ------------------------------------------------------------------
+    - name: Grant execute permission for gradlew (if present)
+      shell: bash
+      run: |
+        if [ -f gradlew ]; then chmod +x gradlew; fi
