@@ -1,3 +1,17 @@
+1. Dans build-and-test — ajouter les classes compilées à l'upload (ligne 462)
+yaml      - name: Upload build reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-reports-${{ github.run_id }}
+          path: |
+            **/build/reports/
+            **/build/test-results/
+            **/build/jacoco/
+            **/build/outputs/
+            **/build/intermediates/javac/**/classes/    # ← ajout
+            **/build/tmp/kotlin-classes/                # ← ajout
+          retention-days: 7
 2. Dans static-analysis — passer sonar.java.binaries (ligne 506)
 yaml      - name: SonarQube scan (composite v3, fix OOM)
         uses: Desjardins/emerald-mobile-sonar-scan-android@v3
