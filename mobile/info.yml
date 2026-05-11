@@ -1,0 +1,18 @@
+2. Dans static-analysis — passer sonar.java.binaries (ligne 506)
+yaml      - name: SonarQube scan (composite v3, fix OOM)
+        uses: Desjardins/emerald-mobile-sonar-scan-android@v3
+        with:
+          sonar-token: ${{ steps.secrets.outputs.SONAR_TOKEN }}
+          sonar-url: ${{ inputs.sonarqubeUrl }}
+          gradle-module: ${{ needs.evaluate.outputs.gradle-module }}
+          gradle-jvm-args: ${{ inputs.sonarGradleJvmArgs }}
+          extra-properties: |
+            sonar.java.binaries=${{ needs.evaluate.outputs.gradle-module-path }}/build/intermediates/javac/debug/classes,${{ needs.evaluate.outputs.gradle-module-path }}/build/tmp/kotlin-classes/debug
+Où gradle-module-path est le chemin filesystem du module (:keychain → keychain). Si cet output n'existe pas encore dans ton job evaluate, ajoute-le :
+yaml# Dans le job evaluate, ajouter l'output
+- name: Derive module filesystem path
+  id: module-path
+  shell: bash
+  run: |
+    MODULE="${{ inputs.gradleModule }}"
+    echo "gradle-module-path=${MODULE#:}" >> "$GITHUB_OUTPUT"
