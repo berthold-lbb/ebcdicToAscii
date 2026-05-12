@@ -1,0 +1,169 @@
+name: CI ui-ad-digital-mobile (Android)
+
+# Pipeline GitHub Actions ANDROID UNIQUEMENT pour ui-ad-digital-mobile (KMP).
+#
+# Migration depuis azure-pipelines.yml — partie Android.
+# La partie iOS sera couverte par un workflow séparé qui consomme
+# Desjardins/mobile-gha-workflows-ios (development.yml / appstore.yml).
+#
+# Stages reproduits depuis Azure Pipelines:
+#   - SonarScanShared            → job android-shared-sonar
+#   - SonarScanAndroidApp + Build → jobs android-dgag / android-tpic
+#   - PublishAndroidToAppLivery   → intégré aux jobs android-* (artifactType=apk)
+#
+# Brands:
+#   - Dgag (Desjardins Assurances) → token APPLIVERY_API_TOKEN_DA
+#   - Tpic (Larue & Petite Industrie) → token APPLIVERY_API_TOKEN_LP
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - 'release/**'
+      - 'release-gia/**'
+
+  push:
+    branches:
+      - main
+      - 'release/**'
+      - 'release-gia/**'
+      - 'rc/**'
+      - applivery-archives
+    tags:
+      - 'v*.*.*'
+
+  workflow_dispatch:
+    inputs:
+      manualPublishMode:
+        description: 'Mode de publication forcé'
+        type: choice
+        required: false
+        default: 'none'
+        options:
+          - none
+          - snapshot
+          - release-candidate
+          - release
+      brand:
+        description: 'Brand à builder (les deux par défaut)'
+        type: choice
+        required: false
+        default: 'both'
+        options:
+          - both
+          - dgag
+          - tpic
+      dryRun:
+        description: 'Dry-run (pas de distribution Applivery)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+
+  # =================================================================
+  # Sonar scan du module :shared (KMP common code)
+  # artifactType=none → juste build/test/scan, pas de publish/distribute
+  # Utilise Kover (koverXmlReportSonarqube) au lieu de Jacoco
+  # =================================================================
+  android-shared-sonar:
+    name: Sonar :shared
+    uses: Desjardins/mobile-gha-workflows-android/.github/workflows/v5/ci-android.yml@v5
+    with:
+      jdkVersion: "17"
+      productName: ui-ad-digital-mobile
+      componentName: ui-ad-digital-mobile-shared
+
+      gradleModule: ":shared"
+      gradleBuildTask: "assemble"
+      gradleTestTask: "koverXmlReportSonarqube"
+      sonarTask: "sonar"
+
+      artifactType: none      # pas de publish ni distribute pour ce job
+
+      enforceMobileCoverageRequirements: true
+      minCoverage: 80
+      prMinCoverage: 80
+    secrets:
+      ROLEID: ${{ secrets.ROLEID }}
+      SECRETID: ${{ secrets.SECRETID }}
+
+  # =================================================================
+  # Build + Test + Sonar + Distribute APK Dgag
+  # =================================================================
+  android-dgag:
+    name: Android Dgag
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.brand == 'both' || inputs.brand == 'dgag' }}
+    uses: Desjardins/mobile-gha-workflows-android/.github/workflows/v5/ci-android.yml@v5
+    with:
+      jdkVersion: "17"
+      productName: ui-ad-digital-mobile
+      componentName: ui-ad-digital-mobile-androidApp-dgag
+
+      # Multi-module + multi-brand: les tâches Gradle portent le nom du brand
+      gradleModule: ":androidApp"
+      gradleBuildTask: "testDgagQaDebugUnitTest"
+      gradleTestTask: "koverXmlReportSonarqube"
+
+      # APK Applivery
+      artifactType: apk
+      apkFilePath: ui-ad-digital-mobile-dgag.apk
+      appliveryTokenName: applivery-token-dgag    # → APPLIVERY_API_TOKEN_DA dans Vault
+      appliveryFlavor: vitrine
+      forceRelease: true
+      apkCopyTaskRelease: "copyDgagReleaseApkToRoot"
+
+      # Quality gate
+      enforceMobileCoverageRequirements: true
+      minCoverage: 80
+      prMinCoverage: 80
+
+      # Override workflow_dispatch
+      manualPublishMode: ${{ github.event_name == 'workflow_dispatch' && inputs.manualPublishMode || '' }}
+      dryRun: ${{ github.event_name == 'workflow_dispatch' && inputs.dryRun || false }}
+    secrets:
+      ROLEID: ${{ secrets.ROLEID }}
+      SECRETID: ${{ secrets.SECRETID }}
+
+  # =================================================================
+  # Build + Test + Sonar + Distribute APK Tpic
+  # =================================================================
+  android-tpic:
+    name: Android Tpic
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.brand == 'both' || inputs.brand == 'tpic' }}
+    uses: Desjardins/mobile-gha-workflows-android/.github/workflows/v5/ci-android.yml@v5
+    with:
+      jdkVersion: "17"
+      productName: ui-ad-digital-mobile
+      componentName: ui-ad-digital-mobile-androidApp-tpic
+
+      gradleModule: ":androidApp"
+      gradleBuildTask: "testTpicQaDebugUnitTest"
+      gradleTestTask: "koverXmlReportSonarqube"
+
+      artifactType: apk
+      apkFilePath: ui-ad-digital-mobile-tpic.apk
+      appliveryTokenName: applivery-token-tpic    # → APPLIVERY_API_TOKEN_LP dans Vault
+      appliveryFlavor: vitrine
+      forceRelease: true
+      apkCopyTaskRelease: "copyTpicReleaseApkToRoot"
+
+      enforceMobileCoverageRequirements: true
+      minCoverage: 80
+      prMinCoverage: 80
+
+      manualPublishMode: ${{ github.event_name == 'workflow_dispatch' && inputs.manualPublishMode || '' }}
+      dryRun: ${{ github.event_name == 'workflow_dispatch' && inputs.dryRun || false }}
+    secrets:
+      ROLEID: ${{ secrets.ROLEID }}
+      SECRETID: ${{ secrets.SECRETID }}
