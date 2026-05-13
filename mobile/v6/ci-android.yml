@@ -1,21 +1,15 @@
-name: "CI Android Library (v6)"
+name: "CI Android (v6.2)"
 
-# v6 — Refonte majeure: décomposition en JOBS distincts (style emerald-ci-java)
+# v6.2 — Correctifs mineurs vs v6.1:
+#   - Utilise emerald-mobile-publish-android@v3.1 (fix validate-inputs + jf gradle)
+#   - Nouvel input `artifactoryRepoDeploy` pour cibler le bon repo (maven-virtual,
+#     release-candidates-local, etc.) lors du `jf gradle-config`
+#   - Le summary JFrog liste maintenant TOUS les modules publiés (AAR, POM,
+#     module, sources) grâce à `jf gradle publish` (vs `./gradlew publish` en v6.1
+#     qui ne tracait pas les uploads → bannière vide)
 #
-# Architecture (graphe de jobs):
-#
+# Architecture inchangée (graphe de jobs):
 #   evaluate ──► validate-inputs ──► build-and-test ──► static-analysis ──► gating ──► publish
-#
-# Avantages vs v5 (monolithique):
-#   - Visuel: chaque étape apparaît comme une boîte dans le graphe GitHub Actions
-#   - Diagnostic: échec localisé à un job précis (build vs Sonar vs gating)
-#   - Re-run: on peut relancer juste le job échoué (re-run failed jobs)
-#   - Parallélisation future: gating et publish peuvent éventuellement tourner en parallèle
-#
-# Autres correctifs v6:
-#   - productName dynamique (fallback custom_properties.product → repo name)
-#   - Composite emerald-mobile-sonar-scan-android v3 utilisé (fix OOM Metaspace)
-#   - Upload des reports entre build-and-test et static-analysis (pas de recompile inutile)
 
 on:
   workflow_call:
@@ -93,6 +87,18 @@ on:
         type: boolean
         required: false
         default: true
+      artifactoryUrl:
+        description: 'URL Artifactory Desjardins'
+        type: string
+        required: false
+        default: 'https://artifacts.lc.az.nuagesdesjardins.com'
+      artifactoryRepoDeploy:
+        description: |
+          Repo Artifactory cible pour le deploy AAR (ex: release-candidates-local,
+          maven-virtual). Utilisé par `jf gradle-config --repo-deploy=...`
+        type: string
+        required: false
+        default: 'maven-virtual'
       snapshotVersionSuffix:
         type: string
         required: false
@@ -602,19 +608,25 @@ jobs:
             ./gradlew "$COPY"
           fi
 
-      - name: Publish AAR (composite emerald-mobile-publish-android v2)
+      - name: Publish AAR (composite emerald-mobile-publish-android v3.1 — vrai JFrog summary)
         if: ${{ inputs.artifactType == 'aar' }}
-        uses: Desjardins/emerald-mobile-publish-android@v2
+        uses: Desjardins/emerald-mobile-publish-android@v3.1
         with:
           artifactType: aar
           artifactoryToken: ${{ steps.secrets.outputs.ARTIFACTORY_REF_TOKEN }}
+          artifactoryUrl: ${{ inputs.artifactoryUrl }}
+          artifactoryRepoDeploy: ${{ inputs.artifactoryRepoDeploy }}
           gradleModule: ${{ needs.evaluate.outputs.gradle-module }}
           gradleTask: ${{ inputs.gradlePublishTask }}
           versionSuffix: ${{ needs.evaluate.outputs.version-suffix }}
+          disableJobSummary: 'false'
+          collectBuildInfo: 'true'
+          buildName: ${{ format('{0} {1}', needs.evaluate.outputs.product-name, needs.evaluate.outputs.component-name) }}
+          buildNumber: ${{ needs.evaluate.outputs.version }}-${{ github.run_number }}
 
-      - name: Distribute APK (composite emerald-mobile-publish-android v2)
+      - name: Distribute APK (composite emerald-mobile-publish-android v3.1)
         if: ${{ inputs.artifactType == 'apk' }}
-        uses: Desjardins/emerald-mobile-publish-android@v2
+        uses: Desjardins/emerald-mobile-publish-android@v3.1
         with:
           artifactType: apk
           appliveryToken: ${{ steps.secrets.outputs.APPLIVERY_TOKEN }}

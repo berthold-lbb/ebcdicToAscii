@@ -1,0 +1,104 @@
+name: CI Android Keychain (v6.2)
+
+# v6.2 — Correctifs mineurs vs v6.1:
+#   - Pointe vers le reusable ci-android v6.2 qui utilise emerald-mobile-publish-android@v3.1
+#   - Le summary JFrog liste maintenant tous les modules publiés (AAR/POM/module/sources)
+#     comme dans le pattern emerald-ci-java keychain (screenshots 4/5 que tu as vus)
+#   - Nouvel input `artifactoryRepoDeploy` exposé pour cibler le bon repo
+#
+# La séquence interne du composite v3.1:
+#   1. jfrog/setup-jfrog-cli@v4   ← injecte JF_URL + token, active le summary
+#   2. jf gradle-config            ← configure le repo deploy
+#   3. jf gradle :keychain:publish ← jf wrappe Gradle, track les uploads
+#   4. jf rt build-collect-env     ← collecte env CI
+#   5. jf rt build-add-git         ← collecte info Git
+#   6. jf rt build-publish         ← déclenche le JFrog Job Summary
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - master
+
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*.*.*'
+      - 'rc-*'
+
+  workflow_dispatch:
+    inputs:
+      publishRelease:
+        description: 'Publier une version release (sans suffixe rc)'
+        type: boolean
+        required: false
+        default: false
+      module:
+        description: 'Module à builder (ex: keychain, sample, ou vide pour tous)'
+        type: string
+        required: false
+        default: 'keychain'
+
+permissions:
+  contents: read
+  packages: write
+  pull-requests: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci-and-publish:
+    uses: Desjardins/mobile-gha-workflows-android/.github/workflows/v6.2/ci-android.yml@v6.2
+    with:
+      jdkVersion: "17"
+
+      # productName dynamique via custom_properties
+      productName: ${{ github.event.repository.custom_properties.product }}
+      componentName: keychain-android
+
+      # Module à builder
+      gradleModule: >-
+        ${{ github.event_name == 'workflow_dispatch'
+            && (inputs.module != '' && format(':{0}', inputs.module) || ':')
+            || ':keychain' }}
+      gradleBuildTask: "assembleDebug"
+      gradleTestTask: "jacocoTestReport"
+
+      # Publication AAR
+      artifactType: aar
+      gradlePublishTask: "publish"
+      enablePublish: true
+      # keychain pousse sur maven-virtual (cf. settings.gradle.kts du projet)
+      artifactoryUrl: 'https://artifacts.ic.az.nuagesdesjardins.com'
+      artifactoryRepoDeploy: 'maven-virtual'
+
+      manualPublishMode: >-
+        ${{ github.event_name == 'workflow_dispatch'
+            && inputs.publishRelease == true
+            && 'release'
+            || '' }}
+
+      # Quality gate
+      enforceMobileCoverageRequirements: true
+      minCoverage: 80
+      minReliability: A
+      minSecurity: A
+      minMaintainability: A
+      maxDuplication: 10
+      prMinCoverage: 80
+      prMinReliability: A
+      prMinSecurity: A
+      prMinMaintainability: A
+      prMaxDuplication: 10
+      prGatingNewCodeOnly: true
+
+      # Sonar: fix OOM Metaspace
+      sonarGradleJvmArgs: '-Xmx2g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
+    secrets:
+      ROLEID: ${{ secrets.ROLEID }}
+      SECRETID: ${{ secrets.SECRETID }}

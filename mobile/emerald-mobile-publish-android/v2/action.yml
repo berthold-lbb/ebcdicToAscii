@@ -1,45 +1,84 @@
-name: 'Publish Android artifact (v2)'
+name: 'Publish Android artifact (v3.1)'
 description: |
-  Composite unifié pour publier un artefact Android Desjardins.
-  Supporte deux formats:
-    - APK → distribution sur Applivery (cas application mobile interne / beta)
-    - AAR → publication sur JFrog Artifactory via maven-publish (cas librairie)
+  v3.1 — Deux correctifs majeurs vs v3:
 
-  Améliorations vs v1 (emerald-mobile-publish-apk-android):
-    - Ajout du support AAR (la v1 ne gérait que les APK Applivery)
-    - Input `artifactType` explicite pour switcher
-    - Pour les libraries: tâche Gradle paramétrable (`publish`, `publishRelease`, etc.)
-    - Pour les libraries: support multi-module via `gradleModule`
-    - Pour les libraries: suffixe de version (-SNAPSHOT, -RC) injecté via -Pversion.suffix
-    - Pour les APK: comportement v1 préservé pour rétrocompatibilité
+  1. FIX validate-inputs:
+     v3 utilisait `eval val="\${{ inputs.$v }}"` dans une boucle for. Invalide:
+     GitHub évalue ${{ }} AVANT le shell, donc inputs.$v ne résout jamais.
+     v3.1 utilise des env vars + if explicites par variable.
+
+  2. FIX JFrog Job Summary:
+     v3 faisait `./gradlew publish` après setup-jfrog-cli. Résultat: bannière
+     verte vide, pas de liste de modules publiés. Cause: JFrog CLI ne track
+     QUE ce qu'il wrappe lui-même.
+     v3.1 utilise `jf gradle-config` + `jf gradle <task>` pour que JFrog CLI
+     intercepte tous les uploads Maven. Résultat: summary complet identique
+     au pattern emerald-artifactory-release.yml (cf. emerald-ci-java keychain).
 
 inputs:
   artifactType:
     required: true
-    description: 'Type d artefact: "apk" (Applivery) ou "aar" (Artifactory via Gradle)'
+    description: '"apk" (Applivery) ou "aar" (Artifactory via jf gradle)'
 
-  # ---- Inputs communs ----
+  # ============================================================
+  #   AAR / Artifactory
+  # ============================================================
   artifactoryToken:
     required: false
-    description: 'Token Artifactory (requis si artifactType=aar). Exposé comme ARTIFACTORY_REF_TOKEN'
     default: ''
+  artifactoryUrl:
+    required: false
+    default: 'https://artifacts.lc.az.nuagesdesjardins.com'
+  artifactoryRepoDeploy:
+    description: |
+      Repo Artifactory cible pour le deploy (ex: release-candidates-local,
+      maven-virtual). Spécifique au projet et à la convention Desjardins.
+    required: false
+    default: 'maven-virtual'
+  artifactoryServerId:
+    description: 'Server ID JFrog CLI (défini par setup-jfrog-cli)'
+    required: false
+    default: ''
+  gradleModule:
+    required: false
+    default: ''
+  gradleTask:
+    required: false
+    default: 'publish'
+  versionSuffix:
+    required: false
+    default: ''
+  disableJobSummary:
+    required: false
+    default: 'false'
+  collectBuildInfo:
+    required: false
+    default: 'true'
+  buildName:
+    required: false
+    default: ''
+  buildNumber:
+    required: false
+    default: ''
+  useWrapper:
+    description: 'Utiliser ./gradlew (true) ou gradle système (false)'
+    required: false
+    default: 'true'
 
-  # ---- Inputs APK / Applivery ----
+  # ============================================================
+  #   APK / Applivery (inchangé vs v3)
+  # ============================================================
   appliveryToken:
     required: false
-    description: 'Token Applivery (requis si artifactType=apk)'
     default: ''
   apkFilePath:
     required: false
-    description: 'Chemin de l APK à uploader (requis si artifactType=apk)'
     default: ''
   gitBranch:
     required: false
-    description: 'Branche git (utilisée pour les tags Applivery)'
     default: ''
   flavorAppLivery:
     required: false
-    description: 'Flavor Applivery (vitrine/non-prod/prod)'
     default: 'vitrine'
   notifyCollaborators:
     required: false
@@ -49,87 +88,216 @@ inputs:
     default: 'false'
   extraArguments:
     required: false
-    description: 'Arguments curl additionnels (apk) OU gradle additionnels (aar)'
-    default: ''
-
-  # ---- Inputs AAR / Gradle publish ----
-  gradleModule:
-    required: false
-    description: 'Module Gradle ciblé (ex: ":keychain")'
-    default: ''
-  gradleTask:
-    required: false
-    description: 'Tâche Gradle de publication (défaut: publish)'
-    default: 'publish'
-  versionSuffix:
-    required: false
-    description: 'Suffixe de version (-SNAPSHOT, -RC). Passé via -Pversion.suffix'
     default: ''
 
 runs:
   using: "composite"
   steps:
 
+    # =============================================================
+    # FIX v3.1: Validation des inputs sans eval ni variable dynamique.
+    # Chaque input est passé via env var, testé par un if explicite.
+    # =============================================================
     - name: Validate inputs
       shell: bash
+      env:
+        ARTIFACT_TYPE: ${{ inputs.artifactType }}
+        ARTIFACTORY_TOKEN: ${{ inputs.artifactoryToken }}
+        APPLIVERY_TOKEN: ${{ inputs.appliveryToken }}
+        APK_FILE_PATH: ${{ inputs.apkFilePath }}
+        GIT_BRANCH: ${{ inputs.gitBranch }}
       run: |
         set -euo pipefail
-        case "${{ inputs.artifactType }}" in
-          apk)
-            for v in appliveryToken apkFilePath gitBranch; do
-              eval val="\${{ inputs.$v }}"
-              [ -z "$val" ] && echo "::error::Input '$v' requis pour artifactType=apk" && exit 1
-            done
-            ;;
+        case "$ARTIFACT_TYPE" in
           aar)
-            [ -z "${{ inputs.artifactoryToken }}" ] && echo "::error::artifactoryToken requis pour artifactType=aar" && exit 1
+            if [ -z "$ARTIFACTORY_TOKEN" ]; then
+              echo "::error::artifactoryToken requis pour artifactType=aar"
+              exit 1
+            fi
+            ;;
+          apk)
+            if [ -z "$APPLIVERY_TOKEN" ]; then
+              echo "::error::appliveryToken requis pour artifactType=apk"
+              exit 1
+            fi
+            if [ -z "$APK_FILE_PATH" ]; then
+              echo "::error::apkFilePath requis pour artifactType=apk"
+              exit 1
+            fi
+            if [ -z "$GIT_BRANCH" ]; then
+              echo "::error::gitBranch requis pour artifactType=apk"
+              exit 1
+            fi
             ;;
           *)
-            echo "::error::artifactType inconnu: ${{ inputs.artifactType }} (attendu: apk | aar)"
+            echo "::error::artifactType inconnu: $ARTIFACT_TYPE (attendu: apk | aar)"
             exit 1
             ;;
         esac
+        echo "✓ Inputs validés pour artifactType=$ARTIFACT_TYPE"
 
+    # =============================================================
+    # APK / Applivery — comportement v3 préservé
+    # =============================================================
     - name: Distribute APK on Applivery
       if: ${{ inputs.artifactType == 'apk' }}
       shell: bash
+      env:
+        APPLIVERY_TOKEN: ${{ inputs.appliveryToken }}
+        APK_FILE_PATH: ${{ inputs.apkFilePath }}
+        GIT_BRANCH: ${{ inputs.gitBranch }}
+        FLAVOR: ${{ inputs.flavorAppLivery }}
+        NOTIFY_COLLABORATORS: ${{ inputs.notifyCollaborators }}
+        NOTIFY_EMPLOYEES: ${{ inputs.notifyEmployees }}
+        EXTRA_ARGS: ${{ inputs.extraArguments }}
       run: |
         set -euo pipefail
-        echo "Publish branchName: ${{ inputs.gitBranch }}"
-        branchSHA256=$(echo -n "${{ inputs.gitBranch }}" | sha256sum | cut -c 1-8)
-        updatedTags="${{ inputs.flavorAppLivery }},branch:$branchSHA256,platform:android"
-        echo "updatedTags=$updatedTags"
+        branchSHA256=$(echo -n "$GIT_BRANCH" | sha256sum | cut -c 1-8)
+        updatedTags="${FLAVOR},branch:${branchSHA256},platform:android"
+        echo "Tags: $updatedTags"
         curl https://upload.applivery.io/v1/integrations/builds \
-          ${{ inputs.extraArguments }} \
-          --retry 5 \
-          --fail \
-          -H "Authorization: Bearer ${{ inputs.appliveryToken }}" \
-          -F "build=@${{ inputs.apkFilePath }}" \
+          $EXTRA_ARGS \
+          --retry 5 --fail \
+          -H "Authorization: Bearer $APPLIVERY_TOKEN" \
+          -F "build=@$APK_FILE_PATH" \
           -F "tags=$updatedTags" \
-          -F "notifyCollaborators=${{ inputs.notifyCollaborators }}" \
-          -F "notifyEmployees=${{ inputs.notifyEmployees }}" \
+          -F "notifyCollaborators=$NOTIFY_COLLABORATORS" \
+          -F "notifyEmployees=$NOTIFY_EMPLOYEES" \
           -F "deployer.name=GitHub Actions" \
-          -F "deployer.info.branch=${{ inputs.gitBranch }}"
+          -F "deployer.info.branch=$GIT_BRANCH"
 
-    - name: Publish AAR to Artifactory (via Gradle)
+    # =============================================================
+    # AAR / Artifactory — séquence JFrog CLI complète (v3.1)
+    # =============================================================
+
+    - name: Setup JFrog CLI
+      if: ${{ inputs.artifactType == 'aar' }}
+      uses: jfrog/setup-jfrog-cli@v4
+      env:
+        JF_URL: ${{ inputs.artifactoryUrl }}
+        JF_ACCESS_TOKEN: ${{ inputs.artifactoryToken }}
+      with:
+        disable-job-summary: ${{ inputs.disableJobSummary }}
+        # On désactive le build-publish auto pour appeler nous-mêmes
+        # `jf rt build-publish` après collecte env + git.
+        disable-auto-build-publish: 'true'
+
+    - name: Resolve build name / number
+      if: ${{ inputs.artifactType == 'aar' }}
+      id: build-info
+      shell: bash
+      env:
+        IN_NAME: ${{ inputs.buildName }}
+        IN_NUMBER: ${{ inputs.buildNumber }}
+        REPO_NAME: ${{ github.repository }}
+        RUN_NUMBER: ${{ github.run_number }}
+      run: |
+        set -euo pipefail
+        BUILD_NAME="$IN_NAME"
+        [ -z "$BUILD_NAME" ] && BUILD_NAME="$REPO_NAME"
+        BUILD_NUMBER="$IN_NUMBER"
+        [ -z "$BUILD_NUMBER" ] && BUILD_NUMBER="$RUN_NUMBER"
+        echo "name=$BUILD_NAME"     >> "$GITHUB_OUTPUT"
+        echo "number=$BUILD_NUMBER" >> "$GITHUB_OUTPUT"
+        echo "→ Build name=$BUILD_NAME #$BUILD_NUMBER"
+
+    - name: Configure jf gradle (repo deploy)
+      if: ${{ inputs.artifactType == 'aar' }}
+      shell: bash
+      env:
+        REPO_DEPLOY: ${{ inputs.artifactoryRepoDeploy }}
+        USE_WRAPPER: ${{ inputs.useWrapper }}
+      run: |
+        set -euo pipefail
+        WRAPPER_FLAG=""
+        [ "$USE_WRAPPER" = "true" ] && WRAPPER_FLAG="--use-wrapper"
+        echo "::group::jf gradle-config"
+        # --uses-plugin=false → on n'a pas le plugin Artifactory côté Gradle,
+        #                       JFrog CLI fait l'upload via l'API Artifactory.
+        jf gradle-config \
+          --repo-deploy="$REPO_DEPLOY" \
+          --uses-plugin=false \
+          $WRAPPER_FLAG
+        echo "::endgroup::"
+
+    - name: Publish AAR via jf gradle (track les uploads)
       if: ${{ inputs.artifactType == 'aar' }}
       shell: bash
       env:
         ARTIFACTORY_REF_TOKEN: ${{ inputs.artifactoryToken }}
+        JFROG_CLI_BUILD_NAME: ${{ steps.build-info.outputs.name }}
+        JFROG_CLI_BUILD_NUMBER: ${{ steps.build-info.outputs.number }}
+        MODULE: ${{ inputs.gradleModule }}
+        TASK: ${{ inputs.gradleTask }}
+        SUFFIX: ${{ inputs.versionSuffix }}
+        EXTRA_ARGS: ${{ inputs.extraArguments }}
       run: |
         set -euo pipefail
-        MODULE="${{ inputs.gradleModule }}"
-        TASK="${{ inputs.gradleTask }}"
-        SUFFIX="${{ inputs.versionSuffix }}"
-
         ARGS=""
-        if [ -n "$SUFFIX" ]; then
-          ARGS="-Pversion.suffix=$SUFFIX"
-        fi
-        ARGS="$ARGS ${{ inputs.extraArguments }}"
+        [ -n "$SUFFIX" ] && ARGS="-Pversion.suffix=$SUFFIX"
+        ARGS="$ARGS $EXTRA_ARGS"
 
-        if [ -n "$MODULE" ]; then
-          ./gradlew --build-cache "${MODULE}:${TASK}" $ARGS
+        if [ -n "$MODULE" ] && [ "$MODULE" != ":" ]; then
+          GRADLE_TASK="${MODULE}:${TASK}"
         else
-          ./gradlew --build-cache "$TASK" $ARGS
+          GRADLE_TASK="$TASK"
         fi
+
+        echo "::group::jf gradle $GRADLE_TASK"
+        echo "Build:  $JFROG_CLI_BUILD_NAME #$JFROG_CLI_BUILD_NUMBER"
+        echo "Args:   $ARGS"
+        echo "::endgroup::"
+
+        jf gradle "$GRADLE_TASK" $ARGS
+
+    - name: Collect env + Git info pour build-info
+      if: ${{ inputs.artifactType == 'aar' && inputs.collectBuildInfo == 'true' }}
+      shell: bash
+      env:
+        JFROG_CLI_BUILD_NAME: ${{ steps.build-info.outputs.name }}
+        JFROG_CLI_BUILD_NUMBER: ${{ steps.build-info.outputs.number }}
+      run: |
+        set -euo pipefail
+        # Collecte les variables d'env CI (run id, run number, workflow, etc.)
+        jf rt build-collect-env || echo "::warning::build-collect-env failed (non-fatal)"
+        # Collecte commit SHA, branche, message
+        jf rt build-add-git . || echo "::warning::build-add-git failed (non-fatal)"
+
+    - name: Publish build-info to Artifactory (déclenche le summary)
+      if: ${{ inputs.artifactType == 'aar' && inputs.collectBuildInfo == 'true' }}
+      shell: bash
+      env:
+        JFROG_CLI_BUILD_NAME: ${{ steps.build-info.outputs.name }}
+        JFROG_CLI_BUILD_NUMBER: ${{ steps.build-info.outputs.number }}
+      run: |
+        set -euo pipefail
+        jf rt build-publish
+
+    - name: Append Desjardins summary
+      if: ${{ inputs.artifactType == 'aar' && inputs.disableJobSummary == 'false' }}
+      shell: bash
+      env:
+        BUILD_NAME: ${{ steps.build-info.outputs.name }}
+        BUILD_NUMBER: ${{ steps.build-info.outputs.number }}
+        MODULE: ${{ inputs.gradleModule }}
+        TASK: ${{ inputs.gradleTask }}
+        SUFFIX: ${{ inputs.versionSuffix }}
+        REPO_DEPLOY: ${{ inputs.artifactoryRepoDeploy }}
+        ARTIFACTORY_URL: ${{ inputs.artifactoryUrl }}
+      run: |
+        cat >> "$GITHUB_STEP_SUMMARY" <<EOF
+
+        ### Publication AAR — Desjardins
+
+        | Champ | Valeur |
+        |---|---|
+        | Build name | \`$BUILD_NAME\` |
+        | Build number | \`$BUILD_NUMBER\` |
+        | Gradle module | \`$MODULE\` |
+        | Gradle task | \`$TASK\` |
+        | Version suffix | \`$SUFFIX\` |
+        | Repo cible | \`$REPO_DEPLOY\` |
+        | Artifactory | $ARTIFACTORY_URL |
+
+        Le **JFrog Job Summary** ci-dessus liste les modules publiés (AAR / POM / module / sources).
+        EOF
