@@ -1,0 +1,131 @@
+name: "Emerald Mobile Build Android App"
+description: >
+  Build d'un variant Android (brand+env+config) via Fastlane ou Gradle, avec
+  injection des credentials du feed Maven (parité Azure: -PcmtSdkUserName,
+  -PcmtSdkPassword, -PazurePassword) et upload de l'artefact APK/AAB.
+  Les ArkanaKeys et passwords keystore doivent déjà être en environnement
+  (emerald-mobile-load-vault-profile) et la signature préparée
+  (emerald-android-signing).
+
+inputs:
+  working-directory:
+    description: "Racine du projet. Exemple: `.`."
+    required: false
+    default: "."
+  fastlane-working-directory:
+    description: "Répertoire contenant le Gemfile/Fastfile Android. Exemple: `androidApp`."
+    required: false
+    default: "androidApp"
+  build-mode:
+    description: "`fastlane` (lane avec BUILD_VARIANT, parité Azure) ou `gradle` (tâche directe)."
+    required: false
+    default: "fastlane"
+  build-variant:
+    description: "Variant complet. Exemple: `DgagQaRelease`."
+    required: true
+  fastlane-lane:
+    description: "Lane Fastlane. Azure: `assemble` (APK) ou `bundle` (AAB)."
+    required: false
+    default: "assemble"
+  gradle-task-prefix:
+    description: "Préfixe de tâche si build-mode=gradle. Exemple: `assemble` → `assembleDgagQaRelease`."
+    required: false
+    default: "assemble"
+  java-home-env-name:
+    description: >
+      Nom de la variable JAVA_HOME_X attendue par le Fastfile.
+      Azure exposait JAVA_HOME_17_X64 (assemble) et JAVA_HOME_21_X64 (bundle).
+      Exemple: `JAVA_HOME_17_X64`.
+    required: false
+    default: "JAVA_HOME_17_X64"
+  maven-feed-username:
+    description: "Username du feed Maven (cmtSdkUserName). Vide = non passé."
+    required: false
+    default: ""
+  maven-feed-password:
+    description: "Password/token du feed Maven (cmtSdkPassword). Vide = non passé."
+    required: false
+    default: ""
+  repo-access-token:
+    description: "Token passé en -PazurePassword (parité System.AccessToken). Vide = non passé."
+    required: false
+    default: ""
+  extra-gradle-args:
+    description: "Arguments Gradle additionnels. Exemple: `--no-configuration-cache`."
+    required: false
+    default: ""
+  artifact-name:
+    description: "Nom de l'artefact GitHub. Exemple: `android-dgag-qa-release`."
+    required: true
+  artifact-glob:
+    description: "Pattern des binaires produits. Exemple: `**/build/outputs/**/*.apk`."
+    required: false
+    default: "**/build/outputs/**/*.apk"
+  dry-run:
+    description: "Simule le build (aucune compilation). Exemple: `false`."
+    required: false
+    default: "false"
+
+outputs:
+  artifact-name:
+    description: "Nom de l'artefact uploadé."
+    value: ${{ inputs.artifact-name }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Build Android ${{ inputs.build-variant }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        BUILD_VARIANT: ${{ inputs.build-variant }}
+        FEED_USER_IN: ${{ inputs.maven-feed-username }}
+        FEED_PASSWORD_IN: ${{ inputs.maven-feed-password }}
+        REPO_TOKEN_IN: ${{ inputs.repo-access-token }}
+        CI: "true"
+      run: |
+        set -euo pipefail
+
+        # Inputs prioritaires, sinon fallback sur l'environnement déjà chargé
+        # depuis Vault (profil azure-feed: CMT_SDK_USERNAME, CMT_SDK_PASSWORD,
+        # SYSTEM_ACCESS_TOKEN). ARTIFACTORY_REF_TOKEN est ambiant (vault-action).
+        export CMT_SDK_USERNAME="${FEED_USER_IN:-${CMT_SDK_USERNAME:-}}"
+        export CMT_SDK_PASSWORD="${FEED_PASSWORD_IN:-${CMT_SDK_PASSWORD:-}}"
+        export SYSTEM_ACCESS_TOKEN="${REPO_TOKEN_IN:-${SYSTEM_ACCESS_TOKEN:-}}"
+
+        if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+          echo "Dry-run: build Android $BUILD_VARIANT simulé."
+          mkdir -p build/dry-run/android
+          echo "dry-run $BUILD_VARIANT" > "build/dry-run/android/${{ inputs.artifact-name }}.txt"
+          exit 0
+        fi
+
+        # Le Fastfile lit JAVA_HOME_17_X64 / JAVA_HOME_21_X64 (parité Azure).
+        # setup-java a déjà positionné JAVA_HOME sur la bonne version.
+        export "${{ inputs.java-home-env-name }}"="$JAVA_HOME"
+
+        extra_props=()
+        [[ -n "$CMT_SDK_USERNAME" ]]    && extra_props+=("-PcmtSdkUserName=$CMT_SDK_USERNAME")
+        [[ -n "$CMT_SDK_PASSWORD" ]]    && extra_props+=("-PcmtSdkPassword=$CMT_SDK_PASSWORD")
+        [[ -n "$SYSTEM_ACCESS_TOKEN" ]] && extra_props+=("-PazurePassword=$SYSTEM_ACCESS_TOKEN")
+
+        if [[ "${{ inputs.build-mode }}" == "fastlane" ]]; then
+          cd "${{ inputs.fastlane-working-directory }}"
+          bundle exec fastlane "${{ inputs.fastlane-lane }}"
+        else
+          chmod +x ./gradlew || true
+          ./gradlew "${{ inputs.gradle-task-prefix }}${BUILD_VARIANT}" \
+            ${extra_props[@]+"${extra_props[@]}"} \
+            ${{ inputs.extra-gradle-args }} \
+            --stacktrace
+        fi
+
+    - name: Upload artifact ${{ inputs.artifact-name }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ inputs.working-directory }}/${{ inputs.artifact-glob }}
+          ${{ inputs.working-directory }}/build/dry-run/android/*.txt
+        if-no-files-found: error
+        retention-days: 14

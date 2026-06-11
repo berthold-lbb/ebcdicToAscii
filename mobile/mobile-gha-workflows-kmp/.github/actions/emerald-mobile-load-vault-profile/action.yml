@@ -1,0 +1,204 @@
+name: "Emerald Mobile Load Vault Profile"
+description: "Load one or more Vault profiles as dotenv bundles and optionally export variables to GITHUB_ENV."
+
+inputs:
+  vault-url:
+    required: true
+    description: "Vault base URL, e.g. https://vault.company.com"
+  vault-role-id:
+    required: true
+    description: "Vault AppRole role_id"
+  vault-secret-id:
+    required: true
+    description: "Vault AppRole secret_id"
+  vault-kv-mount:
+    required: false
+    default: "secret"
+    description: "KV mount name, for example secret, kv, mobile"
+  vault-kv-engine-version:
+    required: false
+    default: "2"
+    description: "1 or 2. KV v2 uses /data/ in the API path."
+  vault-base-path:
+    required: true
+    description: "Base path under the KV mount, e.g. mobile/ui-ad-digital-mobile"
+  profiles:
+    required: true
+    description: "Comma or newline separated profile paths, e.g. nprod/android/dgag/qa/arkana,nprod/android/dgag/qa/signing"
+  dotenv-key:
+    required: false
+    default: "dotenv"
+    description: "Vault field containing a dotenv-formatted bundle."
+  output-file:
+    required: true
+    description: "Path to write generated dotenv file."
+  export-to-github-env:
+    required: false
+    default: "false"
+    description: "Also export variables to GITHUB_ENV for later steps in the same job."
+  allow-kv-fallback:
+    required: false
+    default: "true"
+    description: "If dotenv field is absent, convert all scalar KV fields to KEY=VALUE."
+  fail-if-missing:
+    description: |
+      Échoue si un profil Vault ou la clé dotenv est introuvable. Exemple: `true`.
+    required: false
+    default: "true"
+  append:
+    description: |
+      Ajoute au fichier output-file au lieu de l’écraser. Exemple: `false`.
+    required: false
+    default: "false"
+
+outputs:
+  output-file:
+    description: |
+      Fichier .env généré. Exemple: `androidApp/.env`.
+    value: ${{ steps.load.outputs.output_file }}
+  loaded-profiles:
+    value: ${{ steps.load.outputs.loaded_profiles }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: load
+      shell: bash
+      env:
+        VAULT_URL: ${{ inputs.vault-url }}
+        VAULT_ROLE_ID: ${{ inputs.vault-role-id }}
+        VAULT_SECRET_ID: ${{ inputs.vault-secret-id }}
+        VAULT_KV_MOUNT: ${{ inputs.vault-kv-mount }}
+        VAULT_KV_ENGINE_VERSION: ${{ inputs.vault-kv-engine-version }}
+        VAULT_BASE_PATH: ${{ inputs.vault-base-path }}
+        PROFILES: ${{ inputs.profiles }}
+        DOTENV_KEY: ${{ inputs.dotenv-key }}
+        OUTPUT_FILE: ${{ inputs.output-file }}
+        EXPORT_TO_GITHUB_ENV: ${{ inputs.export-to-github-env }}
+        ALLOW_KV_FALLBACK: ${{ inputs.allow-kv-fallback }}
+        FAIL_IF_MISSING: ${{ inputs.fail-if-missing }}
+        APPEND: ${{ inputs.append }}
+      run: |
+        set -euo pipefail
+
+        command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 1; }
+        command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
+
+        # tr au lieu de ${1,,} : compatible bash 3.2 (runners macOS)
+        bool() { [[ "$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')" == "true" ]]; }
+        trim() { sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' <<<"$1"; }
+
+        normalize_profiles() {
+          # Accept comma-separated or newline-separated values.
+          printf '%s\n' "$PROFILES" | tr ',' '\n' | while IFS= read -r raw; do
+            local p
+            p="$(trim "$raw")"
+            [[ -n "$p" ]] && printf '%s\n' "$p"
+          done
+        }
+
+        mkdir -p "$(dirname "$OUTPUT_FILE")"
+        if ! bool "$APPEND"; then
+          : > "$OUTPUT_FILE"
+        fi
+        chmod 600 "$OUTPUT_FILE" || true
+
+        echo "Authenticating to Vault with AppRole..."
+        login_payload=$(jq -nc --arg role_id "$VAULT_ROLE_ID" --arg secret_id "$VAULT_SECRET_ID" '{role_id:$role_id, secret_id:$secret_id}')
+        token=$(curl -sSf \
+          --request POST \
+          --header "Content-Type: application/json" \
+          --data "$login_payload" \
+          "$VAULT_URL/v1/auth/approle/login" | jq -r '.auth.client_token // empty')
+
+        if [[ -z "$token" ]]; then
+          echo "Unable to authenticate to Vault." >&2
+          exit 1
+        fi
+
+        write_kv_pair() {
+          local key="$1"
+          local value="$2"
+          [[ -z "$key" ]] && return 0
+          # Only accept simple environment variable names.
+          if [[ ! "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            echo "Ignoring unsupported env key name: $key" >&2
+            return 0
+          fi
+          echo "::add-mask::$value"
+          printf '%s=%s\n' "$key" "$value" >> "$OUTPUT_FILE"
+          if bool "$EXPORT_TO_GITHUB_ENV"; then
+            printf '%s=%s\n' "$key" "$value" >> "$GITHUB_ENV"
+          fi
+        }
+
+        write_dotenv() {
+          local content="$1"
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            # Keep simple KEY=VALUE lines, skip comments/blank/export.
+            line="${line//$'\r'/}"
+            [[ -z "$(trim "$line")" ]] && continue
+            [[ "$line" =~ ^[[:space:]]*# ]] && continue
+            line="${line#export }"
+            local key="${line%%=*}"
+            local value="${line#*=}"
+            key="$(trim "$key")"
+            # Remove optional surrounding quotes for masking/exporting consistency.
+            value="${value%\"}"; value="${value#\"}"
+            value="${value%\'}"; value="${value#\'}"
+            write_kv_pair "$key" "$value"
+          done <<< "$content"
+        }
+
+        loaded=()
+        while IFS= read -r profile; do
+          [[ -z "$profile" ]] && continue
+          full_path="$VAULT_BASE_PATH/$profile"
+
+          if [[ "$VAULT_KV_ENGINE_VERSION" == "2" ]]; then
+            api_path="$VAULT_KV_MOUNT/data/$full_path"
+            data_filter='.data.data'
+          else
+            api_path="$VAULT_KV_MOUNT/$full_path"
+            data_filter='.data'
+          fi
+
+          echo "Loading Vault profile: $profile"
+          set +e
+          response=$(curl -sS \
+            --header "X-Vault-Token: $token" \
+            "$VAULT_URL/v1/$api_path")
+          status=$?
+          set -e
+
+          if [[ $status -ne 0 ]] || jq -e '.errors' >/dev/null 2>&1 <<<"$response"; then
+            echo "Failed to read Vault profile: $profile" >&2
+            if bool "$FAIL_IF_MISSING"; then
+              echo "$response" | jq -r '.errors[]?' >&2 || true
+              exit 1
+            else
+              continue
+            fi
+          fi
+
+          data=$(jq -c "$data_filter" <<<"$response")
+          dotenv=$(jq -r --arg k "$DOTENV_KEY" '.[$k] // empty' <<<"$data")
+
+          if [[ -n "$dotenv" && "$dotenv" != "null" ]]; then
+            write_dotenv "$dotenv"
+          elif bool "$ALLOW_KV_FALLBACK"; then
+            # Convert scalar KV fields to KEY=VALUE, excluding nested objects/arrays.
+            while IFS=$'\t' read -r k v; do
+              [[ -z "$k" ]] && continue
+              write_kv_pair "$k" "$v"
+            done < <(jq -r 'to_entries[] | select((.value|type) != "object" and (.value|type) != "array") | [.key, (.value|tostring)] | @tsv' <<<"$data")
+          else
+            echo "No dotenv field '$DOTENV_KEY' found in profile: $profile" >&2
+            if bool "$FAIL_IF_MISSING"; then exit 1; fi
+          fi
+          loaded+=("$profile")
+        done < <(normalize_profiles)
+
+        echo "output_file=$OUTPUT_FILE" >> "$GITHUB_OUTPUT"
+        printf 'loaded_profiles=%s\n' "$(IFS=,; echo "${loaded[*]:-}")" >> "$GITHUB_OUTPUT"
+        echo "Vault profiles loaded into $OUTPUT_FILE"

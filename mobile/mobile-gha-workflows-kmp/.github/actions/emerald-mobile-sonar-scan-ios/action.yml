@@ -1,0 +1,122 @@
+name: "Emerald Mobile Sonar Scan iOS"
+description: >
+  Phase 2 du Sonar iOS (parité Azure scan-template-ios) : s'exécute sur Linux,
+  télécharge les rapports produits sur macOS (coverage + SwiftLint) puis lance
+  sonar-scanner CLI avec les propriétés Azure.
+
+inputs:
+  sonar-url:
+    description: "URL SonarQube. Exemple: `https://sonar.company.com`."
+    required: true
+  sonar-token:
+    description: "Token SonarQube."
+    required: true
+  sonar-project-key:
+    description: "Clé projet. Azure: `com.desjardins.appsmobilesdgag:ui-ad-digital-mobile-ios`."
+    required: true
+  sonar-project-name:
+    description: "Nom projet Sonar. Exemple: `ui-ad-digital-mobile-iOS`."
+    required: false
+    default: ""
+  sonar-sources:
+    description: "Sources analysées. Azure: `iosApp/App`."
+    required: false
+    default: "iosApp/App"
+  coverage-artifact:
+    description: "Nom de l'artefact GitHub contenant sonarqube-generic-coverage.xml. Exemple: `ios-sonar-coverage`."
+    required: false
+    default: "ios-sonar-coverage"
+  swiftlint-artifact:
+    description: "Nom de l'artefact GitHub contenant sonarqube-swiftlint.xml. Exemple: `ios-sonar-swiftlint`."
+    required: false
+    default: "ios-sonar-swiftlint"
+  reports-directory:
+    description: "Répertoire de téléchargement des rapports. Exemple: `iosApp/test_derived_data`."
+    required: false
+    default: "iosApp/test_derived_data"
+  quality-gate-wait:
+    description: "Attend le quality gate (sonar.qualitygate.wait). Exemple: `true`."
+    required: false
+    default: "true"
+  pr-key:
+    description: "Numéro de PR pour l'analyse PR (vide = analyse branche). Exemple: `123`."
+    required: false
+    default: ""
+  pr-branch:
+    description: "Branche source de la PR."
+    required: false
+    default: ""
+  pr-base:
+    description: "Branche cible de la PR."
+    required: false
+    default: ""
+  extra-properties:
+    description: "Propriétés sonar additionnelles (une par ligne -Dsonar.x=y)."
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download coverage report
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.coverage-artifact }}
+        path: ${{ inputs.reports-directory }}
+
+    - name: Download SwiftLint report
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.swiftlint-artifact }}
+        path: ${{ inputs.reports-directory }}
+
+    - name: Run sonar-scanner CLI
+      shell: bash
+      env:
+        SONAR_HOST_URL: ${{ inputs.sonar-url }}
+        SONAR_TOKEN: ${{ inputs.sonar-token }}
+      run: |
+        set -euo pipefail
+
+        if ! command -v sonar-scanner >/dev/null; then
+          echo "Installation de sonar-scanner CLI..."
+          SCANNER_VERSION="6.2.1.4610"
+          curl -sSLo /tmp/sonar-scanner.zip \
+            "https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-${SCANNER_VERSION}-linux-x64.zip"
+          unzip -q /tmp/sonar-scanner.zip -d /tmp
+          export PATH="/tmp/sonar-scanner-${SCANNER_VERSION}-linux-x64/bin:$PATH"
+        fi
+
+        coverage_path=$(find "${{ inputs.reports-directory }}" -name 'sonarqube-generic-coverage.xml' | head -1 || true)
+        swiftlint_path=$(find "${{ inputs.reports-directory }}" -name 'sonarqube-swiftlint.xml' | head -1 || true)
+
+        args=(
+          "-Dsonar.host.url=$SONAR_HOST_URL"
+          "-Dsonar.token=$SONAR_TOKEN"
+          "-Dsonar.projectKey=${{ inputs.sonar-project-key }}"
+          "-Dsonar.sources=${{ inputs.sonar-sources }}"
+          "-Dsonar.sourceEncoding=UTF-8"
+          "-Dsonar.c.file.suffixes=-"
+          "-Dsonar.cpp.file.suffixes=-"
+          "-Dsonar.objc.file.suffixes=.h,.m"
+          "-Dsonar.swift.file.suffixes=.swift"
+          "-Dsonar.exclusions=**/*.png,**/*.jpg,**/*.jpeg,**/*.gif,**/*.svg,**/*.pdf,**/*.xcassets/**,**/*.xib,**/*.storyboard,**/*.plist,**/*.strings,**/*.md,**/*.txt,**/*.xml,**/*.json,**/Pods/**"
+        )
+        [[ -n "${{ inputs.sonar-project-name }}" ]] && args+=("-Dsonar.projectName=${{ inputs.sonar-project-name }}")
+        [[ -n "$coverage_path"  ]] && args+=("-Dsonar.coverageReportPaths=$coverage_path")
+        [[ -n "$swiftlint_path" ]] && args+=("-Dsonar.swift.swiftlint.reportPaths=$swiftlint_path")
+        if [[ "${{ inputs.quality-gate-wait }}" == "true" ]]; then
+          args+=("-Dsonar.qualitygate.wait=true" "-Dsonar.qualitygate.timeout=600")
+        fi
+        if [[ -n "${{ inputs.pr-key }}" ]]; then
+          args+=(
+            "-Dsonar.pullrequest.key=${{ inputs.pr-key }}"
+            "-Dsonar.pullrequest.branch=${{ inputs.pr-branch }}"
+            "-Dsonar.pullrequest.base=${{ inputs.pr-base }}"
+          )
+        fi
+        while IFS= read -r prop; do
+          [[ -n "$prop" ]] && args+=("$prop")
+        done <<< "${{ inputs.extra-properties }}"
+
+        sonar-scanner "${args[@]}"

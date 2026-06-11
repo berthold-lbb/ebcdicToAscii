@@ -1,0 +1,91 @@
+name: "Emerald Android Signing"
+description: >
+  Prépare la signature Android selon le mode résolu.
+  `repo-keystore` : les keystores sont déjà dans le repo (Debug/Qa), seuls les
+  passwords (chargés par emerald-mobile-load-vault-profile) sont nécessaires.
+  `vault-keystore` : décode un keystore base64 chargé depuis Vault vers le chemin
+  exact attendu par build.gradle.kts (pattern mobile-smd-android build-signed-aab).
+  Le nettoyage du keystore décodé doit être fait dans un step `if: always()` du
+  workflow via l'output `decoded-keystore-path`.
+
+inputs:
+  signing-mode:
+    description: "`repo-keystore` ou `vault-keystore`."
+    required: true
+  keystore-target-path:
+    description: >
+      Chemin (relatif au repo) où écrire le keystore décodé en mode vault-keystore.
+      Doit correspondre au storeFile du build.gradle.kts.
+      Exemple: `androidApp/keystore/ajusto-release-key.keystore`.
+    required: false
+    default: ""
+  keystore-data-env:
+    description: "Nom de la variable d'env contenant le keystore base64 (chargée depuis Vault). Exemple: `KeystoreData`."
+    required: false
+    default: "KeystoreData"
+  keystore-password-env:
+    description: "Nom de la variable d'env du store password. Exemple: `KeystorePassword`."
+    required: false
+    default: "KeystorePassword"
+  key-alias-env:
+    description: "Nom de la variable d'env de l'alias. Exemple: `KeyAlias`."
+    required: false
+    default: "KeyAlias"
+  key-password-env:
+    description: "Nom de la variable d'env du key password. Exemple: `KeyPassword`."
+    required: false
+    default: "KeyPassword"
+
+outputs:
+  decoded-keystore-path:
+    description: "Chemin du keystore décodé (vide en mode repo-keystore). À supprimer en fin de job."
+    value: ${{ steps.decode.outputs.decoded_path }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: decode
+      shell: bash
+      env:
+        SIGNING_MODE: ${{ inputs.signing-mode }}
+        TARGET_PATH: ${{ inputs.keystore-target-path }}
+        KS_DATA_ENV: ${{ inputs.keystore-data-env }}
+        KS_PASSWORD_ENV: ${{ inputs.keystore-password-env }}
+        KEY_ALIAS_ENV: ${{ inputs.key-alias-env }}
+        KEY_PASSWORD_ENV: ${{ inputs.key-password-env }}
+      run: |
+        set -euo pipefail
+
+        if [[ "$SIGNING_MODE" == "repo-keystore" ]]; then
+          echo "Signing mode: repo-keystore (keystores du repo + passwords Vault)."
+          echo "decoded_path=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        if [[ "$SIGNING_MODE" != "vault-keystore" ]]; then
+          echo "::error::signing-mode invalide: $SIGNING_MODE (attendu: repo-keystore | vault-keystore)"
+          exit 1
+        fi
+
+        if [[ -z "$TARGET_PATH" ]]; then
+          echo "::error::keystore-target-path est requis en mode vault-keystore"
+          exit 1
+        fi
+
+        ks_data="${!KS_DATA_ENV:-}"
+        if [[ -z "$ks_data" ]]; then
+          echo "::error::variable $KS_DATA_ENV absente — le profil Vault de signature doit exposer le keystore base64"
+          exit 1
+        fi
+        for required in "$KS_PASSWORD_ENV" "$KEY_ALIAS_ENV" "$KEY_PASSWORD_ENV"; do
+          if [[ -z "${!required:-}" ]]; then
+            echo "::error::variable $required absente du profil Vault de signature"
+            exit 1
+          fi
+        done
+
+        mkdir -p "$(dirname "$TARGET_PATH")"
+        printf '%s' "$ks_data" | base64 -d > "$TARGET_PATH"
+        chmod 600 "$TARGET_PATH"
+        echo "Keystore décodé vers $TARGET_PATH ($(stat -c%s "$TARGET_PATH" 2>/dev/null || stat -f%z "$TARGET_PATH") octets)."
+        echo "decoded_path=$TARGET_PATH" >> "$GITHUB_OUTPUT"

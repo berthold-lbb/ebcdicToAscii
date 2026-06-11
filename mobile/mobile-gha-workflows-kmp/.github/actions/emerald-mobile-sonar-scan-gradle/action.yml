@@ -1,0 +1,108 @@
+name: "Emerald Mobile Sonar Scan Gradle"
+description: >
+  Qualité d'un module Gradle (parité Azure scan-template-gradle) :
+  tests unitaires + rapport Kover + scan Sonar, avec credentials du feed Maven.
+  Les ArkanaKeys nécessaires aux tests doivent déjà être en environnement.
+
+inputs:
+  working-directory:
+    description: "Racine du projet Gradle. Exemple: `.`."
+    required: false
+    default: "."
+  test-task:
+    description: "Tâche de tests. Exemple: `:shared:testDebugUnitTest`. Vide = ignorée."
+    required: false
+    default: ""
+  coverage-task:
+    description: "Tâche de couverture. Exemple: `:shared:koverXmlReportSonarqube`. Vide = ignorée."
+    required: false
+    default: ""
+  sonar-task:
+    description: "Tâche Sonar. Exemple: `:shared:sonar`. Vide = scan désactivé."
+    required: false
+    default: ""
+  sonar-url:
+    description: "URL SonarQube. Exemple: `https://sonar.company.com`."
+    required: false
+    default: ""
+  sonar-token:
+    description: "Token SonarQube."
+    required: false
+    default: ""
+  sonar-project-key:
+    description: "Clé projet Sonar (vide = configuration du build.gradle). Exemple: `com.desjardins:ui-ad-digital-mobile-shared`."
+    required: false
+    default: ""
+  quality-gate-wait:
+    description: "Attend le résultat du quality gate Sonar (sonar.qualitygate.wait). Exemple: `true`."
+    required: false
+    default: "true"
+  gradle-jvm-args:
+    description: "JVM args Gradle (OOM Metaspace sur gros projets). Exemple: `-Xmx3g -XX:MaxMetaspaceSize=1g`."
+    required: false
+    default: "-Xmx2g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8"
+  maven-feed-username:
+    description: "Username du feed Maven (cmtSdkUserName). Vide = non passé."
+    required: false
+    default: ""
+  maven-feed-password:
+    description: "Password du feed Maven (cmtSdkPassword). Vide = non passé."
+    required: false
+    default: ""
+  repo-access-token:
+    description: "Token -PazurePassword (parité Azure). Vide = non passé."
+    required: false
+    default: ""
+  extra-gradle-args:
+    description: "Arguments Gradle additionnels. Exemple: `--build-cache`."
+    required: false
+    default: "--build-cache"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Run tests + coverage + sonar
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      env:
+        GRADLE_OPTS: ${{ inputs.gradle-jvm-args }}
+        SONAR_TOKEN: ${{ inputs.sonar-token }}
+        SONAR_HOST_URL: ${{ inputs.sonar-url }}
+      run: |
+        set -euo pipefail
+        chmod +x ./gradlew || true
+
+        # Inputs prioritaires, sinon fallback sur l'env Vault (profil azure-feed).
+        # ARTIFACTORY_REF_TOKEN est ambiant (vault-action) pour settings.gradle.
+        feed_user="${{ inputs.maven-feed-username }}"; [[ -z "$feed_user" ]] && feed_user="${CMT_SDK_USERNAME:-}"
+        feed_pass="${{ inputs.maven-feed-password }}"; [[ -z "$feed_pass" ]] && feed_pass="${CMT_SDK_PASSWORD:-}"
+        repo_token="${{ inputs.repo-access-token }}"; [[ -z "$repo_token" ]] && repo_token="${SYSTEM_ACCESS_TOKEN:-}"
+
+        extra_props=()
+        [[ -n "$feed_user" ]]  && extra_props+=("-PcmtSdkUserName=$feed_user")
+        [[ -n "$feed_pass" ]]  && extra_props+=("-PcmtSdkPassword=$feed_pass")
+        [[ -n "$repo_token" ]] && extra_props+=("-PazurePassword=$repo_token")
+
+        tasks=()
+        [[ -n "${{ inputs.test-task }}" ]]     && tasks+=(${{ inputs.test-task }})
+        [[ -n "${{ inputs.coverage-task }}" ]] && tasks+=(${{ inputs.coverage-task }})
+
+        sonar_props=()
+        if [[ -n "${{ inputs.sonar-task }}" ]]; then
+          tasks+=(${{ inputs.sonar-task }})
+          [[ -n "$SONAR_HOST_URL" ]] && sonar_props+=("-Dsonar.host.url=$SONAR_HOST_URL")
+          [[ -n "$SONAR_TOKEN"    ]] && sonar_props+=("-Dsonar.token=$SONAR_TOKEN")
+          [[ -n "${{ inputs.sonar-project-key }}" ]] && sonar_props+=("-Dsonar.projectKey=${{ inputs.sonar-project-key }}")
+          [[ "${{ inputs.quality-gate-wait }}" == "true" ]] && sonar_props+=("-Dsonar.qualitygate.wait=true")
+        fi
+
+        if [[ ${#tasks[@]} -eq 0 ]]; then
+          echo "Aucune tâche à exécuter (test/coverage/sonar vides)."
+          exit 0
+        fi
+
+        ./gradlew "${tasks[@]}" \
+          ${extra_props[@]+"${extra_props[@]}"} \
+          ${sonar_props[@]+"${sonar_props[@]}"} \
+          ${{ inputs.extra-gradle-args }} \
+          --stacktrace

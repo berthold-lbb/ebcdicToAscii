@@ -1,0 +1,101 @@
+name: "Emerald Mobile Update Build Version"
+description: >
+  Incrémente la version après publication (parité Azure UpdateBuildVersion) :
+  `gradle incrementVersion` côté Android/shared, script d'incrément côté iOS,
+  puis commit + push sur la branche courante. Nécessite un checkout avec
+  credentials persistés et un token autorisé à pousser.
+
+inputs:
+  git-branch:
+    description: "Branche cible du push. Exemple: `main`, `rc/4.12`."
+    required: true
+  git-user-name:
+    description: "Auteur du commit. Exemple: `GitHub Actions`."
+    required: false
+    default: "github-actions[bot]"
+  git-user-email:
+    description: "Email du commit. Exemple: `github-actions[bot]@users.noreply.github.com`."
+    required: false
+    default: "github-actions[bot]@users.noreply.github.com"
+  gradle-task:
+    description: "Tâche Gradle d'incrément. Azure: `incrementVersion`."
+    required: false
+    default: "incrementVersion"
+  gradle-extra-args:
+    description: "Arguments Gradle additionnels. Azure: `--no-configuration-cache`."
+    required: false
+    default: "--no-configuration-cache"
+  ios-increment-script:
+    description: "Script d'incrément iOS, relatif au répertoire iOS. Azure: `./increment_build_number.sh`. Vide = ignoré."
+    required: false
+    default: "./increment_build_number.sh"
+  ios-working-directory:
+    description: "Répertoire iOS. Exemple: `iosApp`."
+    required: false
+    default: "iosApp"
+  commit-message:
+    description: "Message de commit. Exemple: `ci: increment build version [skip ci]`."
+    required: false
+    default: "ci: increment build version [skip ci]"
+  maven-feed-username:
+    description: "Username feed Maven (cmtSdkUserName). Vide = non passé."
+    required: false
+    default: ""
+  maven-feed-password:
+    description: "Password feed Maven (cmtSdkPassword). Vide = non passé."
+    required: false
+    default: ""
+  repo-access-token:
+    description: "Token -PazurePassword. Vide = non passé."
+    required: false
+    default: ""
+  dry-run:
+    description: "Incrémente sans pousser. Exemple: `false`."
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Increment versions
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        git config user.name  "${{ inputs.git-user-name }}"
+        git config user.email "${{ inputs.git-user-email }}"
+        git fetch origin "${{ inputs.git-branch }}"
+        git checkout "${{ inputs.git-branch }}"
+
+        # Inputs prioritaires, sinon fallback sur l'env Vault (profil azure-feed).
+        feed_user="${{ inputs.maven-feed-username }}"; [[ -z "$feed_user" ]] && feed_user="${CMT_SDK_USERNAME:-}"
+        feed_pass="${{ inputs.maven-feed-password }}"; [[ -z "$feed_pass" ]] && feed_pass="${CMT_SDK_PASSWORD:-}"
+        repo_token="${{ inputs.repo-access-token }}"; [[ -z "$repo_token" ]] && repo_token="${SYSTEM_ACCESS_TOKEN:-}"
+
+        extra_props=()
+        [[ -n "$feed_user" ]]  && extra_props+=("-PcmtSdkUserName=$feed_user")
+        [[ -n "$feed_pass" ]]  && extra_props+=("-PcmtSdkPassword=$feed_pass")
+        [[ -n "$repo_token" ]] && extra_props+=("-PazurePassword=$repo_token")
+
+        chmod +x ./gradlew || true
+        ./gradlew ${{ inputs.gradle-task }} ${extra_props[@]+"${extra_props[@]}"} ${{ inputs.gradle-extra-args }} --stacktrace
+        ./gradlew --stop || true
+
+        if [[ -n "${{ inputs.ios-increment-script }}" && -d "${{ inputs.ios-working-directory }}" ]]; then
+          ( cd "${{ inputs.ios-working-directory }}" && ${{ inputs.ios-increment-script }} )
+        fi
+
+        if git diff --quiet; then
+          echo "Aucun changement de version à committer."
+          exit 0
+        fi
+
+        git add -A
+        git commit -m "${{ inputs.commit-message }}"
+
+        if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+          echo "Dry-run: push ignoré."
+          git log -1 --stat
+          exit 0
+        fi
+        git push origin "${{ inputs.git-branch }}"

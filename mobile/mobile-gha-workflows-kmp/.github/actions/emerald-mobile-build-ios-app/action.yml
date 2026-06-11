@@ -1,0 +1,162 @@
+name: "Emerald Mobile Build iOS App"
+description: >
+  Build d'un scheme iOS via Fastlane avec Fastlane Match (parité Azure) :
+  clone local du repo codesigning, MATCH_GIT_URL=file://, keychain dédié.
+  Les ArkanaKeys et secrets Match (MATCH_PASSWORD, MATCH_KEYCHAIN_PASSWORD)
+  doivent déjà être en environnement (emerald-mobile-load-vault-profile).
+  Produit et upload l'IPA en artefact.
+
+inputs:
+  ios-working-directory:
+    description: "Répertoire iOS. Exemple: `iosApp`."
+    required: false
+    default: "iosApp"
+  scheme:
+    description: "Vrai scheme Xcode. Exemple: `DesjardinsAssurances`, `LaPersonnelle`."
+    required: true
+  configuration:
+    description: "Configuration passée à la lane. Azure: `QA`, `Prod`, `Beta`."
+    required: true
+  profile-type:
+    description: "Type de profil de signature. Azure: `enterprise` (AppLivery) ou `appstore` (TestFlight)."
+    required: true
+  lane:
+    description: "Lane Fastlane de build. Exemple: `validate_build`."
+    required: false
+    default: "validate_build"
+  fastlane-env:
+    description: "Valeur de --env (dotenv Fastlane du projet). Exemple: `dgag_qa`, `tpic_store`."
+    required: false
+    default: ""
+  ipa-name:
+    description: "Nom de l'IPA produit. Exemple: `com.ent.dgaginno.desjardins.assurances.ipa`."
+    required: false
+    default: ""
+  match-repository:
+    description: >
+      Repo GitHub de codesigning Match (owner/repo).
+      Azure: codesigning-ios-enterprise-dgag, codesigning-ios-public-desjardins, etc.
+      Vide = Match non configuré par cette action (MATCH_GIT_URL doit venir d'ailleurs).
+    required: false
+    default: ""
+  match-ref:
+    description: "Branche du repo Match. Exemple: `main`."
+    required: false
+    default: "main"
+  match-git-token:
+    description: "Token avec accès lecture au repo Match. Exemple: PAT dédié."
+    required: false
+    default: ""
+  match-keychain-name:
+    description: >
+      Nom du keychain Match. Vide (recommandé) = keychain ÉPHÉMÈRE
+      `runner-<run_id>-<run_attempt>` avec password identique — pattern
+      mobile-gha-workflows-ios. Rend inutiles les MATCH_KEYCHAIN_NAME /
+      MATCH_KEYCHAIN_NAME_CREATION d'Azure : chaque job GitHub est un runner
+      neuf, un keychain jetable par job suffit.
+    required: false
+    default: ""
+  ci-env-value:
+    description: "Valeur de CI exportée pendant le build. Azure: `false` pour les tests simulateur uniquement. Exemple: `true`."
+    required: false
+    default: "true"
+  branch-name:
+    description: "Nom de branche exposé en BRANCH_NAME à la lane. Exemple: `main`."
+    required: false
+    default: ""
+  artifact-name:
+    description: "Nom de l'artefact GitHub. Exemple: `ios-dgag-qa`."
+    required: true
+  artifact-glob:
+    description: "Pattern des IPA produits, relatif au répertoire iOS. Exemple: `**/*.ipa`."
+    required: false
+    default: "**/*.ipa"
+  dry-run:
+    description: "Simule le build. Exemple: `false`."
+    required: false
+    default: "false"
+
+outputs:
+  artifact-name:
+    description: "Nom de l'artefact uploadé."
+    value: ${{ inputs.artifact-name }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout Match codesigning repository
+      if: ${{ inputs.match-repository != '' && inputs.dry-run != 'true' }}
+      uses: actions/checkout@v4
+      with:
+        repository: ${{ inputs.match-repository }}
+        ref: ${{ inputs.match-ref }}
+        token: ${{ inputs.match-git-token || github.token }}
+        path: .match-codesigning
+        persist-credentials: true
+
+    - name: Build iOS ${{ inputs.scheme }} (${{ inputs.configuration }})
+      shell: bash
+      working-directory: ${{ inputs.ios-working-directory }}
+      env:
+        SCHEME: ${{ inputs.scheme }}
+        CONFIGURATION: ${{ inputs.configuration }}
+        PROFILE_TYPE: ${{ inputs.profile-type }}
+        IPA_NAME: ${{ inputs.ipa-name }}
+        BRANCH_NAME: ${{ inputs.branch-name }}
+        KEYCHAIN_NAME_IN: ${{ inputs.match-keychain-name }}
+        CI: ${{ inputs.ci-env-value }}
+        # Stabilité Fastlane en CI (pattern mobile-gha-workflows-ios)
+        FASTLANE_HIDE_TIMESTAMP: "true"
+        FASTLANE_XCODE_LIST_TIMEOUT: "60"
+        FASTLANE_XCODEBUILD_SETTINGS_TIMEOUT: "10"
+        FASTLANE_XCODEBUILD_SETTINGS_RETRIES: "3"
+        FASTLANE_SKIP_UPDATE_CHECK: "true"
+      run: |
+        set -euo pipefail
+
+        # Keychain éphémère par job si non fourni (pattern org iOS) :
+        # MATCH_KEYCHAIN_PASSWORD n'a pas besoin de venir de Vault — le
+        # keychain est créé/détruit dans ce job, son password est jetable.
+        export MATCH_KEYCHAIN_NAME="${KEYCHAIN_NAME_IN:-runner-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}"
+        export MATCH_KEYCHAIN_PASSWORD="${MATCH_KEYCHAIN_PASSWORD:-$MATCH_KEYCHAIN_NAME}"
+
+        if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+          echo "Dry-run: build iOS $SCHEME $CONFIGURATION simulé."
+          mkdir -p build/dry-run/ios
+          echo "dry-run $SCHEME $CONFIGURATION" > "build/dry-run/ios/${{ inputs.artifact-name }}.txt"
+          exit 0
+        fi
+
+        # Match en clone local (parité Azure: MATCH_GIT_URL=file://...)
+        if [[ -n "${{ inputs.match-repository }}" ]]; then
+          export MATCH_GIT_URL="file://$GITHUB_WORKSPACE/.match-codesigning"
+          git -C "$GITHUB_WORKSPACE/.match-codesigning" checkout --force "${{ inputs.match-ref }}"
+        fi
+
+        if [[ -z "${MATCH_PASSWORD:-}" ]]; then
+          echo "::warning::MATCH_PASSWORD absent de l'environnement — la lane échouera si Match est requis."
+        fi
+
+        lane_args=()
+        [[ -n "${{ inputs.fastlane-env }}" ]] && lane_args+=(--env "${{ inputs.fastlane-env }}")
+        # ${arr[@]+...} : expansion sûre d'un tableau vide sous set -u (bash 3.2 macOS)
+        bundle exec fastlane "${{ inputs.lane }}" ${lane_args[@]+"${lane_args[@]}"} --verbose
+
+    - name: Upload artifact ${{ inputs.artifact-name }}
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ inputs.ios-working-directory }}/${{ inputs.artifact-glob }}
+          ${{ inputs.ios-working-directory }}/build/dry-run/ios/*.txt
+        if-no-files-found: error
+        retention-days: 14
+
+    - name: Cleanup keychain
+      if: ${{ always() && inputs.dry-run != 'true' }}
+      shell: bash
+      run: |
+        kc="${{ inputs.match-keychain-name }}"
+        [[ -z "$kc" ]] && kc="runner-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        security delete-keychain "$kc" 2>/dev/null || true
+        rm -rf "$GITHUB_WORKSPACE/.match-codesigning" || true

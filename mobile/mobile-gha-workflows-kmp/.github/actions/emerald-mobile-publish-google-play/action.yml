@@ -1,0 +1,111 @@
+name: "Emerald Mobile Publish Google Play"
+description: >
+  Publie un AAB vers Google Play SANS rebuild : télécharge l'artefact puis
+  upload via le service account JSON. Deux modes :
+  `fastlane` — lane projet (ex: supply) avec AAB_PATH en environnement ;
+  `api` — r0adkll/upload-google-play (action communautaire éprouvée).
+  Le service account JSON (GOOGLE_PLAY_SERVICE_ACCOUNT_JSON) doit être en
+  environnement (emerald-mobile-load-vault-profile) ou passé en input.
+
+inputs:
+  publish-mode:
+    description: "`fastlane` ou `api`."
+    required: false
+    default: "api"
+  artifact-name:
+    description: "Artefact GitHub contenant l'AAB. Exemple: `android-dgag-prod-release`."
+    required: true
+  download-path:
+    description: "Répertoire de téléchargement. Exemple: `googleplay-artifacts`."
+    required: false
+    default: "googleplay-artifacts"
+  package-name:
+    description: "ApplicationId Android. Exemple: `ca.dgag.ajusto`."
+    required: true
+  track:
+    description: "Track Google Play. Exemple: `internal`, `beta`, `production`."
+    required: false
+    default: "internal"
+  release-status:
+    description: "Statut de la release. Exemple: `draft`, `completed`."
+    required: false
+    default: "draft"
+  service-account-json:
+    description: "Service account JSON (vide = variable d'env GOOGLE_PLAY_SERVICE_ACCOUNT_JSON)."
+    required: false
+    default: ""
+  fastlane-working-directory:
+    description: "Répertoire du Fastfile (mode fastlane). Exemple: `androidApp`."
+    required: false
+    default: "androidApp"
+  fastlane-lane:
+    description: "Lane (mode fastlane). Exemple: `google_play_deploy`."
+    required: false
+    default: "google_play_deploy"
+  dry-run:
+    description: "Simule la publication. Exemple: `false`."
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download AAB artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.download-path }}
+
+    - name: Locate AAB + service account
+      id: locate
+      shell: bash
+      env:
+        SA_INPUT: ${{ inputs.service-account-json }}
+      run: |
+        set -euo pipefail
+        aab_path=$(find "${{ inputs.download-path }}" -name '*.aab' | head -1 || true)
+        if [[ "${{ inputs.dry-run }}" != "true" && -z "$aab_path" ]]; then
+          echo "::error::Aucun AAB trouvé dans ${{ inputs.download-path }}"
+          exit 1
+        fi
+        echo "aab_path=$aab_path" >> "$GITHUB_OUTPUT"
+
+        sa_json="${SA_INPUT:-${GOOGLE_PLAY_SERVICE_ACCOUNT_JSON:-}}"
+        if [[ "${{ inputs.dry-run }}" != "true" && -z "$sa_json" ]]; then
+          echo "::error::Service account Google Play manquant (input ou GOOGLE_PLAY_SERVICE_ACCOUNT_JSON)"
+          exit 1
+        fi
+        sa_file="$RUNNER_TEMP/gplay-sa.json"
+        printf '%s' "$sa_json" > "$sa_file"
+        chmod 600 "$sa_file"
+        echo "sa_file=$sa_file" >> "$GITHUB_OUTPUT"
+
+    - name: Publish via Google Play API
+      if: ${{ inputs.publish-mode == 'api' && inputs.dry-run != 'true' }}
+      uses: r0adkll/upload-google-play@v1
+      with:
+        serviceAccountJson: ${{ steps.locate.outputs.sa_file }}
+        packageName: ${{ inputs.package-name }}
+        releaseFiles: ${{ steps.locate.outputs.aab_path }}
+        track: ${{ inputs.track }}
+        status: ${{ inputs.release-status }}
+
+    - name: Publish via Fastlane
+      if: ${{ inputs.publish-mode == 'fastlane' && inputs.dry-run != 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.fastlane-working-directory }}
+      env:
+        AAB_PATH: ${{ github.workspace }}/${{ steps.locate.outputs.aab_path }}
+        GOOGLE_PLAY_JSON_KEY_PATH: ${{ steps.locate.outputs.sa_file }}
+        GOOGLE_PLAY_TRACK: ${{ inputs.track }}
+      run: bundle exec fastlane "${{ inputs.fastlane-lane }}" --verbose
+
+    - name: Dry-run notice
+      if: ${{ inputs.dry-run == 'true' }}
+      shell: bash
+      run: echo "Dry-run - publication Google Play simulée."
+
+    - name: Cleanup service account
+      if: ${{ always() }}
+      shell: bash
+      run: rm -f "$RUNNER_TEMP/gplay-sa.json" || true

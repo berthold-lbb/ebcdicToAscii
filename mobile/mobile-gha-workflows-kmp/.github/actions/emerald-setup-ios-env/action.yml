@@ -1,0 +1,136 @@
+name: "Emerald Setup iOS Environment"
+description: >
+  Prépare un job iOS/KMP sur macOS : Git LFS, Ruby/Bundler, JDK + Gradle + Konan
+  (le build iOS compile le framework shared KMP — sans ces caches, chaque build
+  retélécharge Kotlin/Native et recompile shared à froid), CocoaPods, SPM et
+  DerivedData en option.
+
+inputs:
+  ios-working-directory:
+    description: "Répertoire iOS contenant Gemfile/Podfile. Exemple: `iosApp`."
+    required: false
+    default: "iosApp"
+  git-lfs:
+    description: "Exécute git lfs install + pull (parité Azure). Exemple: `true`."
+    required: false
+    default: "true"
+  jdk-version:
+    description: "JDK pour la compilation Gradle du framework shared. Exemple: `17`."
+    required: false
+    default: "17"
+  setup-gradle:
+    description: "Configure JDK + Gradle (requis si le build Xcode compile shared). Exemple: `true`."
+    required: false
+    default: "true"
+  enable-gradle-cache:
+    description: "Cache Gradle sur le runner macOS. Exemple: `true`."
+    required: false
+    default: "true"
+  enable-konan-cache:
+    description: "Cache Kotlin/Native ~/.konan (poste de temps n°1 sur iOS KMP). Exemple: `true`."
+    required: false
+    default: "true"
+  enable-bundler-cache:
+    description: "Cache des gems (clé: Gemfile.lock). Exemple: `true`."
+    required: false
+    default: "true"
+  enable-cocoapods-cache:
+    description: "Cache Pods (clé: Podfile.lock). Inutile si Pods/ est commité. Exemple: `true`."
+    required: false
+    default: "true"
+  run-pod-install:
+    description: "Exécute pod install (false si Pods/ est commité). Exemple: `false`."
+    required: false
+    default: "false"
+  enable-spm-cache:
+    description: "Cache Swift Package Manager (si le projet a des dépendances SPM). Exemple: `false`."
+    required: false
+    default: "false"
+  enable-derived-data-cache:
+    description: "Cache DerivedData. Invalidation peu fiable, gros volume — opt-in. Exemple: `false`."
+    required: false
+    default: "false"
+  xcode-version:
+    description: "Version Xcode à sélectionner (vide = défaut du runner). Exemple: `16.2`."
+    required: false
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Select Xcode
+      if: ${{ inputs.xcode-version != '' }}
+      shell: bash
+      run: sudo xcode-select -s "/Applications/Xcode_${{ inputs.xcode-version }}.app"
+
+    - name: Git LFS pull
+      if: ${{ inputs.git-lfs == 'true' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        git lfs install
+        git lfs pull
+
+    - name: Setup JDK (shared KMP framework)
+      if: ${{ inputs.setup-gradle == 'true' }}
+      uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: ${{ inputs.jdk-version }}
+
+    - name: Setup Gradle (cache)
+      if: ${{ inputs.setup-gradle == 'true' }}
+      uses: gradle/actions/setup-gradle@v4
+      with:
+        cache-disabled: ${{ inputs.enable-gradle-cache != 'true' }}
+
+    - name: Cache Kotlin/Native (Konan)
+      if: ${{ inputs.enable-konan-cache == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: ~/.konan
+        key: konan-${{ runner.os }}-${{ hashFiles('**/gradle/libs.versions.toml', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          konan-${{ runner.os }}-
+
+    - name: Setup Ruby / Bundler
+      uses: ruby/setup-ruby@v1
+      with:
+        bundler-cache: ${{ inputs.enable-bundler-cache == 'true' }}
+        working-directory: ${{ inputs.ios-working-directory }}
+
+    - name: Cache CocoaPods
+      if: ${{ inputs.enable-cocoapods-cache == 'true' && inputs.run-pod-install == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: ${{ inputs.ios-working-directory }}/Pods
+        key: pods-${{ runner.os }}-${{ hashFiles(format('{0}/Podfile.lock', inputs.ios-working-directory)) }}
+        restore-keys: |
+          pods-${{ runner.os }}-
+
+    - name: Pod install
+      if: ${{ inputs.run-pod-install == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.ios-working-directory }}
+      run: bundle exec pod install
+
+    - name: Cache Swift Package Manager
+      if: ${{ inputs.enable-spm-cache == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/Library/Caches/org.swift.swiftpm
+          ~/Library/Developer/Xcode/DerivedData/**/SourcePackages
+        key: spm-${{ runner.os }}-${{ hashFiles('**/Package.resolved') }}
+        restore-keys: |
+          spm-${{ runner.os }}-
+
+    - name: Cache DerivedData (opt-in)
+      if: ${{ inputs.enable-derived-data-cache == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: ~/Library/Developer/Xcode/DerivedData
+        key: deriveddata-${{ runner.os }}-${{ github.ref_name }}-${{ github.sha }}
+        restore-keys: |
+          deriveddata-${{ runner.os }}-${{ github.ref_name }}-
+          deriveddata-${{ runner.os }}-

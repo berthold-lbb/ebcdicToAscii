@@ -1,0 +1,553 @@
+name: "Emerald KMP Resolve Context"
+description: >
+  Résout la stratégie de branche (table de décision Azure) en contexte d'exécution :
+  environnement, build configuration, matrices Android/iOS, cibles de publication,
+  profils Vault et politique de signature. Aucun secret n'est manipulé ici.
+
+inputs:
+  # ----------------------------------------------------------------
+  # Contexte GitHub
+  # ----------------------------------------------------------------
+  event-name:
+    description: "Nom de l'événement GitHub. Exemple: `push`, `pull_request`, `workflow_dispatch`."
+    required: true
+  ref-name:
+    description: "Nom de la branche/tag. Exemple: `main`, `rc/4.12`, `release/4.11`."
+    required: true
+
+  # ----------------------------------------------------------------
+  # Activation plateformes
+  # ----------------------------------------------------------------
+  enable-shared:
+    description: "Active la qualité shared/Kore. Exemple: `true`."
+    required: false
+    default: "true"
+  enable-android:
+    description: "Active les jobs Android. Exemple: `true`."
+    required: false
+    default: "true"
+  enable-ios:
+    description: "Active les jobs iOS. Exemple: `true`."
+    required: false
+    default: "true"
+
+  # ----------------------------------------------------------------
+  # Configuration des brands (JSON documenté)
+  # ----------------------------------------------------------------
+  android-brands-config:
+    description: >
+      JSON array décrivant chaque brand Android.
+      Champs: brandKey (clé technique), brandName (préfixe variant Gradle),
+      businessLabel (abréviation métier), prodKeystorePath (chemin du keystore
+      écrasé en mode vault-keystore), apkPublishGlob (pattern de l'APK attendu
+      par la lane applivery_deploy).
+      Exemple (défaut): voir defaults du workflow ci-kmp.
+    required: true
+  ios-schemes-config:
+    description: >
+      JSON array décrivant chaque scheme iOS.
+      Champs: brandKey, businessLabel, scheme (vrai scheme Xcode),
+      ipaNameEnterprise, ipaNameStore, matchRepoEnterprise, matchRepoStore.
+      Exemple: [{"brandKey":"dgag","businessLabel":"RAS","scheme":"DesjardinsAssurances", ...}].
+    required: true
+  android-default-brand-key:
+    description: "BrandKey utilisé pour le build de validation PR. Exemple: `dgag`."
+    required: false
+    default: "dgag"
+  ios-default-scheme-key:
+    description: "BrandKey du scheme utilisé pour la validation PR. Exemple: `dgag`."
+    required: false
+    default: "dgag"
+
+  # ----------------------------------------------------------------
+  # Stratégie de branches
+  # ----------------------------------------------------------------
+  rc-env-name:
+    description: "Environnement attribué aux branches rc/*. Exemple: `Qa` ou `Rc`."
+    required: false
+    default: "Qa"
+  enable-applivery:
+    description: "Autorise la publication AppLivery (main, rc/*, applivery-archives). Exemple: `true`."
+    required: false
+    default: "true"
+  enable-testflight:
+    description: "Autorise la publication TestFlight (release/*, release-gia/*). Exemple: `true`."
+    required: false
+    default: "true"
+  enable-google-play:
+    description: "Autorise la publication Google Play (release/*, release-gia/*). Exemple: `false`."
+    required: false
+    default: "false"
+
+  # ----------------------------------------------------------------
+  # Android — formats et toolchain (parité Azure)
+  # ----------------------------------------------------------------
+  android-qa-artifact-format:
+    description: "Format d'artefact pour env Qa. Azure: `apk` (fastlane assemble)."
+    required: false
+    default: "apk"
+  android-store-artifact-format:
+    description: "Format d'artefact pour Prod/Beta. Azure: `aab` (fastlane bundle)."
+    required: false
+    default: "aab"
+  android-java-version-qa:
+    description: "JDK pour les builds APK/Qa. Azure: `17`."
+    required: false
+    default: "17"
+  android-java-version-store:
+    description: "JDK pour les builds AAB Prod/Beta. Azure: `21`."
+    required: false
+    default: "21"
+  android-apk-lane:
+    description: "Lane Fastlane APK. Exemple: `assemble`."
+    required: false
+    default: "assemble"
+  android-aab-lane:
+    description: "Lane Fastlane AAB. Exemple: `bundle`."
+    required: false
+    default: "bundle"
+  android-prod-signing-mode:
+    description: >
+      Mode de signature pour Prod/Beta: `vault-keystore` (keystore base64 décodé
+      depuis Vault, pattern mobile-smd-android) ou `repo-keystore`.
+      Debug/Qa utilisent toujours `repo-keystore`.
+    required: false
+    default: "vault-keystore"
+  android-env-flavor-map:
+    description: >
+      JSON objet mappant un env logique vers le flavor Gradle réellement
+      déclaré, pour le calcul du buildVariant. Exemple: `{"Beta":"Prod"}` si
+      build.gradle.kts n'a que des flavors *Qa/*Prod (l'env reste Beta pour
+      la publication/nommage, mais la tâche devient assembleDgagProdRelease).
+    required: false
+    default: "{}"
+
+  # ----------------------------------------------------------------
+  # iOS — lanes
+  # ----------------------------------------------------------------
+  ios-validate-lane:
+    description: "Lane de validation PR. Azure: `validate_build`."
+    required: false
+    default: "validate_build"
+  ios-build-lane:
+    description: "Lane produisant l'IPA enterprise (contextes AppLivery). Exemple: `validate_build`."
+    required: false
+    default: "validate_build"
+  ios-store-build-lane:
+    description: >
+      Lane produisant l'IPA appstore (release/*, release-gia/*) sans publier.
+      Le publish TestFlight se fait ensuite via altool dans le job publish.
+      Exemple: `validate_build` (avec PROFILE_TYPE=appstore).
+    required: false
+    default: "validate_build"
+
+  # ----------------------------------------------------------------
+  # Vault — profils (templates avec placeholders {env} {brandKey})
+  # env est en minuscules: qa, prod, beta.
+  # ----------------------------------------------------------------
+  arkana-load-mode:
+    description: "`full` (V1, tous les ArkanaKeys) ou `profile` (V2, par brand/env)."
+    required: false
+    default: "full"
+  android-arkana-full-profiles:
+    description: "Profils Vault chargés en mode full pour Android. Exemple: `android/arkana`."
+    required: false
+    default: "android/arkana"
+  android-arkana-profile-template:
+    description: "Template du profil Arkana Android en mode profile. Exemple: `android/{brandKey}/{env}/arkana`."
+    required: false
+    default: "android/{brandKey}/{env}/arkana"
+  android-signing-profile-template:
+    description: >
+      Template du profil Vault de signature Android (mode vault-keystore).
+      Le profil doit exposer: keystoreData (base64), keystorePassword, keyAlias, keyPassword.
+      Exemple: `android/{brandKey}/{env}/signing`.
+    required: false
+    default: "android/{brandKey}/{env}/signing"
+  android-applivery-profile:
+    description: "Profil Vault des tokens AppLivery Android (APP_LIVERY_API_TOKEN_DA/LP). Exemple: `android/applivery`."
+    required: false
+    default: "android/applivery"
+  ios-arkana-full-profiles:
+    description: "Profils Vault chargés en mode full pour iOS. Exemple: `ios/arkana`."
+    required: false
+    default: "ios/arkana"
+  ios-arkana-profile-template:
+    description: "Template du profil Arkana iOS en mode profile. Exemple: `ios/{brandKey}/{env}/arkana`."
+    required: false
+    default: "ios/{brandKey}/{env}/arkana"
+  ios-signing-profile-template:
+    description: >
+      Template du profil Vault de signature iOS (Match).
+      Doit exposer: MATCH_PASSWORD, MATCH_KEYCHAIN_PASSWORD.
+      Exemple: `ios/{brandKey}/{profileType}/match`.
+    required: false
+    default: "ios/{brandKey}/{profileType}/match"
+  ios-applivery-profile:
+    description: "Profil Vault des tokens AppLivery iOS. Exemple: `ios/applivery`."
+    required: false
+    default: "ios/applivery"
+  ios-testflight-profile-template:
+    description: >
+      Template du profil Vault App Store Connect.
+      Doit exposer: ALTOOL_API_KEY (base64 .p8), ALTOOL_API_KEY_ID, ALTOOL_ISSUER_ID.
+      Exemple: `ios/{brandKey}/testflight`.
+    required: false
+    default: "ios/{brandKey}/testflight"
+
+  # ----------------------------------------------------------------
+  # Overrides manuels (workflow_dispatch)
+  # ----------------------------------------------------------------
+  manual-platform:
+    description: "Filtre plateforme manuel: `all`, `shared`, `android`, `ios`."
+    required: false
+    default: ""
+  manual-android-brand:
+    description: "BrandKey Android forcé ou `all`. Exemple: `tpic`."
+    required: false
+    default: ""
+  manual-ios-scheme:
+    description: "BrandKey iOS forcé ou `all`. Exemple: `dgag`."
+    required: false
+    default: ""
+  manual-env-name:
+    description: "Environnement forcé: `Qa`, `Prod`, `Beta`."
+    required: false
+    default: ""
+  manual-build-configuration:
+    description: "Build configuration forcée: `Debug`, `Release`."
+    required: false
+    default: ""
+  manual-distribution:
+    description: "Distribution forcée: `none`, `applivery`, `testflight`, `google-play`."
+    required: false
+    default: ""
+
+outputs:
+  branch-type:
+    description: "pr | main | rc | applivery-archives | release | release-gia | feature | manual"
+    value: ${{ steps.resolve.outputs.branch_type }}
+  env-name:
+    description: "Qa | Prod | Beta (ou rc-env-name pour rc/*)."
+    value: ${{ steps.resolve.outputs.env_name }}
+  build-configuration:
+    description: "Debug | Release."
+    value: ${{ steps.resolve.outputs.build_configuration }}
+  distribution:
+    description: "none | applivery | testflight | testflight-beta."
+    value: ${{ steps.resolve.outputs.distribution }}
+  shared-enabled:
+    value: ${{ steps.resolve.outputs.shared_enabled }}
+  android-enabled:
+    value: ${{ steps.resolve.outputs.android_enabled }}
+  ios-enabled:
+    value: ${{ steps.resolve.outputs.ios_enabled }}
+  android-matrix:
+    description: 'Matrix Android. Format: {"include":[{brandKey, brandName, buildVariant, ...}]}.'
+    value: ${{ steps.resolve.outputs.android_matrix }}
+  ios-matrix:
+    description: 'Matrix iOS. Format: {"include":[{brandKey, scheme, configuration, ...}]}.'
+    value: ${{ steps.resolve.outputs.ios_matrix }}
+  android-publish-applivery:
+    value: ${{ steps.resolve.outputs.android_publish_applivery }}
+  android-publish-google-play:
+    value: ${{ steps.resolve.outputs.android_publish_google_play }}
+  ios-publish-applivery:
+    value: ${{ steps.resolve.outputs.ios_publish_applivery }}
+  ios-publish-testflight:
+    value: ${{ steps.resolve.outputs.ios_publish_testflight }}
+  run-update-version:
+    description: "true si UpdateBuildVersion doit s'exécuter (parité Azure)."
+    value: ${{ steps.resolve.outputs.run_update_version }}
+  android-applivery-profile:
+    value: ${{ steps.resolve.outputs.android_applivery_profile }}
+  ios-applivery-profile:
+    value: ${{ steps.resolve.outputs.ios_applivery_profile }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: resolve
+      shell: bash
+      env:
+        EVENT_NAME: ${{ inputs.event-name }}
+        REF_NAME: ${{ inputs.ref-name }}
+        ENABLE_SHARED: ${{ inputs.enable-shared }}
+        ENABLE_ANDROID: ${{ inputs.enable-android }}
+        ENABLE_IOS: ${{ inputs.enable-ios }}
+        ANDROID_BRANDS_CONFIG: ${{ inputs.android-brands-config }}
+        IOS_SCHEMES_CONFIG: ${{ inputs.ios-schemes-config }}
+        ANDROID_DEFAULT_BRAND_KEY: ${{ inputs.android-default-brand-key }}
+        IOS_DEFAULT_SCHEME_KEY: ${{ inputs.ios-default-scheme-key }}
+        RC_ENV_NAME: ${{ inputs.rc-env-name }}
+        ENABLE_APPLIVERY: ${{ inputs.enable-applivery }}
+        ENABLE_TESTFLIGHT: ${{ inputs.enable-testflight }}
+        ENABLE_GOOGLE_PLAY: ${{ inputs.enable-google-play }}
+        QA_FORMAT: ${{ inputs.android-qa-artifact-format }}
+        STORE_FORMAT: ${{ inputs.android-store-artifact-format }}
+        JAVA_QA: ${{ inputs.android-java-version-qa }}
+        JAVA_STORE: ${{ inputs.android-java-version-store }}
+        APK_LANE: ${{ inputs.android-apk-lane }}
+        AAB_LANE: ${{ inputs.android-aab-lane }}
+        ANDROID_PROD_SIGNING_MODE: ${{ inputs.android-prod-signing-mode }}
+        ANDROID_ENV_FLAVOR_MAP: ${{ inputs.android-env-flavor-map }}
+        IOS_VALIDATE_LANE: ${{ inputs.ios-validate-lane }}
+        IOS_BUILD_LANE: ${{ inputs.ios-build-lane }}
+        IOS_STORE_BUILD_LANE: ${{ inputs.ios-store-build-lane }}
+        ARKANA_LOAD_MODE: ${{ inputs.arkana-load-mode }}
+        ANDROID_ARKANA_FULL: ${{ inputs.android-arkana-full-profiles }}
+        ANDROID_ARKANA_TPL: ${{ inputs.android-arkana-profile-template }}
+        ANDROID_SIGNING_TPL: ${{ inputs.android-signing-profile-template }}
+        ANDROID_APPLIVERY_PROFILE: ${{ inputs.android-applivery-profile }}
+        IOS_ARKANA_FULL: ${{ inputs.ios-arkana-full-profiles }}
+        IOS_ARKANA_TPL: ${{ inputs.ios-arkana-profile-template }}
+        IOS_SIGNING_TPL: ${{ inputs.ios-signing-profile-template }}
+        IOS_APPLIVERY_PROFILE: ${{ inputs.ios-applivery-profile }}
+        IOS_TESTFLIGHT_TPL: ${{ inputs.ios-testflight-profile-template }}
+        MANUAL_PLATFORM: ${{ inputs.manual-platform }}
+        MANUAL_ANDROID_BRAND: ${{ inputs.manual-android-brand }}
+        MANUAL_IOS_SCHEME: ${{ inputs.manual-ios-scheme }}
+        MANUAL_ENV_NAME: ${{ inputs.manual-env-name }}
+        MANUAL_BUILD_CONFIGURATION: ${{ inputs.manual-build-configuration }}
+        MANUAL_DISTRIBUTION: ${{ inputs.manual-distribution }}
+      run: |
+        set -euo pipefail
+        command -v jq >/dev/null || { echo "::error::jq is required"; exit 1; }
+
+        # ------------------------------------------------------------
+        # 1. Type de branche (table de décision Azure)
+        # ------------------------------------------------------------
+        branch_type="feature"
+        case "$EVENT_NAME" in
+          pull_request) branch_type="pr" ;;
+          *)
+            case "$REF_NAME" in
+              main)                 branch_type="main" ;;
+              rc/*)                 branch_type="rc" ;;
+              applivery-archives)   branch_type="applivery-archives" ;;
+              release-gia/*)        branch_type="release-gia" ;;
+              release/*)            branch_type="release" ;;
+            esac
+            ;;
+        esac
+
+        # ------------------------------------------------------------
+        # 2. Env / build configuration / distribution
+        # ------------------------------------------------------------
+        full_matrix="true"
+        case "$branch_type" in
+          pr|feature)
+            env_name="Qa";              build_configuration="Debug"
+            distribution="none";        full_matrix="false" ;;
+          main|applivery-archives)
+            env_name="Qa";              build_configuration="Release"
+            distribution="applivery" ;;
+          rc)
+            env_name="$RC_ENV_NAME";    build_configuration="Release"
+            distribution="applivery" ;;
+          release)
+            env_name="Prod";            build_configuration="Release"
+            distribution="testflight" ;;
+          release-gia)
+            env_name="Beta";            build_configuration="Release"
+            distribution="testflight-beta" ;;
+        esac
+
+        # Overrides manuels (workflow_dispatch uniquement)
+        if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+          branch_type="manual"
+          [[ -n "$MANUAL_ENV_NAME" ]]            && env_name="$MANUAL_ENV_NAME"
+          [[ -n "$MANUAL_BUILD_CONFIGURATION" ]] && build_configuration="$MANUAL_BUILD_CONFIGURATION"
+          if [[ -n "$MANUAL_DISTRIBUTION" ]]; then
+            case "$MANUAL_DISTRIBUTION" in
+              none)        distribution="none" ;;
+              applivery)   distribution="applivery" ;;
+              testflight)  distribution="testflight" ;;
+              google-play) distribution="testflight" ;;
+            esac
+          fi
+        fi
+
+        env_lc=$(echo "$env_name" | tr '[:upper:]' '[:lower:]')
+
+        # ------------------------------------------------------------
+        # 3. Flags plateformes (+ filtre manual-platform)
+        # ------------------------------------------------------------
+        shared_enabled="$ENABLE_SHARED"
+        android_enabled="$ENABLE_ANDROID"
+        ios_enabled="$ENABLE_IOS"
+        if [[ -n "$MANUAL_PLATFORM" && "$MANUAL_PLATFORM" != "all" ]]; then
+          [[ "$MANUAL_PLATFORM" != "shared"  ]] && shared_enabled="false"
+          [[ "$MANUAL_PLATFORM" != "android" ]] && android_enabled="false"
+          [[ "$MANUAL_PLATFORM" != "ios"     ]] && ios_enabled="false"
+        fi
+
+        # ------------------------------------------------------------
+        # 4. Sélection des brands / schemes
+        # ------------------------------------------------------------
+        android_filter="$ANDROID_DEFAULT_BRAND_KEY"
+        ios_filter="$IOS_DEFAULT_SCHEME_KEY"
+        if [[ "$full_matrix" == "true" ]]; then
+          android_filter="all"; ios_filter="all"
+        fi
+        [[ -n "$MANUAL_ANDROID_BRAND" ]] && android_filter="$MANUAL_ANDROID_BRAND"
+        [[ -n "$MANUAL_IOS_SCHEME"    ]] && ios_filter="$MANUAL_IOS_SCHEME"
+
+        # ------------------------------------------------------------
+        # 5. Toolchain Android selon env (parité Azure)
+        #    Release + env != Qa  -> AAB + JDK 21 + lane bundle
+        #    sinon                -> APK + JDK 17 + lane assemble
+        # ------------------------------------------------------------
+        if [[ "$build_configuration" == "Release" && "$env_name" != "Qa" ]]; then
+          a_format="$STORE_FORMAT"; a_java="$JAVA_STORE"; a_lane="$AAB_LANE"
+        else
+          a_format="$QA_FORMAT"; a_java="$JAVA_QA"; a_lane="$APK_LANE"
+        fi
+        a_signing="repo-keystore"
+        if [[ "$build_configuration" == "Release" && "$env_name" != "Qa" ]]; then
+          a_signing="$ANDROID_PROD_SIGNING_MODE"
+        fi
+
+        # ------------------------------------------------------------
+        # 6. Contexte iOS selon distribution
+        # ------------------------------------------------------------
+        case "$distribution" in
+          testflight)       i_config="Prod"; i_profile="appstore";   i_lane="$IOS_STORE_BUILD_LANE" ;;
+          testflight-beta)  i_config="Beta"; i_profile="appstore";   i_lane="$IOS_STORE_BUILD_LANE" ;;
+          applivery)        i_config="QA";   i_profile="enterprise"; i_lane="$IOS_BUILD_LANE" ;;
+          *)                i_config="QA";   i_profile="enterprise"; i_lane="$IOS_VALIDATE_LANE" ;;
+        esac
+
+        # ------------------------------------------------------------
+        # 7. Helpers profils Vault
+        # ------------------------------------------------------------
+        expand_tpl() { # $1=template $2=brandKey $3=profileType
+          echo "$1" | sed -e "s/{env}/$env_lc/g" -e "s/{brandKey}/$2/g" -e "s/{profileType}/${3:-}/g"
+        }
+
+        # ------------------------------------------------------------
+        # 8. Matrix Android
+        # ------------------------------------------------------------
+        # Flavor Gradle réel pour cet env (ex: Beta -> Prod si le projet
+        # n'a pas de flavor Beta). L'env logique reste inchangé.
+        flavor_map="${ANDROID_ENV_FLAVOR_MAP:-}"
+        [[ -z "$flavor_map" ]] && flavor_map='{}'
+        flavor_env=$(jq -r --arg env "$env_name" '.[$env] // $env' <<<"$flavor_map")
+
+        android_matrix=$(jq -c --arg filter "$android_filter" \
+          --arg env "$env_name" --arg flavorEnv "$flavor_env" \
+          --arg cfg "$build_configuration" \
+          --arg fmt "$a_format" --arg java "$a_java" --arg lane "$a_lane" \
+          --arg signing "$a_signing" '
+          { include: [ .[]
+            | select($filter == "all" or .brandKey == $filter)
+            | . + {
+                envName: $env,
+                buildConfiguration: $cfg,
+                buildVariant: (.brandName + $flavorEnv + $cfg),
+                artifactFormat: $fmt,
+                javaVersion: $java,
+                fastlaneLane: $lane,
+                signingMode: $signing,
+                artifactName: ("android-" + .brandKey + "-" + ($env|ascii_downcase) + "-" + ($cfg|ascii_downcase)),
+                artifactGlob: (if $fmt == "aab" then "**/build/outputs/**/*.aab" else "**/build/outputs/**/*.apk" end)
+              } ] }' <<<"$ANDROID_BRANDS_CONFIG")
+
+        # Profils Vault Android injectés entrée par entrée
+        android_matrix=$(jq -c --arg mode "$ARKANA_LOAD_MODE" \
+          --arg full "$ANDROID_ARKANA_FULL" --arg tpl "$ANDROID_ARKANA_TPL" \
+          --arg signTpl "$ANDROID_SIGNING_TPL" --arg env "$env_lc" '
+          .include |= map(. as $e | . + {
+            arkanaProfiles: (if $mode == "full" then $full
+              else ($tpl | gsub("\\{brandKey\\}"; $e.brandKey) | gsub("\\{env\\}"; $env)) end),
+            signingVaultProfile: ($signTpl | gsub("\\{brandKey\\}"; $e.brandKey) | gsub("\\{env\\}"; $env))
+          })' <<<"$android_matrix")
+
+        # ------------------------------------------------------------
+        # 9. Matrix iOS
+        # ------------------------------------------------------------
+        ios_matrix=$(jq -c --arg filter "$ios_filter" \
+          --arg env "$env_name" --arg cfg "$i_config" \
+          --arg profile "$i_profile" --arg lane "$i_lane" '
+          { include: [ .[]
+            | select($filter == "all" or .brandKey == $filter)
+            | . + {
+                envName: $env,
+                configuration: $cfg,
+                profileType: $profile,
+                lane: $lane,
+                ipaName: (if $profile == "appstore" then .ipaNameStore else .ipaNameEnterprise end),
+                matchRepo: (if $profile == "appstore" then .matchRepoStore else .matchRepoEnterprise end),
+                fastlaneEnv: (.brandKey + "_" + (if $profile == "appstore" then "store" else ($env|ascii_downcase) end)),
+                artifactName: ("ios-" + .brandKey + "-" + ($cfg|ascii_downcase))
+              } ] }' <<<"$IOS_SCHEMES_CONFIG")
+
+        ios_matrix=$(jq -c --arg mode "$ARKANA_LOAD_MODE" \
+          --arg full "$IOS_ARKANA_FULL" --arg tpl "$IOS_ARKANA_TPL" \
+          --arg signTpl "$IOS_SIGNING_TPL" --arg tfTpl "$IOS_TESTFLIGHT_TPL" \
+          --arg env "$env_lc" --arg profile "$i_profile" '
+          .include |= map(. as $e | . + {
+            arkanaProfiles: (if $mode == "full" then $full
+              else ($tpl | gsub("\\{brandKey\\}"; $e.brandKey) | gsub("\\{env\\}"; $env)) end),
+            signingVaultProfile: ($signTpl | gsub("\\{brandKey\\}"; $e.brandKey) | gsub("\\{profileType\\}"; $profile)),
+            testflightVaultProfile: ($tfTpl | gsub("\\{brandKey\\}"; $e.brandKey))
+          })' <<<"$ios_matrix")
+
+        # ------------------------------------------------------------
+        # 10. Flags de publication
+        # ------------------------------------------------------------
+        android_publish_applivery="false"
+        android_publish_google_play="false"
+        ios_publish_applivery="false"
+        ios_publish_testflight="false"
+
+        if [[ "$distribution" == "applivery" && "$ENABLE_APPLIVERY" == "true" ]]; then
+          android_publish_applivery="true"
+          ios_publish_applivery="true"
+        fi
+        if [[ "$distribution" == testflight* ]]; then
+          [[ "$ENABLE_TESTFLIGHT"  == "true" ]] && ios_publish_testflight="true"
+          [[ "$ENABLE_GOOGLE_PLAY" == "true" ]] && android_publish_google_play="true"
+        fi
+        [[ "$android_enabled" != "true" ]] && { android_publish_applivery="false"; android_publish_google_play="false"; }
+        [[ "$ios_enabled" != "true" ]] && { ios_publish_applivery="false"; ios_publish_testflight="false"; }
+
+        # UpdateBuildVersion: main, rc/*, release/*, release-gia/* (parité Azure)
+        run_update_version="false"
+        case "$branch_type" in
+          main|rc|release|release-gia) run_update_version="true" ;;
+        esac
+
+        # ------------------------------------------------------------
+        # 11. Outputs
+        # ------------------------------------------------------------
+        {
+          echo "branch_type=$branch_type"
+          echo "env_name=$env_name"
+          echo "build_configuration=$build_configuration"
+          echo "distribution=$distribution"
+          echo "shared_enabled=$shared_enabled"
+          echo "android_enabled=$android_enabled"
+          echo "ios_enabled=$ios_enabled"
+          echo "android_matrix=$android_matrix"
+          echo "ios_matrix=$ios_matrix"
+          echo "android_publish_applivery=$android_publish_applivery"
+          echo "android_publish_google_play=$android_publish_google_play"
+          echo "ios_publish_applivery=$ios_publish_applivery"
+          echo "ios_publish_testflight=$ios_publish_testflight"
+          echo "run_update_version=$run_update_version"
+          echo "android_applivery_profile=$ANDROID_APPLIVERY_PROFILE"
+          echo "ios_applivery_profile=$IOS_APPLIVERY_PROFILE"
+        } >> "$GITHUB_OUTPUT"
+
+        echo "## Resolve context" >> "$GITHUB_STEP_SUMMARY"
+        {
+          echo "| Clé | Valeur |"
+          echo "|---|---|"
+          echo "| branch_type | $branch_type |"
+          echo "| env | $env_name |"
+          echo "| buildConfiguration | $build_configuration |"
+          echo "| distribution | $distribution |"
+          echo "| android | $android_enabled (signing: $a_signing, format: $a_format, jdk: $a_java) |"
+          echo "| ios | $ios_enabled (config: $i_config, profile: $i_profile, lane: $i_lane) |"
+        } >> "$GITHUB_STEP_SUMMARY"

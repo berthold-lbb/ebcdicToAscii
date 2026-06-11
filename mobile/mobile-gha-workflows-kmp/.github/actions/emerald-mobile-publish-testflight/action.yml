@@ -1,0 +1,116 @@
+name: "Emerald Mobile Publish TestFlight"
+description: >
+  Publie un IPA vers App Store Connect. Deux modes :
+  `altool` (défaut) — télécharge l'artefact du build et upload via xcrun altool
+  avec la clé ASC (base64 .p8), puis nettoie ~/.appstoreconnect/private_keys
+  (parité Azure, sans rebuild) ;
+  `fastlane` — exécute la lane projet (ex: testflight_deploy) qui build + upload
+  (parité Azure stricte, rebuild). Requiert macOS.
+  Les secrets ASC (ALTOOL_API_KEY base64, ALTOOL_API_KEY_ID, ALTOOL_ISSUER_ID)
+  doivent être en environnement (emerald-mobile-load-vault-profile).
+
+inputs:
+  publish-mode:
+    description: "`altool` (recommandé, sans rebuild) ou `fastlane` (parité Azure stricte)."
+    required: false
+    default: "altool"
+  artifact-name:
+    description: "Artefact GitHub contenant l'IPA (mode altool). Exemple: `ios-dgag-prod`."
+    required: false
+    default: ""
+  ipa-name:
+    description: "Nom de l'IPA dans l'artefact. Exemple: `com.desjardins.ajusto.ipa`. Vide = premier .ipa trouvé."
+    required: false
+    default: ""
+  download-path:
+    description: "Répertoire de téléchargement. Exemple: `testflight-artifacts`."
+    required: false
+    default: "testflight-artifacts"
+  fastlane-working-directory:
+    description: "Répertoire du Fastfile iOS (mode fastlane). Exemple: `iosApp`."
+    required: false
+    default: "iosApp"
+  fastlane-lane:
+    description: "Lane (mode fastlane). Azure: `testflight_deploy`."
+    required: false
+    default: "testflight_deploy"
+  fastlane-env:
+    description: "Valeur --env (mode fastlane). Exemple: `dgag_store`."
+    required: false
+    default: ""
+  api-key-env:
+    description: "Variable d'env contenant la clé .p8 en base64. Exemple: `ALTOOL_API_KEY`."
+    required: false
+    default: "ALTOOL_API_KEY"
+  api-key-id-env:
+    description: "Variable d'env du key ID. Exemple: `ALTOOL_API_KEY_ID`."
+    required: false
+    default: "ALTOOL_API_KEY_ID"
+  issuer-id-env:
+    description: "Variable d'env de l'issuer ID. Exemple: `ALTOOL_ISSUER_ID`."
+    required: false
+    default: "ALTOOL_ISSUER_ID"
+  dry-run:
+    description: "Simule la publication. Exemple: `false`."
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download IPA artifact
+      if: ${{ inputs.publish-mode == 'altool' && inputs.artifact-name != '' }}
+      uses: actions/download-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: ${{ inputs.download-path }}
+
+    - name: Upload to App Store Connect
+      shell: bash
+      env:
+        API_KEY_ENV: ${{ inputs.api-key-env }}
+        API_KEY_ID_ENV: ${{ inputs.api-key-id-env }}
+        ISSUER_ID_ENV: ${{ inputs.issuer-id-env }}
+      run: |
+        set -euo pipefail
+
+        if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+          echo "Dry-run: publication TestFlight simulée."
+          exit 0
+        fi
+
+        if [[ "${{ inputs.publish-mode }}" == "fastlane" ]]; then
+          cd "${{ inputs.fastlane-working-directory }}"
+          lane_args=()
+          [[ -n "${{ inputs.fastlane-env }}" ]] && lane_args+=(--env "${{ inputs.fastlane-env }}")
+          bundle exec fastlane "${{ inputs.fastlane-lane }}" ${lane_args[@]+"${lane_args[@]}"} --verbose
+          exit 0
+        fi
+
+        api_key="${!API_KEY_ENV:-}"
+        api_key_id="${!API_KEY_ID_ENV:-}"
+        issuer_id="${!ISSUER_ID_ENV:-}"
+        for v in api_key api_key_id issuer_id; do
+          [[ -n "${!v}" ]] || { echo "::error::secret ASC manquant ($v) — vérifier le profil Vault testflight"; exit 1; }
+        done
+
+        if [[ -n "${{ inputs.ipa-name }}" ]]; then
+          ipa_path=$(find "${{ inputs.download-path }}" -name "${{ inputs.ipa-name }}" | head -1)
+        else
+          ipa_path=$(find "${{ inputs.download-path }}" -name '*.ipa' | head -1)
+        fi
+        [[ -n "$ipa_path" ]] || { echo "::error::Aucun IPA trouvé dans ${{ inputs.download-path }}"; exit 1; }
+
+        mkdir -p ~/.appstoreconnect/private_keys
+        printf '%s' "$api_key" | base64 -d > ~/.appstoreconnect/private_keys/AuthKey_${api_key_id}.p8
+
+        echo "Upload de $(basename "$ipa_path") vers App Store Connect..."
+        xcrun altool --upload-app -f "$ipa_path" \
+          --apiKey "$api_key_id" \
+          --apiIssuer "$issuer_id" \
+          --type ios
+
+    - name: Cleanup ASC private keys
+      if: ${{ always() }}
+      shell: bash
+      run: rm -rf ~/.appstoreconnect/private_keys || true

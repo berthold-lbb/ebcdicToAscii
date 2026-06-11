@@ -1,0 +1,168 @@
+name: Mobile CI KMP
+
+on:
+  pull_request:
+    branches:
+      - main
+      - release/**
+      - release-gia/**
+  push:
+    branches:
+      - main
+      - rc/**
+      - release/**
+      - release-gia/**
+      - applivery-archives
+  workflow_dispatch:
+    inputs:
+      manualPlatform:
+        description: Platform to build
+        required: true
+        default: all
+        type: choice
+        options: [all, shared, android, ios]
+      manualAndroidBrand:
+        description: Android brand
+        required: true
+        default: all
+        type: choice
+        options: [all, Dgag, Tpic]
+      manualIosScheme:
+        description: iOS scheme
+        required: true
+        default: all
+        type: choice
+        options: [all, RAS, LP]
+      manualEnvName:
+        description: Environment
+        required: true
+        default: Qa
+        type: choice
+        options: [Qa, Beta, Prod]
+      manualBuildConfiguration:
+        description: Build configuration
+        required: true
+        default: Debug
+        type: choice
+        options: [Debug, Release]
+      manualDistribution:
+        description: Distribution target
+        required: true
+        default: none
+        type: choice
+        options: [none, applivery, google-play, testflight]
+      dryRun:
+        description: Do not publish, only simulate
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+  checks: write
+
+env:
+  WORKFLOW_REPOSITORY: Desjardins/mobile-gha-workflows-kmp
+  WORKFLOW_REF: v1
+
+jobs:
+  ci-kmp:
+    name: CI KMP
+    uses: Desjardins/mobile-gha-workflows-kmp/.github/workflows/ci-kmp.yml@v1
+    with:
+      workflowRepository: Desjardins/mobile-gha-workflows-kmp
+      workflowRef: v1
+
+      productName: ui-ad-digital-mobile
+      componentName: ui-ad-digital-mobile
+      workingDirectory: .
+
+      enableShared: true
+      enableAndroid: true
+      enableIos: true
+
+      linuxRunnerLabel: ubuntu-latest
+      macosRunnerLabel: macos-latest
+
+      jdkVersion: '17'
+      compileSdkVersion: '35'
+      buildToolsVersion: '35.0.0'
+      androidExtraSdkPackages: |
+        extras;google;m2repository
+        extras;android;m2repository
+
+      sharedModule: ':shared'
+      androidModule: ':androidApp'
+
+      sharedTestTask: ':shared:testDebugUnitTest'
+      sharedCoverageTask: ':shared:koverXmlReportSonarqube'
+      sharedSonarTask: ':shared:sonar'
+      sharedCompileTask: ':shared:compileKotlinMetadata'
+
+      androidLintTask: 'ktlintCheck'
+      androidTestTask: ':androidApp:testDgagQaDebugUnitTest'
+      androidCoverageTask: ':androidApp:koverXmlReportSonarqube'
+      androidSonarTask: ':androidApp:sonar'
+
+      androidBrands: 'Dgag,Tpic'
+      androidDefaultBrand: 'Dgag'
+      androidBuildMode: 'fastlane'
+      androidFastlaneLane: 'assemble'
+      androidArtifactFormat: 'apk'
+      androidArtifactGlob: '**/build/outputs/**/*.apk'
+
+      iosWorkingDirectory: 'iosApp'
+      iosSchemes: 'RAS,LP'
+      iosDefaultScheme: 'RAS'
+      iosValidateLane: 'validate_build'
+      iosAppliveryLane: 'applivery_deploy'
+      iosTestflightLane: 'testflight_deploy'
+
+      enableAppLivery: true
+      enableGooglePlay: false
+      enableTestFlight: true
+      dryRun: ${{ github.event_name == 'workflow_dispatch' && inputs.dryRun || false }}
+
+      manualPlatform: ${{ github.event_name == 'workflow_dispatch' && inputs.manualPlatform || 'all' }}
+      manualAndroidBrand: ${{ github.event_name == 'workflow_dispatch' && inputs.manualAndroidBrand || 'all' }}
+      manualIosScheme: ${{ github.event_name == 'workflow_dispatch' && inputs.manualIosScheme || 'all' }}
+      manualEnvName: ${{ github.event_name == 'workflow_dispatch' && inputs.manualEnvName || 'Qa' }}
+      manualBuildConfiguration: ${{ github.event_name == 'workflow_dispatch' && inputs.manualBuildConfiguration || 'Debug' }}
+      manualDistribution: ${{ github.event_name == 'workflow_dispatch' && inputs.manualDistribution || 'none' }}
+
+      enableSonar: true
+      enableGating: true
+      sonarqubeUrl: ${{ vars.SONARQUBE_URL }}
+      sonarGradleJvmArgs: '-Xmx2g -XX:MaxMetaspaceSize=1g -Dfile.encoding=UTF-8'
+
+      vaultEnabled: true
+      vaultUrl: ${{ vars.VAULT_URL_NPROD }}
+      vaultPath: ${{ vars.VAULT_PATH_NPROD }}
+
+      # HashiCorp Vault format expected by hashicorp/vault-action:
+      # path key | ENV_VAR_NAME
+      androidBuildVaultSecrets: |
+        ${{ vars.VAULT_PATH_NPROD }}/android cmt-sdk-username | CMT_SDK_USERNAME
+        ${{ vars.VAULT_PATH_NPROD }}/android cmt-sdk-password | CMT_SDK_PASSWORD
+      androidReleaseSigningVaultSecrets: |
+        ${{ vars.VAULT_PATH_NPROD }}/android-keystore keystore-base64 | ANDROID_KEYSTORE_BASE64
+        ${{ vars.VAULT_PATH_NPROD }}/android-keystore keystore-password | ANDROID_KEYSTORE_PASSWORD
+        ${{ vars.VAULT_PATH_NPROD }}/android-keystore key-alias | ANDROID_KEY_ALIAS
+        ${{ vars.VAULT_PATH_NPROD }}/android-keystore key-password | ANDROID_KEY_PASSWORD
+      androidDgagAppliveryVaultSecrets: |
+        ${{ vars.VAULT_PATH_NPROD }}/applivery token-dgag | APPLIVERY_TOKEN
+      androidTpicAppliveryVaultSecrets: |
+        ${{ vars.VAULT_PATH_NPROD }}/applivery token-tpic | APPLIVERY_TOKEN
+
+      iosBuildVaultSecrets: |
+        ${{ vars.VAULT_PATH_NPROD }}/ios match-password | MATCH_PASSWORD
+      iosAppliveryVaultSecrets: |
+        ${{ vars.VAULT_PATH_NPROD }}/applivery token-ios | APPLIVERY_TOKEN
+      iosTestflightVaultSecrets: |
+        ${{ vars.VAULT_PATH_NPROD }}/appstore api-key | APP_STORE_CONNECT_API_KEY
+
+    secrets:
+      VAULT_ROLE_ID: ${{ secrets.VAULT_ROLE_ID }}
+      VAULT_SECRET_ID: ${{ secrets.VAULT_SECRET_ID }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      GITHUB_PAT: ${{ secrets.GH_WORKFLOWS_PAT }}

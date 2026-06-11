@@ -1,0 +1,101 @@
+# Exemple consommateur — à placer dans ui-ad-digital-mobile/.github/workflows/
+# Reproduit les triggers Azure (main, rc/*, release/*, release-gia/*, applivery-archives).
+
+name: CI ui-ad-digital-mobile (KMP)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, 'release/**', 'release-gia/**']
+  push:
+    branches:
+      - main
+      - 'rc/**'
+      - 'release/**'
+      - 'release-gia/**'
+      - applivery-archives
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Plateforme'
+        type: choice
+        default: all
+        options: [all, shared, android, ios]
+      androidBrand:
+        description: 'Brand Android'
+        type: choice
+        default: all
+        options: [all, dgag, tpic]
+      iosScheme:
+        description: 'Scheme iOS'
+        type: choice
+        default: all
+        options: [all, dgag, tpic]
+      envName:
+        description: 'Environnement'
+        type: choice
+        default: Qa
+        options: [Qa, Prod, Beta]
+      buildConfiguration:
+        description: 'Build configuration'
+        type: choice
+        default: Debug
+        options: [Debug, Release]
+      distribution:
+        description: 'Distribution'
+        type: choice
+        default: none
+        options: [none, applivery, testflight]
+      dryRun:
+        description: 'Dry-run (publications simulées)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+  checks: write
+
+jobs:
+  ci-kmp:
+    uses: Desjardins/mobile-gha-workflows-kmp/.github/workflows/v4/ci-kmp.yml@v4
+    with:
+      workflowRepository: Desjardins/mobile-gha-workflows-kmp
+      workflowRef: v4
+
+      productName: ui-ad-digital-mobile
+
+      # Infra
+      linuxRunnerLabel: ${{ vars.DEFAULT_LINUX_RUNNER_LABEL }}
+      macosRunnerLabel: ${{ vars.DEFAULT_MACOS_RUNNER_LABEL }}
+      vaultUrl: ${{ vars.VAULT_URL_NPROD }}
+      vaultBasePath: mobile/ui-ad-digital-mobile
+      sonarqubeUrl: ${{ vars.SONARQUBE_URL }}
+
+      # Sonar iOS (clé Azure conservée)
+      iosSonarProjectKey: 'com.desjardins.appsmobilesdgag:ui-ad-digital-mobile-ios'
+
+      # ArkanaKeys V1: chargement full ; passer à 'profile' en V2.
+      arkanaLoadMode: full
+
+      # Pods/ est commité dans ce projet → pas de pod install ni de cache Pods.
+      iosRunPodInstall: false
+      enableCocoaPodsCache: false
+      enableSpmCache: false
+
+      # Overrides manuels
+      manualPlatform: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || '' }}
+      manualAndroidBrand: ${{ github.event_name == 'workflow_dispatch' && inputs.androidBrand || '' }}
+      manualIosScheme: ${{ github.event_name == 'workflow_dispatch' && inputs.iosScheme || '' }}
+      manualEnvName: ${{ github.event_name == 'workflow_dispatch' && inputs.envName || '' }}
+      manualBuildConfiguration: ${{ github.event_name == 'workflow_dispatch' && inputs.buildConfiguration || '' }}
+      manualDistribution: ${{ github.event_name == 'workflow_dispatch' && inputs.distribution || '' }}
+      dryRun: ${{ github.event_name == 'workflow_dispatch' && inputs.dryRun || false }}
+    secrets:
+      ROLEID: ${{ secrets.ROLEID }}
+      SECRETID: ${{ secrets.SECRETID }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      GH_WORKFLOWS_PAT: ${{ secrets.GH_WORKFLOWS_PAT }}
+      MAVEN_FEED_USERNAME: ${{ secrets.MAVEN_FEED_USERNAME }}
+      MAVEN_FEED_PASSWORD: ${{ secrets.MAVEN_FEED_PASSWORD }}
+      REPO_ACCESS_TOKEN: ${{ secrets.REPO_ACCESS_TOKEN }}

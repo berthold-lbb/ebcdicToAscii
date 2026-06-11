@@ -1,0 +1,110 @@
+name: "Emerald Setup Android Environment"
+description: >
+  Prépare un job Android/KMP : JDK, Gradle (avec cache), SDK Android,
+  Bundler/Fastlane et cache Konan. Tous les caches sont activables individuellement
+  et leurs clés sont dérivées des lockfiles.
+
+inputs:
+  working-directory:
+    description: "Racine du projet Gradle. Exemple: `.`."
+    required: false
+    default: "."
+  jdk-version:
+    description: "Version JDK. Azure: 17 pour APK/Qa, 21 pour AAB Prod/Beta."
+    required: false
+    default: "17"
+  jdk-distribution:
+    description: "Distribution JDK. Exemple: `temurin`."
+    required: false
+    default: "temurin"
+  compile-sdk-version:
+    description: "Plateforme SDK à installer via sdkmanager (vide = SDK préinstallé du runner). Exemple: `34`."
+    required: false
+    default: ""
+  build-tools-version:
+    description: "Version build-tools à installer (vide = ignoré). Exemple: `34.0.0`."
+    required: false
+    default: ""
+  setup-bundler:
+    description: "Installe Bundler + gems Fastlane depuis le Gemfile. Exemple: `true`."
+    required: false
+    default: "true"
+  bundler-working-directory:
+    description: "Répertoire contenant le Gemfile. Exemple: `androidApp`."
+    required: false
+    default: "androidApp"
+  enable-gradle-cache:
+    description: "Cache Gradle (wrapper + dépendances + build cache). Exemple: `true`."
+    required: false
+    default: "true"
+  gradle-cache-read-only:
+    description: "Cache Gradle en lecture seule (recommandé pour les PR). Exemple: `false`."
+    required: false
+    default: "false"
+  enable-android-sdk-cache:
+    description: "Cache des packages SDK installés par sdkmanager. Exemple: `true`."
+    required: false
+    default: "true"
+  enable-bundler-cache:
+    description: "Cache des gems Bundler (clé: Gemfile.lock). Exemple: `true`."
+    required: false
+    default: "true"
+  enable-konan-cache:
+    description: "Cache Kotlin/Native (~/.konan). Inutile si le job ne compile aucune target native. Exemple: `true`."
+    required: false
+    default: "true"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup JDK ${{ inputs.jdk-version }}
+      uses: actions/setup-java@v4
+      with:
+        distribution: ${{ inputs.jdk-distribution }}
+        java-version: ${{ inputs.jdk-version }}
+
+    - name: Setup Gradle (cache)
+      uses: gradle/actions/setup-gradle@v4
+      with:
+        cache-disabled: ${{ inputs.enable-gradle-cache != 'true' }}
+        cache-read-only: ${{ inputs.gradle-cache-read-only == 'true' }}
+
+    - name: Cache Android SDK packages
+      if: ${{ inputs.enable-android-sdk-cache == 'true' && (inputs.compile-sdk-version != '' || inputs.build-tools-version != '') }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          ${{ env.ANDROID_HOME }}/platforms
+          ${{ env.ANDROID_HOME }}/build-tools
+          ${{ env.ANDROID_HOME }}/cmdline-tools
+        key: android-sdk-${{ runner.os }}-${{ inputs.compile-sdk-version }}-${{ inputs.build-tools-version }}
+
+    - name: Install Android SDK components
+      if: ${{ inputs.compile-sdk-version != '' || inputs.build-tools-version != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        [[ -x "$SDKMANAGER" ]] || SDKMANAGER="sdkmanager"
+        if [[ -n "${{ inputs.compile-sdk-version }}" ]]; then
+          yes | "$SDKMANAGER" "platforms;android-${{ inputs.compile-sdk-version }}" >/dev/null
+        fi
+        if [[ -n "${{ inputs.build-tools-version }}" ]]; then
+          yes | "$SDKMANAGER" "build-tools;${{ inputs.build-tools-version }}" >/dev/null
+        fi
+
+    - name: Cache Kotlin/Native (Konan)
+      if: ${{ inputs.enable-konan-cache == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: ~/.konan
+        key: konan-${{ runner.os }}-${{ hashFiles('**/gradle/libs.versions.toml', '**/gradle-wrapper.properties') }}
+        restore-keys: |
+          konan-${{ runner.os }}-
+
+    - name: Setup Ruby / Bundler (Fastlane)
+      if: ${{ inputs.setup-bundler == 'true' }}
+      uses: ruby/setup-ruby@v1
+      with:
+        bundler-cache: ${{ inputs.enable-bundler-cache == 'true' }}
+        working-directory: ${{ inputs.working-directory == '.' && inputs.bundler-working-directory || format('{0}/{1}', inputs.working-directory, inputs.bundler-working-directory) }}

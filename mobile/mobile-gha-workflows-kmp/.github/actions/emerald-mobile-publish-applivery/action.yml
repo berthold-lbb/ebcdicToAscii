@@ -1,0 +1,107 @@
+name: "Emerald Mobile Publish AppLivery"
+description: >
+  Publie des binaires vers AppLivery SANS rebuild : télécharge le(s) artefact(s)
+  du build puis publie. Deux modes :
+  `fastlane` — exécute la lane du projet (ex: applivery_deploy) avec
+  ARTIFACTS_PATH pointant sur les binaires téléchargés (parité Azure Android) ;
+  `api` — upload direct via l'API REST AppLivery (aucune dépendance projet).
+  Les tokens (APP_LIVERY_API_TOKEN_*) doivent être en environnement
+  (emerald-mobile-load-vault-profile) en mode fastlane, ou passés via app-token
+  en mode api.
+
+inputs:
+  publish-mode:
+    description: "`fastlane` ou `api`."
+    required: false
+    default: "fastlane"
+  artifact-pattern:
+    description: "Pattern des artefacts GitHub à télécharger. Exemple: `android-*` ou `ios-dgag-qa`."
+    required: true
+  download-path:
+    description: "Répertoire de téléchargement. Exemple: `applivery-artifacts`."
+    required: false
+    default: "applivery-artifacts"
+  fastlane-working-directory:
+    description: "Répertoire du Fastfile (mode fastlane). Exemple: `androidApp`."
+    required: false
+    default: "androidApp"
+  fastlane-lane:
+    description: "Lane de publication (mode fastlane). Azure: `applivery_deploy`."
+    required: false
+    default: "applivery_deploy"
+  app-token:
+    description: "Token AppLivery (mode api). Exemple: token du brand."
+    required: false
+    default: ""
+  binary-glob:
+    description: "Pattern du binaire à uploader (mode api). Exemple: `*.ipa`."
+    required: false
+    default: "*"
+  applivery-tags:
+    description: "Tags AppLivery. Azure: `platform:android,flavor:non-prod`."
+    required: false
+    default: ""
+  branch-name:
+    description: "Branche publiée — taggée en branch:<sha256[0:8]> (parité Azure). Exemple: `main`."
+    required: false
+    default: ""
+  dry-run:
+    description: "Simule la publication. Exemple: `false`."
+    required: false
+    default: "false"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        pattern: ${{ inputs.artifact-pattern }}
+        path: ${{ inputs.download-path }}
+        merge-multiple: true
+
+    - name: Publish to AppLivery
+      shell: bash
+      env:
+        ARTIFACTS_PATH: ${{ github.workspace }}/${{ inputs.download-path }}
+        APP_LIVERY_TAGS: ${{ inputs.applivery-tags }}
+        BRANCH_NAME: ${{ inputs.branch-name }}
+        APPLIVERY_APP_TOKEN: ${{ inputs.app-token }}
+      run: |
+        set -euo pipefail
+        echo "Binaires téléchargés :"
+        ls -lR "$ARTIFACTS_PATH" || true
+
+        if [[ "${{ inputs.dry-run }}" == "true" ]]; then
+          echo "Dry-run: publication AppLivery simulée."
+          exit 0
+        fi
+
+        # Tag branch:<sha256[0:8]> (parité lane Azure)
+        tags="$APP_LIVERY_TAGS"
+        if [[ -n "$BRANCH_NAME" ]]; then
+          branch_sha=$(printf '%s' "$BRANCH_NAME" | sha256sum | cut -c1-8)
+          tags="${tags:+$tags,}branch:$branch_sha"
+        fi
+        export APP_LIVERY_TAGS="$tags"
+
+        if [[ "${{ inputs.publish-mode }}" == "fastlane" ]]; then
+          cd "${{ inputs.fastlane-working-directory }}"
+          bundle exec fastlane "${{ inputs.fastlane-lane }}" --verbose
+        else
+          [[ -n "$APPLIVERY_APP_TOKEN" ]] || { echo "::error::app-token requis en mode api"; exit 1; }
+          shopt -s globstar nullglob
+          found="false"
+          for binary in "$ARTIFACTS_PATH"/**/${{ inputs.binary-glob }}; do
+            [[ -f "$binary" ]] || continue
+            found="true"
+            echo "Upload AppLivery: $(basename "$binary")"
+            curl -sSf -X POST "https://api.applivery.io/v1/integrations/builds" \
+              -H "Authorization: Bearer $APPLIVERY_APP_TOKEN" \
+              -F "build=@$binary" \
+              -F "tags=$APP_LIVERY_TAGS" \
+              -F "notifyCollaborators=false" \
+              -F "notifyEmployees=false" >/dev/null
+          done
+          [[ "$found" == "true" ]] || { echo "::error::Aucun binaire ne correspond à ${{ inputs.binary-glob }}"; exit 1; }
+        fi

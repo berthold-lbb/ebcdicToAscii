@@ -1,0 +1,123 @@
+name: "Emerald Gate Policy"
+description: >
+  Applique la politique de quality gates validée :
+  build autorisé si tous les gates requis sont success ou explicitement skipped
+  (selon allow-build-when-quality-gate-skipped) ;
+  publish bloqué si un gate est skipped, sauf override explicite
+  (allow-publish-when-quality-gate-skipped).
+
+inputs:
+  enable-quality-gates:
+    description: "Politique globale. `false` = tous les gates considérés skipped. Exemple: `true`."
+    required: false
+    default: "true"
+  enable-shared-quality-gate:
+    description: "Gate shared/Kore requis. Exemple: `true`."
+    required: false
+    default: "true"
+  enable-android-quality-gate:
+    description: "Gate Android requis. Exemple: `true`."
+    required: false
+    default: "true"
+  enable-ios-quality-gate:
+    description: "Gate iOS requis. Exemple: `true`."
+    required: false
+    default: "true"
+  shared-result:
+    description: "Résultat du job quality-shared: `success`, `failure`, `cancelled`, `skipped`."
+    required: false
+    default: "skipped"
+  android-result:
+    description: "Résultat du job quality-android."
+    required: false
+    default: "skipped"
+  ios-result:
+    description: "Résultat agrégé des jobs quality iOS (reports + sonar)."
+    required: false
+    default: "skipped"
+  allow-build-when-quality-gate-skipped:
+    description: "Autorise le build si un gate requis est skipped. Exemple: `true`."
+    required: false
+    default: "true"
+  allow-publish-when-quality-gate-skipped:
+    description: "Autorise le publish si un gate requis est skipped. Recommandé: `false`."
+    required: false
+    default: "false"
+
+outputs:
+  allow-build:
+    description: "`true` si les builds peuvent démarrer."
+    value: ${{ steps.policy.outputs.allow_build }}
+  allow-publish:
+    description: "`true` si les publications peuvent démarrer."
+    value: ${{ steps.policy.outputs.allow_publish }}
+  status:
+    description: "Synthèse: `success`, `skipped`, `failed`."
+    value: ${{ steps.policy.outputs.status }}
+
+runs:
+  using: "composite"
+  steps:
+    - id: policy
+      shell: bash
+      env:
+        ENABLE_GATES: ${{ inputs.enable-quality-gates }}
+        ENABLE_SHARED: ${{ inputs.enable-shared-quality-gate }}
+        ENABLE_ANDROID: ${{ inputs.enable-android-quality-gate }}
+        ENABLE_IOS: ${{ inputs.enable-ios-quality-gate }}
+        SHARED_RESULT: ${{ inputs.shared-result }}
+        ANDROID_RESULT: ${{ inputs.android-result }}
+        IOS_RESULT: ${{ inputs.ios-result }}
+        ALLOW_BUILD_SKIPPED: ${{ inputs.allow-build-when-quality-gate-skipped }}
+        ALLOW_PUBLISH_SKIPPED: ${{ inputs.allow-publish-when-quality-gate-skipped }}
+      run: |
+        set -euo pipefail
+
+        any_failed="false"
+        any_skipped="false"
+
+        check_gate() { # $1=name $2=enabled $3=result
+          local name="$1" enabled="$2" result="$3"
+          if [[ "$ENABLE_GATES" != "true" || "$enabled" != "true" ]]; then
+            echo "Gate $name: désactivé → skipped"
+            any_skipped="true"
+            return
+          fi
+          case "$result" in
+            success) echo "Gate $name: success" ;;
+            skipped) echo "Gate $name: job skipped"; any_skipped="true" ;;
+            *)       echo "Gate $name: $result → FAILED"; any_failed="true" ;;
+          esac
+        }
+
+        check_gate "shared"  "$ENABLE_SHARED"  "$SHARED_RESULT"
+        check_gate "android" "$ENABLE_ANDROID" "$ANDROID_RESULT"
+        check_gate "ios"     "$ENABLE_IOS"     "$IOS_RESULT"
+
+        allow_build="true"
+        allow_publish="true"
+        status="success"
+
+        if [[ "$any_failed" == "true" ]]; then
+          allow_build="false"; allow_publish="false"; status="failed"
+        elif [[ "$any_skipped" == "true" ]]; then
+          status="skipped"
+          [[ "$ALLOW_BUILD_SKIPPED"   != "true" ]] && allow_build="false"
+          [[ "$ALLOW_PUBLISH_SKIPPED" != "true" ]] && allow_publish="false"
+        fi
+
+        echo "allow_build=$allow_build"     >> "$GITHUB_OUTPUT"
+        echo "allow_publish=$allow_publish" >> "$GITHUB_OUTPUT"
+        echo "status=$status"               >> "$GITHUB_OUTPUT"
+
+        {
+          echo "## Gate policy"
+          echo "- status: **$status**"
+          echo "- allow build: **$allow_build**"
+          echo "- allow publish: **$allow_publish**"
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        if [[ "$status" == "failed" ]]; then
+          echo "::error::Au moins un quality gate requis a échoué."
+          exit 1
+        fi

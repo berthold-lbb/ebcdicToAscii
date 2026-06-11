@@ -34,7 +34,7 @@ inputs:
       Repo Artifactory cible pour le deploy (ex: release-candidates-local,
       maven-virtual). Spécifique au projet et à la convention Desjardins.
     required: false
-    default: 'maven-virtual'
+    default: 'release-candidates-local'
   artifactoryServerId:
     description: 'Server ID JFrog CLI (défini par setup-jfrog-cli)'
     required: false
