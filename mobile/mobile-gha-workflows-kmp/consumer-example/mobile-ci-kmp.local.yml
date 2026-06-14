@@ -1,0 +1,229 @@
+# =============================================================================
+# Exemple consommateur v5.7 — ui-ad-digital-mobile/.github/workflows/
+#
+# TOUTES les options sont montrées, groupées par thème, avec leur valeur par
+# défaut. Les lignes marquées [défaut] peuvent être SUPPRIMÉES sans changer le
+# comportement — elles sont là pour documenter ce qui est personnalisable.
+# La version minimale fonctionnelle tient en ~15 lignes (voir le bas du fichier).
+# =============================================================================
+
+name: CI ui-ad-digital-mobile (KMP)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main, 'release/**', 'release-gia/**']
+  push:
+    branches: [main, 'rc/**', 'release/**', 'release-gia/**', applivery-archives]
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: 'Plateformes à exécuter (all = shared + android + ios).'
+        type: choice
+        default: all
+        options: [all, shared, android, ios]
+      androidBrand:
+        description: 'Brand Android à builder (all = dgag + tpic).'
+        type: choice
+        default: all
+        options: [all, dgag, tpic]
+      iosScheme:
+        description: 'Scheme iOS à builder (all = dgag + tpic).'
+        type: choice
+        default: all
+        options: [all, dgag, tpic]
+      distribution:
+        description: 'Canal de distribution (none = build seul, sans publication).'
+        type: choice
+        default: none
+        options: [none, applivery, testflight]
+      dryRun:
+        description: 'Exécution à blanc : pas de publication ni de tag, pour valider le pipeline.'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: read
+  checks: write
+
+jobs:
+  ci-kmp:
+    uses: Desjardins/mobile-gha-workflows-kmp/.github/workflows/v5.7/ci-kmp.yml@v5.7
+    with:
+      # ------------------------------------------------------------------
+      # IDENTITÉ — comment le CI sait "qui" il build.
+      # productName → chemin Vault concourse/<productName>/...
+      # Optionnel si la custom property `product` est définie sur le repo.
+      # ------------------------------------------------------------------
+      productName: ui-ad-digital-mobile
+
+      # ------------------------------------------------------------------
+      # MODULES / DOSSIERS — comment le CI sait "où" sont shared/android/ios.
+      # C'est la réponse à "comment le ci connaît les différents dossiers" :
+      #   - les deux modules Gradle sont des inputs ; toutes les tâches
+      #     qualité en sont DÉRIVÉES (':shared' → ':shared:testDebugUnitTest'...)
+      #   - iOS n'est pas un module Gradle : c'est un répertoire (Gemfile,
+      #     Fastfile, xcodeproj) → input de chemin.
+      #   - le Fastfile Android vit dans androidApp → input de chemin aussi.
+      # Un autre projet KMP avec :core / appAndroid / ios/ ne change QUE ces
+      # 4 lignes — aucune tâche Gradle à réécrire.
+      # ------------------------------------------------------------------
+      sharedModule: ':shared'                  # [défaut]
+      androidModule: ':androidApp'             # [défaut]
+      iosWorkingDirectory: iosApp              # [défaut]
+      androidFastlaneDirectory: androidApp     # [défaut]
+
+      # ------------------------------------------------------------------
+      # PLATEFORMES — interrupteurs généraux (resolve-context les croise
+      # avec la branche et manualPlatform pour décider quels jobs partent).
+      # ------------------------------------------------------------------
+      enableShared: true                       # [défaut]
+      enableAndroid: true                      # [défaut]
+      enableIos: true                          # [défaut]
+
+      # ------------------------------------------------------------------
+      # QUALITY GATES — politique validée :
+      # build OK si gates success/explicitement skipped, publish bloqué si
+      # un gate requis est skipped (sauf override).
+      # NB: il n'y a PAS de "qualityMatrixMode: smoke" — ce concept du vieux
+      # scaffold est remplacé par la table de décision : en PR, resolve-context
+      # restreint automatiquement aux brand/scheme par défaut (= smoke) ;
+      # sur main/rc/release, matrice complète (= full).
+      # ------------------------------------------------------------------
+      # build.gradle.kts ne déclare que des flavors *Qa/*Prod : release-gia/*
+      # (env Beta) doit construire le flavor Prod (assembleDgagProdRelease).
+      androidEnvFlavorMap: '{"Beta":"Prod"}'
+
+      # getEnvValue() de build.gradle.kts LÈVE UNE EXCEPTION à la configuration
+      # Gradle si une clé manque — et les signingConfigs sont évalués pour
+      # TOUTE invocation (y compris :shared:*). Les ArkanaKeys doivent donc
+      # être chargées aussi pour la qualité shared.
+      sharedQualityArkana: true
+
+      enableQualityGates: true                 # [défaut]
+      enableSharedQualityGate: true            # [défaut]
+      enableAndroidQualityGate: true           # [défaut]
+      enableIosQualityGate: true               # [défaut]
+      allowBuildWhenQualityGateSkipped: true   # [défaut]
+      allowPublishWhenQualityGateSkipped: false # [défaut]
+      enableSonar: true                        # [défaut]
+      sonarQualityGateWait: true               # [défaut]
+      iosSonarProjectKey: 'com.desjardins.addigitalmobile:ui-ad-digital-mobile-ios'
+      # ^ nouvelle clé Sonar (org ad-digital-mobile) — créer/renommer le projet Sonar en conséquence
+
+      # ------------------------------------------------------------------
+      # CACHES — politique validée (cf. README §Caches).
+      # Pods/ est commité dans ce projet → pod install et cache inutiles.
+      # ------------------------------------------------------------------
+      enableGradleCache: true                  # [défaut]
+      enableAndroidSdkCache: true              # [défaut]
+      enableBundlerCache: true                 # [défaut]
+      enableCocoaPodsCache: false              # Pods/ commité
+      iosRunPodInstall: false                  # [défaut]
+      enableSpmCache: false                    # [défaut] pas de dépendance SPM
+      enableXcodeDerivedDataCache: false       # [défaut] invalidation peu fiable
+      enableKonanCache: true                   # [défaut] critique sur iOS KMP
+
+      # ------------------------------------------------------------------
+      # PUBLICATION — modes et stratégie de branches.
+      # ------------------------------------------------------------------
+      enableAppLivery: true                    # [défaut] main/rc/applivery-archives
+      enableTestFlight: true                   # [défaut] release/* et release-gia/*
+      enableGooglePlay: false                  # [défaut] AAB reste en artefact (= Azure)
+      enableUpdateBuildVersion: true           # [défaut]
+      androidAppliveryPublishMode: fastlane    # [défaut] lane applivery_deploy (parité Azure)
+      iosAppliveryPublishMode: api             # [défaut] upload API, sans rebuild
+      iosTestflightPublishMode: altool         # [défaut] altool, sans rebuild
+
+      # ------------------------------------------------------------------
+      # VAULT — la Vault de l'org est PLATE (un secret par clé, champ value).
+      # Une ligne par clé ; préfixe concourse/<product>/ ajouté automatiquement.
+      # Chaque valeur est masquée, exportée en env ET écrite dans androidApp/.env.
+      # ⚠️ Les noms de gauche doivent correspondre EXACTEMENT à la Vault.
+      # ------------------------------------------------------------------
+      androidArkanaSecretsLines: |
+        dragon-server-api-key-dev value | DragonServerApiKeyDev
+        dragon-server-api-key-qa value | DragonServerApiKeyQA
+        dragon-server-api-key-certif value | DragonServerApiKeyCertif
+        dragon-server-api-key-gia002 value | DragonServerApiKeyGIA002
+        dragon-server-api-key-gia003 value | DragonServerApiKeyGIA003
+        dragon-server-api-key-prod value | DragonServerApiKeyProd
+        google-places-api-key-qa-da value | GooglePlacesApiKeyQADA
+        google-places-api-key-qa-lp value | GooglePlacesApiKeyQALP
+        cmt-api-key-accpc100-da value | CmtApiKeyAccpc100DA
+        cmt-api-key-accpc200-da value | CmtApiKeyAccpc200DA
+        cmt-api-key-accpc300-da value | CmtApiKeyAccpc300DA
+        cmt-api-key-accpc400-da value | CmtApiKeyAccpc400DA
+        cmt-api-key-prod-da value | CmtApiKeyProdDA
+        cmt-api-key-accpc100-lp value | CmtApiKeyAccpc100LP
+        cmt-api-key-accpc200-lp value | CmtApiKeyAccpc200LP
+        cmt-api-key-accpc300-lp value | CmtApiKeyAccpc300LP
+        cmt-api-key-accpc400-lp value | CmtApiKeyAccpc400LP
+        cmt-api-key-prod-lp value | CmtApiKeyProdLP
+        keystore-debug-password value | KeystoreDebugPassword
+        keystore-dgag-qa-password value | KeystoreDgagQaPassword
+        keystore-tpic-qa-password value | KeystoreTpicQaPassword
+        keystore-dgag-password value | KeystoreDgagPassword
+        keystore-tpic-password value | KeystoreTpicPassword
+        google-maps-api-key-tpic-prod value | GoogleMapsApiKeyTpicProd
+        google-maps-api-key-dgag-prod value | GoogleMapsApiKeyDgagProd
+        google-maps-api-key-qa value | GoogleMapsApiKeyQA
+        onetrust-app-id-tpic-qa value | OneTrustAppIdTpicQa
+        onetrust-app-id-dgag-qa value | OneTrustAppIdDgagQa
+        onetrust-app-id-tpic-prod value | OneTrustAppIdTpicProd
+        onetrust-app-id-dgag-prod value | OneTrustAppIdDgagProd
+        encrypted-storage-key value | EncryptedStorageKey
+      # KeystoreDgagPassword / KeystoreTpicPassword : requis par les
+      # signingConfigs Prod de build.gradle.kts (getEnvValue).
+
+      iosArkanaSecretsLines: |
+        dragon-server-api-key-qa value | DragonServerApiKeyQA
+        onetrust-api-key-qa-da value | OneTrustApiKeyQADA
+        onetrust-api-key-qa-lp value | OneTrustApiKeyQALP
+        google-maps-api-key-qa-da value | GoogleMapsApiKeyQADA
+        google-maps-api-key-qa-lp value | GoogleMapsApiKeyQALP
+        encrypted-storage-key value | EncryptedStorageKey
+      # ... compléter avec la liste iOS complète (Cmt*, OneTrust* Certif/GIA...)
+
+      # Credentials du repo Maven CMT Telematics (artifactory.cmtelematics.com,
+      # root build.gradle.kts) — RIEN à voir avec Azure DevOps ni le submodule.
+      # Les defaults correspondent aux secrets plats déjà présents dans la
+      # Vault (cmt-sdk-username / cmt-sdk-password, champ value) → rien à
+      # passer ici. Exportés en CMT_SDK_*/cmtSdk* (deux casses).
+      mavenFeedUsernameSecret: cmt-sdk-username   # [défaut]
+      mavenFeedPasswordSecret: cmt-sdk-password   # [défaut]
+
+      # ------------------------------------------------------------------
+      # OVERRIDES MANUELS (workflow_dispatch)
+      # ------------------------------------------------------------------
+      manualPlatform: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || '' }}
+      manualAndroidBrand: ${{ github.event_name == 'workflow_dispatch' && inputs.androidBrand || '' }}
+      manualIosScheme: ${{ github.event_name == 'workflow_dispatch' && inputs.iosScheme || '' }}
+      manualDistribution: ${{ github.event_name == 'workflow_dispatch' && inputs.distribution || '' }}
+      dryRun: ${{ github.event_name == 'workflow_dispatch' && inputs.dryRun || false }}
+    secrets:
+      ROLEID: ${{ secrets.ROLEID }}
+      SECRETID: ${{ secrets.SECRETID }}
+      GIT_PAT: ${{ secrets.GIT_PAT }}
+
+# =============================================================================
+# VERSION MINIMALE équivalente (tous les [défaut] supprimés) :
+#
+#   jobs:
+#     ci-kmp:
+#       uses: Desjardins/mobile-gha-workflows-kmp/.github/workflows/v5.7/ci-kmp.yml@v5.7
+#       with:
+#         productName: ui-ad-digital-mobile
+#         iosSonarProjectKey: 'com.desjardins.addigitalmobile:ui-ad-digital-mobile-ios'
+#         enableCocoaPodsCache: false
+#         sharedQualityArkana: true
+#         androidArkanaSecretsLines: |
+#           ... (la liste des clés ci-dessus)
+#         iosArkanaSecretsLines: |
+#           ... (la liste iOS)
+#       secrets:
+#         ROLEID: ${{ secrets.ROLEID }}
+#         SECRETID: ${{ secrets.SECRETID }}
+#         GIT_PAT: ${{ secrets.GIT_PAT }}
+# =============================================================================
