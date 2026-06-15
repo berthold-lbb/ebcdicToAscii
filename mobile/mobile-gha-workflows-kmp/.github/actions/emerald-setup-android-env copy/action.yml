@@ -53,17 +53,12 @@ inputs:
     description: "Cache Kotlin/Native (~/.konan). Inutile si le job ne compile aucune target native. Exemple: `true`."
     required: false
     default: "true"
-  install-android-sdk:
-    description: >
-      Installe le SDK Android (android-actions/setup-android) si aucune racine
-      n'est détectée. Mettre `false` sur un runner air-gapped où le SDK est
-      pré-installé : fournir alors `android-sdk-root`.
-    required: false
-    default: "true"
   android-sdk-root:
     description: >
-      Racine SDK explicite (runner self-hosted avec SDK pré-installé). Vide =
-      auto: ANDROID_HOME puis ANDROID_SDK_ROOT, sinon installation.
+      Chemin explicite du SDK Android pré-installé sur le runner. Vide = auto :
+      android-sdk-root → ANDROID_HOME → ANDROID_SDK_ROOT → emplacements standards
+      → sdkmanager sur le PATH. AUCUNE action tierce n'est utilisée (politique
+      d'actions de l'entreprise) : le SDK doit être présent sur l'image du runner.
     required: false
     default: ""
 
@@ -78,39 +73,33 @@ runs:
 
     # -------------------------------------------------------------------------
     # SDK Android : AGP exige ANDROID_HOME OU sdk.dir dans local.properties.
-    # Les runners GitHub-hosted ubuntu/macOS l'ont déjà ; un runner
-    # self-hosted/minimal non → on le garantit ici pour TOUS les jobs Gradle.
+    # On le DÉTECTE en shell pur (aucune action tierce — la politique d'actions
+    # de l'entreprise n'autorise pas android-actions/setup-android). Le SDK doit
+    # être présent sur l'image du runner ; on l'expose pour TOUS les jobs Gradle.
     # -------------------------------------------------------------------------
-    - name: Resolve Android SDK location
-      id: sdk
+    - name: Setup Android SDK (détection shell, sans action tierce)
       shell: bash
       run: |
         set -euo pipefail
         ROOT="${{ inputs.android-sdk-root }}"
         [ -z "$ROOT" ] && ROOT="${ANDROID_HOME:-}"
         [ -z "$ROOT" ] && ROOT="${ANDROID_SDK_ROOT:-}"
-        if [ -n "$ROOT" ] && [ -d "$ROOT" ]; then
-          echo "need-install=false" >> "$GITHUB_OUTPUT"
-          echo "root=$ROOT" >> "$GITHUB_OUTPUT"
-        else
-          echo "need-install=true" >> "$GITHUB_OUTPUT"
-          echo "root=" >> "$GITHUB_OUTPUT"
-        fi
-
-    - name: Install Android SDK (si absent)
-      if: ${{ steps.sdk.outputs.need-install == 'true' && inputs.install-android-sdk == 'true' }}
-      uses: android-actions/setup-android@v3
-
-    - name: Export ANDROID_HOME + write local.properties
-      shell: bash
-      run: |
-        set -euo pipefail
-        ROOT="${{ steps.sdk.outputs.root }}"
-        # android-actions/setup-android exporte ANDROID_HOME/_SDK_ROOT via GITHUB_ENV
-        [ -z "$ROOT" ] && ROOT="${ANDROID_HOME:-}"
-        [ -z "$ROOT" ] && ROOT="${ANDROID_SDK_ROOT:-}"
+        # Emplacements standards si toujours vide
         if [ -z "$ROOT" ]; then
-          echo "::error::SDK Android introuvable. Fournir android-sdk-root ou laisser install-android-sdk=true." >&2
+          for c in \
+            "/usr/local/lib/android/sdk" \
+            "/opt/android-sdk" "/opt/android/sdk" "/opt/Android/sdk" \
+            "/usr/lib/android-sdk" \
+            "$HOME/Android/Sdk" "$HOME/Library/Android/sdk"; do
+            [ -d "$c" ] && { ROOT="$c"; break; }
+          done
+        fi
+        # Dériver depuis sdkmanager sur le PATH (.../cmdline-tools/latest/bin ou .../tools/bin)
+        if [ -z "$ROOT" ] && command -v sdkmanager >/dev/null 2>&1; then
+          ROOT="$(cd "$(dirname "$(command -v sdkmanager)")/../.." && pwd)"
+        fi
+        if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
+          echo "::error::SDK Android introuvable : ANDROID_HOME/ANDROID_SDK_ROOT non définis et aucun emplacement standard trouvé. Renseigner l'input android-sdk-root (chemin du SDK pré-installé sur le runner) ou ajouter le SDK à l'image du runner." >&2
           exit 1
         fi
         echo "ANDROID_HOME=$ROOT" >> "$GITHUB_ENV"
@@ -124,6 +113,7 @@ runs:
         else
           echo "$LP contient deja sdk.dir — inchange"
         fi
+        echo "Android SDK resolu: $ROOT"
 
     - name: Setup Gradle (cache)
       uses: gradle/actions/setup-gradle@v4
