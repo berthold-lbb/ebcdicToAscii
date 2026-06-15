@@ -158,20 +158,28 @@ runs:
           rm -rf "$ROOT/cmdline-tools/latest"
           mv "$TMP/cmdline-tools" "$ROOT/cmdline-tools/latest"
           SM="$ROOT/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$SM" --sdk_root="$ROOT" --licenses >/dev/null 2>&1 || true
+          # Acceptation des licences : `yes 2>/dev/null` (stderr supprimé) + `|| true`
+          # car `yes` reçoit SIGPIPE quand sdkmanager se ferme — c'est normal et NE
+          # doit PAS faire échouer le job (sinon pipefail+errexit avortent).
+          yes 2>/dev/null | "$SM" --sdk_root="$ROOT" --licenses >/dev/null 2>&1 || true
+          # Installs SANS `yes` : licences déjà acceptées → aucun prompt → aucun SIGPIPE.
           "$SM" --sdk_root="$ROOT" "platform-tools" >/dev/null
           echo "Bootstrap terminé: $ROOT"
         fi
 
-        # Composants optionnels (platform / build-tools) — licences acceptées
-        # automatiquement via `yes` (aucune interaction). Atterrissent dans $ROOT,
+        # Composants optionnels (platform / build-tools). Licences acceptées une
+        # fois (SIGPIPE-safe), puis installs SANS `yes`. Atterrissent dans $ROOT,
         # donc cachés avec ~/android-sdk au run suivant.
         SM="$ROOT/cmdline-tools/latest/bin/sdkmanager"
         [ -x "$SM" ] || SM="$(command -v sdkmanager || true)"
         if [ -n "$SM" ] && { [ -n "${{ inputs.compile-sdk-version }}" ] || [ -n "${{ inputs.build-tools-version }}" ]; }; then
-          yes | "$SM" --sdk_root="$ROOT" --licenses >/dev/null 2>&1 || true
-          [ -n "${{ inputs.compile-sdk-version }}" ] && yes | "$SM" --sdk_root="$ROOT" "platforms;android-${{ inputs.compile-sdk-version }}" >/dev/null
-          [ -n "${{ inputs.build-tools-version }}" ] && yes | "$SM" --sdk_root="$ROOT" "build-tools;${{ inputs.build-tools-version }}" >/dev/null
+          yes 2>/dev/null | "$SM" --sdk_root="$ROOT" --licenses >/dev/null 2>&1 || true
+          if [ -n "${{ inputs.compile-sdk-version }}" ]; then
+            "$SM" --sdk_root="$ROOT" "platforms;android-${{ inputs.compile-sdk-version }}" >/dev/null
+          fi
+          if [ -n "${{ inputs.build-tools-version }}" ]; then
+            "$SM" --sdk_root="$ROOT" "build-tools;${{ inputs.build-tools-version }}" >/dev/null
+          fi
         fi
 
         echo "ANDROID_HOME=$ROOT" >> "$GITHUB_ENV"
