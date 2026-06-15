@@ -1,10 +1,10 @@
-name: "Reusable - CI KMP Mobile (v5.7) — LOCAL TEST (chemins relatifs)"
+name: "Reusable - CI KMP Mobile (v5.8) — LOCAL TEST (chemins relatifs)"
 
 # =============================================================================
 # ⚠️ VARIANTE LOCALE — NE PAS UTILISER COMME WORKFLOW RÉUTILISABLE EN PROD.
 #
 # Toutes les composite actions sont référencées en chemin RELATIF
-# (./.github/actions/...) au lieu de Desjardins/...@v5.7. Conséquence GitHub :
+# (./.github/actions/...) au lieu de Desjardins/...@v5.8. Conséquence GitHub :
 # un chemin relatif est résolu contre le workspace CHECKOUT du job — donc, en
 # usage `workflow_call` réel, contre le repo APPELANT (l'app), qui ne contient
 # PAS .github/actions/emerald-* → échec. Cette variante ne fonctionne QUE si
