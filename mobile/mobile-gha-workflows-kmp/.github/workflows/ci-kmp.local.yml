@@ -67,9 +67,9 @@ on:
         required: true
       GIT_PAT:
         description: >
-          PAT optionnel pour: checkout des repos Match iOS, push du job
-          update-build-version, submodules hébergés hors GitHub.
-          Non requis pour les actions composites (référencées à distance).
+          DÉPRÉCIÉ — le PAT est désormais lu depuis Vault (input `gitPatSecret`).
+          Conservé optionnel pour rétro-compat ; non requis. Les checkouts
+          utilisent `env.GIT_ACCESS_TOKEN` (Vault) avec repli sur github.token.
         required: false
 
     inputs:
@@ -527,6 +527,16 @@ on:
         type: string
         required: false
         default: 'artifactory-api-key'
+      gitPatSecret:
+        description: >
+          Secret Vault (champ `value`) du PAT GitHub utilisé pour les checkouts
+          (submodule iOS privé, repos Match, push update-build-version). Récupéré
+          depuis Vault comme les autres secrets — plus besoin du secret GitHub
+          GIT_PAT. Vide = repli sur github.token (suffisant uniquement si aucun
+          submodule/repo privé externe).
+        type: string
+        required: false
+        default: 'git-user-access-token'
       mavenFeedUsernameSecret:
         description: >
           Secret plat (champ `value`) du username du repo Maven externe
@@ -781,6 +791,16 @@ jobs:
             echo "::error::sonarqubeUrl vide — définir la var SONARQUBE_URL ou passer l'input"
             exit 1
           fi
+          if [[ -z "${{ inputs.linuxRunnerLabel }}" ]]; then
+            echo "::error::linuxRunnerLabel vide — définir la var d'organisation DEFAULT_RUNNER_LABEL ou passer l'input linuxRunnerLabel"
+            exit 1
+          fi
+          # Les jobs iOS tournent sur macOS : sans label de runner macOS, ils
+          # ne démarrent jamais (runs-on vide) — échec silencieux. On bloque tôt.
+          if [[ "${{ needs.resolve-context.outputs.ios_enabled }}" == "true" && -z "${{ inputs.macosRunnerLabel }}" ]]; then
+            echo "::error::iOS est activé mais macosRunnerLabel est vide — définir la var d'organisation DEFAULT_MACOS_RUNNER_LABEL ou passer l'input macosRunnerLabel (ex: macosRunnerLabel: macos-14). Sans ce label, quality-ios et build-ios ne se lancent pas."
+            exit 1
+          fi
 
   # ===========================================================================
   # 10 — QUALITY SHARED (Linux)
@@ -902,6 +922,39 @@ jobs:
             ${{ inputs.mavenFeedUsernameSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_USERNAME ; {0}/{1}/{2} value | cmtSdkUserName ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedUsernameSecret) || '' }}
             ${{ inputs.mavenFeedPasswordSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_PASSWORD ; {0}/{1}/{2} value | cmtSdkPassword ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedPasswordSecret) || '' }}
 
+      - name: "[🔍 DIAG] Verify Artifactory token from Vault"
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "============================================="
+          echo "Vérification du token Artifactory après injection Vault"
+          echo "============================================="
+          if [ -z "${ARTIFACTORY_REF_TOKEN:-}" ]; then
+            echo "❌ ARTIFACTORY_REF_TOKEN est VIDE ou ABSENT"
+            exit 1
+          else
+            TOKEN_LENGTH=${#ARTIFACTORY_REF_TOKEN}
+            echo "✅ ARTIFACTORY_REF_TOKEN présent (longueur: $TOKEN_LENGTH car)"
+            echo "   Premiers caractères: ${ARTIFACTORY_REF_TOKEN:0:10}..."
+            echo "   Derniers caractères: ...${ARTIFACTORY_REF_TOKEN: -10}"
+          fi
+          echo ""
+          echo "Test accès à Artifactory (maven-virtual) :"
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -H "Authorization: Bearer ${ARTIFACTORY_REF_TOKEN}" \
+            "https://artifacts.lc.az.nuagesdesjardins.com/artifactory/maven-virtual/com/desjardins/dsd/dsd/3.0.6/dsd-3.0.6.pom")
+          echo "   HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "   ✅ Accès OK au repo maven-virtual"
+          elif [ "$HTTP_CODE" = "401" ]; then
+            echo "   ⚠️  HTTP 401 — Token invalide ou sans accès"
+          elif [ "$HTTP_CODE" = "404" ]; then
+            echo "   ⚠️  HTTP 404 — Artifact non trouvé (token OK mais pas d'accès au sous-repo ?)"
+          else
+            echo "   ⚠️  HTTP $HTTP_CODE — Erreur inattendue"
+          fi
+          echo "============================================="
+
       - name: Compose flat ArkanaKeys map
         if: ${{ inputs.androidArkanaSecretsLines != '' }}
         id: arkana-map
@@ -991,12 +1044,23 @@ jobs:
     needs: [evaluate, resolve-context, validate-inputs]
     if: ${{ needs.resolve-context.outputs.ios_enabled == 'true' }}
     steps:
+      - name: Import Git PAT from Vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ inputs.vaultUrl }}
+          method: approle
+          roleId: ${{ secrets.ROLEID }}
+          secretId: ${{ secrets.SECRETID }}
+          path: ${{ inputs.vaultPath }}
+          secrets: |
+            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.gitPatSecret }} value | GIT_ACCESS_TOKEN ;
+
       - uses: actions/checkout@v4
         with:
           submodules: ${{ inputs.checkoutSubmodules }}
           lfs: true
           fetch-depth: 0
-          token: ${{ secrets.GIT_PAT || github.token }}
+          token: ${{ env.GIT_ACCESS_TOKEN || github.token }}
 
       - name: Import secrets from Vault
         uses: hashicorp/vault-action@v3
@@ -1307,11 +1371,22 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve-context.outputs.ios_matrix) }}
     steps:
+      - name: Import Git PAT from Vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ inputs.vaultUrl }}
+          method: approle
+          roleId: ${{ secrets.ROLEID }}
+          secretId: ${{ secrets.SECRETID }}
+          path: ${{ inputs.vaultPath }}
+          secrets: |
+            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.gitPatSecret }} value | GIT_ACCESS_TOKEN ;
+
       - uses: actions/checkout@v4
         with:
           submodules: ${{ inputs.checkoutSubmodules }}
           lfs: true
-          token: ${{ secrets.GIT_PAT || github.token }}
+          token: ${{ env.GIT_ACCESS_TOKEN || github.token }}
 
       - name: Import secrets from Vault
         uses: hashicorp/vault-action@v3
@@ -1388,7 +1463,7 @@ jobs:
           ipa-name: ${{ matrix.ipaName }}
           match-repository: ${{ matrix.matchRepo }}
           match-ref: ${{ inputs.iosMatchRef }}
-          match-git-token: ${{ secrets.GIT_PAT }}
+          match-git-token: ${{ env.GIT_ACCESS_TOKEN }}
           branch-name: ${{ needs.evaluate.outputs.branch_name }}
           artifact-name: ${{ matrix.artifactName }}
           dry-run: ${{ inputs.dryRun }}
@@ -1516,13 +1591,24 @@ jobs:
       matrix: ${{ fromJSON(needs.resolve-context.outputs.ios_matrix) }}
     steps:
       - uses: actions/checkout@v4   # requis : actions relatives lues depuis le workspace
+      - name: Import Git PAT from Vault
+        if: ${{ inputs.iosTestflightPublishMode == 'fastlane' }}
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ inputs.vaultUrl }}
+          method: approle
+          roleId: ${{ secrets.ROLEID }}
+          secretId: ${{ secrets.SECRETID }}
+          path: ${{ inputs.vaultPath }}
+          secrets: |
+            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.gitPatSecret }} value | GIT_ACCESS_TOKEN ;
       - name: Checkout project (mode fastlane uniquement)
         if: ${{ inputs.iosTestflightPublishMode == 'fastlane' }}
         uses: actions/checkout@v4
         with:
           submodules: ${{ inputs.checkoutSubmodules }}
           lfs: true
-          token: ${{ secrets.GIT_PAT || github.token }}
+          token: ${{ env.GIT_ACCESS_TOKEN || github.token }}
 
       - name: Import App Store Connect secrets from Vault
         uses: hashicorp/vault-action@v3
@@ -1565,13 +1651,24 @@ jobs:
           && needs.publish-ios-applivery.result != 'failure'
           && needs.publish-ios-testflight.result != 'failure' }}
     steps:
+      - name: Import Git PAT from Vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ inputs.vaultUrl }}
+          method: approle
+          roleId: ${{ secrets.ROLEID }}
+          secretId: ${{ secrets.SECRETID }}
+          path: ${{ inputs.vaultPath }}
+          secrets: |
+            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.gitPatSecret }} value | GIT_ACCESS_TOKEN ;
+
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.evaluate.outputs.branch_name }}
           submodules: ${{ inputs.checkoutSubmodules }}
           lfs: true
           fetch-depth: 0
-          token: ${{ secrets.GIT_PAT || github.token }}
+          token: ${{ env.GIT_ACCESS_TOKEN || github.token }}
           persist-credentials: true
 
       - name: Import secrets from Vault
