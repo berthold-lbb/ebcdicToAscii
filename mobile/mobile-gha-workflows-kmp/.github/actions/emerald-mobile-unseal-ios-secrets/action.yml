@@ -1,0 +1,86 @@
+name: "Emerald Mobile Unseal iOS Secrets"
+description: >
+  Descelle le blob de secrets iOS produit par le job `seal-ios-secrets`.
+  Les runners macOS ne joignent pas Vault (getaddrinfo ENOTFOUND) : les secrets
+  sont lus sur Linux, scellés (base64), puis descellés ici. Chaque secret est
+  exporté en variable d'environnement masquée (::add-mask::). Résout optionnellement
+  MATCH_PASSWORD (par signingVaultProfile) et ALTOOL_* (par brandKey) pour
+  l'entrée de matrice courante. Aucun appel Vault.
+
+inputs:
+  sealed:
+    description: "Blob scellé (sortie `seal-ios-secrets.outputs.sealed`)."
+    required: true
+  match-profile:
+    description: "matrix.signingVaultProfile pour résoudre MATCH_PASSWORD. Vide = ignoré."
+    required: false
+    default: ""
+  altool-brand:
+    description: "matrix.brandKey pour résoudre ALTOOL_API_KEY / _ID / ISSUER_ID. Vide = ignoré."
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Unseal iOS secrets (base64, no Vault)
+      shell: bash
+      env:
+        SEALED: ${{ inputs.sealed }}
+        MATCH_PROFILE: ${{ inputs.match-profile }}
+        ALTOOL_BRAND: ${{ inputs.altool-brand }}
+      run: |
+        set -euo pipefail
+
+        # Décodage base64 portable (GNU '-d' / BSD-macOS '-D').
+        b64d() { printf '%s' "$1" | base64 -d 2>/dev/null || printf '%s' "$1" | base64 -D; }
+        # Nom de variable d'env valide (doit matcher la sanitization du job seal).
+        sani() { printf '%s' "$1" | tr -c 'A-Za-z0-9_' '_'; }
+
+        if [ -z "${SEALED:-}" ]; then
+          echo "::error::Blob 'sealed' vide — le job seal-ios-secrets a-t-il tourné ? (ios_enabled == true)"
+          exit 1
+        fi
+
+        emit() { # $1=NAME $2=VALUE
+          [ -n "$2" ] && printf '::add-mask::%s\n' "$2"
+          { printf '%s<<__UEOF__\n' "$1"; printf '%s\n' "$2"; printf '__UEOF__\n'; } >> "$GITHUB_ENV"
+        }
+
+        blob="$(b64d "$SEALED")"
+        declare -A MAP
+        count=0
+        while IFS= read -r line; do
+          [ -z "$line" ] && continue
+          name="${line%%=*}"
+          vb64="${line#*=}"
+          val="$(b64d "$vb64")"
+          MAP["$name"]="$val"
+          emit "$name" "$val"
+          count=$((count + 1))
+        done <<< "$blob"
+
+        # Résolution de l'entrée de matrice : MATCH_PASSWORD.
+        if [ -n "${MATCH_PROFILE:-}" ]; then
+          key="MATCH__$(sani "$MATCH_PROFILE")"
+          if [ -z "${MAP[$key]+x}" ]; then
+            echo "::error::MATCH_PASSWORD introuvable pour le profil '$MATCH_PROFILE' (clé $key). Le job seal a-t-il la même ios_matrix ?"
+            exit 1
+          fi
+          emit MATCH_PASSWORD "${MAP[$key]}"
+        fi
+
+        # Résolution de l'entrée de matrice : ALTOOL_*.
+        if [ -n "${ALTOOL_BRAND:-}" ]; then
+          b="$(sani "$ALTOOL_BRAND")"
+          for suf in ALTOOL_API_KEY ALTOOL_API_KEY_ID ALTOOL_ISSUER_ID; do
+            key="${suf}__${b}"
+            if [ -z "${MAP[$key]+x}" ]; then
+              echo "::error::${suf} introuvable pour brandKey '$ALTOOL_BRAND' (clé $key). Publish TestFlight activé au seal ?"
+              exit 1
+            fi
+            emit "$suf" "${MAP[$key]}"
+          done
+        fi
+
+        echo "::notice::iOS secrets descellés ($count clés) — aucun appel Vault sur macOS."
