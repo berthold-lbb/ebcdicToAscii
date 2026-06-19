@@ -1305,12 +1305,20 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve-context.outputs.android_matrix) }}
-    # versionCode = run_number + offset (remplace le job 50). Gradle mappe
-    # ORG_GRADLE_PROJECT_versionCode -> project.property("versionCode").
-    env:
-      ORG_GRADLE_PROJECT_versionCode: ${{ github.run_number + fromJSON(inputs.versionCodeOffset) }}
     steps:
       - uses: actions/checkout@v4
+
+      # versionCode = run_number + offset (remplace le job 50). GHA ne supporte
+      # pas l'arithmétique dans ${{ }}, on calcule donc en shell. Gradle mappe
+      # ensuite ORG_GRADLE_PROJECT_versionCode -> project.property("versionCode").
+      - name: Compute Android versionCode (run_number + offset)
+        shell: bash
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          OFFSET: ${{ inputs.versionCodeOffset }}
+        run: |
+          set -euo pipefail
+          echo "ORG_GRADLE_PROJECT_versionCode=$(( RUN_NUMBER + ${OFFSET:-0} ))" >> "$GITHUB_ENV"
 
       - name: Import secrets from Vault
         uses: hashicorp/vault-action@v3
