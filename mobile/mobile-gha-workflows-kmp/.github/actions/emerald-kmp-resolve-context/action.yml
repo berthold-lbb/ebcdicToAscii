@@ -178,11 +178,19 @@ inputs:
     default: "ios/{brandKey}/{env}/arkana"
   ios-signing-profile-template:
     description: >
-      Template du profil Vault de signature iOS (Match).
-      Doit exposer: MATCH_PASSWORD, MATCH_KEYCHAIN_PASSWORD.
-      Exemple: `ios/{brandKey}/{profileType}/match`.
+      Template du profil Vault de signature iOS (Match), utilisé en FALLBACK si
+      la clé n'est pas dans ios-match-secret-map. Placeholders {brandKey},{profileType}.
     required: false
     default: "ios/{brandKey}/{profileType}/match"
+  ios-match-secret-map:
+    description: >
+      Mapping EXPLICITE (JSON) du secret Vault Match par `{brandKey}-{profileType}`,
+      pour les Vault aux noms irréguliers (où un template ne suffit pas). Prioritaire
+      sur ios-signing-profile-template. Exemple:
+      `{"dgag-enterprise":"match-password-dgag-ent","tpic-appstore":"match-password-lp-public"}`.
+      Vide = on retombe sur le template.
+    required: false
+    default: "{}"
   ios-applivery-profile:
     description: "Profil Vault des tokens AppLivery iOS. Exemple: `ios/applivery`."
     required: false
@@ -302,6 +310,7 @@ runs:
         IOS_ARKANA_FULL: ${{ inputs.ios-arkana-full-profiles }}
         IOS_ARKANA_TPL: ${{ inputs.ios-arkana-profile-template }}
         IOS_SIGNING_TPL: ${{ inputs.ios-signing-profile-template }}
+        IOS_MATCH_MAP: ${{ inputs.ios-match-secret-map }}
         IOS_APPLIVERY_PROFILE: ${{ inputs.ios-applivery-profile }}
         IOS_TESTFLIGHT_TPL: ${{ inputs.ios-testflight-profile-template }}
         MANUAL_PLATFORM: ${{ inputs.manual-platform }}
@@ -485,11 +494,15 @@ runs:
         ios_matrix=$(jq -c --arg mode "$ARKANA_LOAD_MODE" \
           --arg full "$IOS_ARKANA_FULL" --arg tpl "$IOS_ARKANA_TPL" \
           --arg signTpl "$IOS_SIGNING_TPL" --arg tfTpl "$IOS_TESTFLIGHT_TPL" \
+          --argjson matchMap "${IOS_MATCH_MAP:-{}}" \
           --arg env "$env_lc" --arg profile "$i_profile" '
           .include |= map(. as $e | . + {
             arkanaProfiles: (if $mode == "full" then $full
               else ($tpl | gsub("\\{brandKey\\}"; $e.brandKey) | gsub("\\{env\\}"; $env)) end),
-            signingVaultProfile: ($signTpl | gsub("\\{brandKey\\}"; $e.brandKey) | gsub("\\{profileType\\}"; $profile)),
+            signingVaultProfile: (
+              $matchMap[($e.brandKey + "-" + $profile)]
+              // ($signTpl | gsub("\\{brandKey\\}"; $e.brandKey) | gsub("\\{profileType\\}"; $profile))
+            ),
             testflightVaultProfile: ($tfTpl | gsub("\\{brandKey\\}"; $e.brandKey))
           })' <<<"$ios_matrix")
 

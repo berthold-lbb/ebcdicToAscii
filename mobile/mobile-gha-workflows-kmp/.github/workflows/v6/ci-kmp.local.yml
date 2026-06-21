@@ -596,6 +596,14 @@ on:
         type: string
         required: false
         default: 'match-password-{profileType}-{brandKey}'
+      iosMatchSecretMap:
+        description: >
+          Mapping explicite (JSON) du secret Match par `{brandKey}-{profileType}`,
+          prioritaire sur iosMatchSecretTemplate (Vault aux noms irréguliers).
+          Vide = template. Exemple: `{"dgag-enterprise":"match-password-dgag-ent"}`.
+        type: string
+        required: false
+        default: "{}"
       appliveryTokenDaSecret:
         description: "Secret plat du token AppLivery DA (champ `value`). Vault réelle: `applivery-token-da`."
         type: string
@@ -765,6 +773,7 @@ jobs:
           ios-arkana-full-profiles: ${{ inputs.iosArkanaSecret }}
           ios-arkana-profile-template: ${{ inputs.iosArkanaSecretTemplate }}
           ios-signing-profile-template: ${{ inputs.iosMatchSecretTemplate }}
+          ios-match-secret-map: ${{ inputs.iosMatchSecretMap }}
           manual-platform: ${{ inputs.manualPlatform }}
           manual-android-brand: ${{ inputs.manualAndroidBrand }}
           manual-ios-scheme: ${{ inputs.manualIosScheme }}

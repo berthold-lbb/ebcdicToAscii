@@ -281,6 +281,18 @@ jobs:
         google-maps-api-key-prod-da value | GoogleMapsApiKeyProdDA
         google-maps-api-key-prod-lp value | GoogleMapsApiKeyProdLP
 
+      # iOS Match (signature) — noms Vault IRRÉGULIERS, donc mapping explicite
+      # (le template régulier ne marche pas : dgag→fede en appstore, tpic→lp).
+      # Parité Azure : en enterprise/applivery, dgag ET tpic partagent le cert
+      # enterprise dgag (MATCH_PASSWORD_DGAG_ENT). Le job seal lit ces secrets.
+      iosMatchSecretMap: >-
+        {
+          "dgag-enterprise": "match-password-dgag-ent",
+          "tpic-enterprise": "match-password-dgag-ent",
+          "dgag-appstore": "match-password-fede-public",
+          "tpic-appstore": "match-password-lp-public"
+        }
+
       # Credentials du repo Maven CMT Telematics (artifactory.cmtelematics.com,
       # root build.gradle.kts) — RIEN à voir avec Azure DevOps ni le submodule.
       # Les defaults correspondent aux secrets plats déjà présents dans la
