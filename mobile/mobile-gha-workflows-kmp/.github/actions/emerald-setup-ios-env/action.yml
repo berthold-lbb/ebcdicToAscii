@@ -1,3 +1,10 @@
+# =============================================================================
+# Version: 1.1.0
+# Changelog:
+#   1.1.0 — Ajout input `ruby-version` (défaut 3.2.5) passé à ruby/setup-ruby
+#           (le repo n'a ni .ruby-version ni .tool-versions).
+#   1.0.0 — Baseline (JDK/Gradle + Bundler + caches iOS).
+# =============================================================================
 name: "Emerald Setup iOS Environment"
 description: >
   Prépare un job iOS/KMP sur macOS : Git LFS, Ruby/Bundler, JDK + Gradle + Konan
@@ -30,6 +37,13 @@ inputs:
     description: "Cache Kotlin/Native ~/.konan (poste de temps n°1 sur iOS KMP). Exemple: `true`."
     required: false
     default: "true"
+  ruby-version:
+    description: >
+      Version Ruby pour ruby/setup-ruby (Fastlane). OBLIGATOIRE car le repo n'a
+      ni .ruby-version ni .tool-versions. Mettre la version installée sur le
+      runner macOS self-hosted pour éviter un téléchargement. Exemple: `3.2.5`.
+    required: false
+    default: "3.2.5"
   enable-bundler-cache:
     description: "Cache des gems (clé: Gemfile.lock). Exemple: `true`."
     required: false
@@ -96,6 +110,7 @@ runs:
     - name: Setup Ruby / Bundler
       uses: ruby/setup-ruby@v1
       with:
+        ruby-version: ${{ inputs.ruby-version }}
         bundler-cache: ${{ inputs.enable-bundler-cache == 'true' }}
         working-directory: ${{ inputs.ios-working-directory }}
 

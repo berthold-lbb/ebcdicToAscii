@@ -1,3 +1,10 @@
+# =============================================================================
+# Version: 1.1.0
+# Changelog:
+#   1.1.0 — Ajout input `ios-match-secret-map` (mapping explicite du secret Match,
+#           prioritaire sur le template) + fix bash `${VAR:-{}}` (accolade parasite).
+#   1.0.0 — Baseline (résolution contexte + matrices Android/iOS).
+# =============================================================================
 name: "Emerald KMP Resolve Context"
 description: >
   Résout la stratégie de branche (table de décision Azure) en contexte d'exécution :
@@ -491,10 +498,12 @@ runs:
                 artifactName: ("ios-" + .brandKey + "-" + ($cfg|ascii_downcase))
               } ] }' <<<"$IOS_SCHEMES_CONFIG")
 
+        # Défaut robuste : éviter ${VAR:-{}} qui ajoute une accolade parasite en bash.
+        match_map="$IOS_MATCH_MAP"; [ -z "$match_map" ] && match_map='{}'
         ios_matrix=$(jq -c --arg mode "$ARKANA_LOAD_MODE" \
           --arg full "$IOS_ARKANA_FULL" --arg tpl "$IOS_ARKANA_TPL" \
           --arg signTpl "$IOS_SIGNING_TPL" --arg tfTpl "$IOS_TESTFLIGHT_TPL" \
-          --argjson matchMap "${IOS_MATCH_MAP:-{}}" \
+          --argjson matchMap "$match_map" \
           --arg env "$env_lc" --arg profile "$i_profile" '
           .include |= map(. as $e | . + {
             arkanaProfiles: (if $mode == "full" then $full

@@ -47,39 +47,49 @@ runs:
           { printf '%s<<__UEOF__\n' "$1"; printf '%s\n' "$2"; printf '__UEOF__\n'; } >> "$GITHUB_ENV"
         }
 
+        # NB: macOS livre bash 3.2 (pas de `declare -A`). On évite tout tableau
+        # associatif : on exporte tout en streaming, et on relit le blob pour
+        # résoudre les clés de matrice (MATCH/ALTOOL).
         blob="$(b64d "$SEALED")"
-        declare -A MAP
+
+        # lookup CLE -> valeur déchiffrée (vide si absente). Ligne = NAME=base64.
+        lookup() {
+          local line
+          line="$(printf '%s\n' "$blob" | grep -m1 "^$1=" || true)"
+          [ -z "$line" ] && return 0
+          b64d "${line#*=}"
+        }
+
         count=0
         while IFS= read -r line; do
           [ -z "$line" ] && continue
           name="${line%%=*}"
           vb64="${line#*=}"
-          val="$(b64d "$vb64")"
-          MAP["$name"]="$val"
-          emit "$name" "$val"
+          emit "$name" "$(b64d "$vb64")"
           count=$((count + 1))
         done <<< "$blob"
 
         # Résolution de l'entrée de matrice : MATCH_PASSWORD.
         if [ -n "${MATCH_PROFILE:-}" ]; then
           key="MATCH__$(sani "$MATCH_PROFILE")"
-          if [ -z "${MAP[$key]+x}" ]; then
+          val="$(lookup "$key")"
+          if [ -z "$val" ]; then
             echo "::error::MATCH_PASSWORD introuvable pour le profil '$MATCH_PROFILE' (clé $key). Le job seal a-t-il la même ios_matrix ?"
             exit 1
           fi
-          emit MATCH_PASSWORD "${MAP[$key]}"
+          emit MATCH_PASSWORD "$val"
         fi
 
         # Résolution de l'entrée de matrice : ALTOOL_*.
         if [ -n "${ALTOOL_BRAND:-}" ]; then
           b="$(sani "$ALTOOL_BRAND")"
           for suf in ALTOOL_API_KEY ALTOOL_API_KEY_ID ALTOOL_ISSUER_ID; do
-            key="${suf}__${b}"
-            if [ -z "${MAP[$key]+x}" ]; then
-              echo "::error::${suf} introuvable pour brandKey '$ALTOOL_BRAND' (clé $key). Publish TestFlight activé au seal ?"
+            val="$(lookup "${suf}__${b}")"
+            if [ -z "$val" ]; then
+              echo "::error::${suf} introuvable pour brandKey '$ALTOOL_BRAND' (clé ${suf}__${b}). Publish TestFlight activé au seal ?"
               exit 1
             fi
-            emit "$suf" "${MAP[$key]}"
+            emit "$suf" "$val"
           done
         fi
 

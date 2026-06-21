@@ -1,3 +1,10 @@
+# =============================================================================
+# Version: 1.1.0
+# Changelog:
+#   1.1.0 — Ajout input `ruby-version` (défaut 3.2.5) passé à ruby/setup-ruby
+#           (le repo n'a ni .ruby-version ni .tool-versions).
+#   1.0.0 — Baseline (JDK + Gradle + SDK Android shell + Bundler).
+# =============================================================================
 name: "Emerald Setup Android Environment"
 description: >
   Prépare un job Android/KMP : JDK, Gradle (avec cache), SDK Android,
@@ -12,7 +19,7 @@ inputs:
   jdk-version:
     description: "Version JDK. Azure: 17 pour APK/Qa, 21 pour AAB Prod/Beta."
     required: false
-    default: "17"
+    default: "21"
   jdk-distribution:
     description: "Distribution JDK. Exemple: `temurin`."
     required: false
@@ -29,6 +36,14 @@ inputs:
     description: "Installe Bundler + gems Fastlane depuis le Gemfile. Exemple: `true`."
     required: false
     default: "true"
+  ruby-version:
+    description: >
+      Version Ruby pour ruby/setup-ruby (Fastlane). OBLIGATOIRE car le repo n'a
+      ni .ruby-version ni .tool-versions (Azure utilisait le Ruby système de
+      l'agent). Mettre la version installée sur le runner self-hosted pour éviter
+      un téléchargement (potentiellement bloqué par le proxy). Exemple: `3.2.5`.
+    required: false
+    default: "3.2.5"
   bundler-working-directory:
     description: "Répertoire contenant le Gemfile. Exemple: `androidApp`."
     required: false
@@ -53,6 +68,32 @@ inputs:
     description: "Cache Kotlin/Native (~/.konan). Inutile si le job ne compile aucune target native. Exemple: `true`."
     required: false
     default: "true"
+  android-sdk-root:
+    description: >
+      Chemin explicite du SDK Android pré-installé sur le runner. Vide = auto :
+      android-sdk-root → ANDROID_HOME → ANDROID_SDK_ROOT → emplacements standards
+      → sdkmanager sur le PATH. AUCUNE action tierce n'est utilisée (politique
+      d'actions de l'entreprise).
+    required: false
+    default: ""
+  install-android-sdk:
+    description: >
+      Si aucun SDK n'est détecté, bootstrap en SHELL pur (téléchargement des
+      cmdline-tools + sdkmanager — pas d'action tierce, passe l'allowlist).
+      `false` sur un runner air-gapped : fournir alors android-sdk-root ou
+      pré-installer le SDK.
+    required: false
+    default: "true"
+  android-cmdline-tools-version:
+    description: "Build des cmdline-tools à télécharger pour le bootstrap (numéro du zip commandlinetools-<os>-<VERSION>_latest.zip)."
+    required: false
+    default: "11076708"
+  android-cmdline-tools-url:
+    description: >
+      URL complète d'un miroir interne du zip cmdline-tools (Artifactory/Nexus).
+      Vide = dl.google.com. À renseigner si le runner n'a pas d'accès Google direct.
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -63,35 +104,138 @@ runs:
         distribution: ${{ inputs.jdk-distribution }}
         java-version: ${{ inputs.jdk-version }}
 
+    # -------------------------------------------------------------------------
+    # Polices système (Linux) : le plugin easylauncher charge une police TTF via
+    # java.awt.Font.createFont(...) pour dessiner le ruban des variantes non-prod.
+    # Sur un runner Linux headless sans fontconfig/freetype, cet appel échoue avec
+    # « Couldn't load bundled font » (easylauncher issue #201). On installe donc
+    # fontconfig + freetype avant Gradle. Aucun effet sur macOS (déjà fournis).
+    # -------------------------------------------------------------------------
+    - name: Install system fonts (easylauncher / AWT)
+      if: ${{ runner.os == 'Linux' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        if command -v apt-get >/dev/null 2>&1; then
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fontconfig libfreetype6
+          sudo fc-cache -f >/dev/null 2>&1 || true
+          echo "fontconfig + libfreetype6 installés."
+        else
+          echo "::warning::apt-get indisponible — installation des polices ignorée (easylauncher peut échouer)."
+        fi
+
+    # Restauré AVANT la détection : si le SDK bootstrappé (~/android-sdk) est en
+    # cache, l'étape suivante le détecte et NE re-télécharge PAS les ~150 Mo.
+    # La clé inclut le build cmdline-tools + compileSdk + buildTools : renseigne
+    # compileSdkVersion/buildToolsVersion dans le consumer pour une clé stable.
+    - name: Restore Android SDK cache (bootstrap)
+      if: ${{ inputs.enable-android-sdk-cache == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: ~/android-sdk
+        key: android-sdk-${{ runner.os }}-clt${{ inputs.android-cmdline-tools-version }}-sdk${{ inputs.compile-sdk-version }}-bt${{ inputs.build-tools-version }}
+        restore-keys: |
+          android-sdk-${{ runner.os }}-clt${{ inputs.android-cmdline-tools-version }}-
+
+    # -------------------------------------------------------------------------
+    # SDK Android : AGP exige ANDROID_HOME OU sdk.dir dans local.properties.
+    # On le DÉTECTE en shell pur (aucune action tierce — la politique d'actions
+    # de l'entreprise n'autorise pas android-actions/setup-android). Si absent et
+    # install-android-sdk=true, bootstrap shell des cmdline-tools.
+    # -------------------------------------------------------------------------
+    - name: Setup Android SDK (détection + bootstrap shell)
+      shell: bash
+      run: |
+        set -euo pipefail
+        ROOT="${{ inputs.android-sdk-root }}"
+        [ -z "$ROOT" ] && ROOT="${ANDROID_HOME:-}"
+        [ -z "$ROOT" ] && ROOT="${ANDROID_SDK_ROOT:-}"
+        # Emplacements standards si toujours vide
+        if [ -z "$ROOT" ]; then
+          for c in \
+            "$HOME/android-sdk" \
+            "/usr/local/lib/android/sdk" \
+            "/opt/android-sdk" "/opt/android/sdk" "/opt/Android/sdk" \
+            "/usr/lib/android-sdk" \
+            "$HOME/Android/Sdk" "$HOME/Library/Android/sdk"; do
+            if [ -d "$c/cmdline-tools" ] || [ -d "$c/platform-tools" ] || [ -d "$c/platforms" ]; then
+              ROOT="$c"; break
+            fi
+          done
+        fi
+        # Dériver depuis sdkmanager sur le PATH (.../cmdline-tools/latest/bin ou .../tools/bin)
+        if [ -z "$ROOT" ] && command -v sdkmanager >/dev/null 2>&1; then
+          ROOT="$(cd "$(dirname "$(command -v sdkmanager)")/../.." && pwd)"
+        fi
+
+        # Aucun SDK détecté → bootstrap shell (sans action tierce) si autorisé
+        if [ -z "$ROOT" ] || [ ! -d "$ROOT" ]; then
+          if [ "${{ inputs.install-android-sdk }}" != "true" ]; then
+            echo "::error::SDK Android introuvable et install-android-sdk=false. Renseigner android-sdk-root ou pré-installer le SDK sur le runner." >&2
+            exit 1
+          fi
+          case "${RUNNER_OS:-Linux}" in
+            Linux) CLT_OS="linux" ;;
+            macOS) CLT_OS="mac" ;;
+            *) echo "::error::OS runner non supporté pour le bootstrap: ${RUNNER_OS:-?}" >&2; exit 1 ;;
+          esac
+          URL="${{ inputs.android-cmdline-tools-url }}"
+          [ -z "$URL" ] && URL="https://dl.google.com/android/repository/commandlinetools-${CLT_OS}-${{ inputs.android-cmdline-tools-version }}_latest.zip"
+          ROOT="$HOME/android-sdk"
+          echo "SDK absent → bootstrap depuis: $URL"
+          TMP="$(mktemp -d)"
+          if ! curl -fsSL --retry 3 -o "$TMP/clt.zip" "$URL"; then
+            echo "::error::Téléchargement des cmdline-tools impossible ($URL). Runner air-gapped ? Mettre install-android-sdk=false + android-sdk-root, fournir android-cmdline-tools-url (miroir interne), ou pré-installer le SDK." >&2
+            exit 1
+          fi
+          mkdir -p "$ROOT/cmdline-tools"
+          unzip -q "$TMP/clt.zip" -d "$TMP"
+          rm -rf "$ROOT/cmdline-tools/latest"
+          mv "$TMP/cmdline-tools" "$ROOT/cmdline-tools/latest"
+          SM="$ROOT/cmdline-tools/latest/bin/sdkmanager"
+          # Acceptation des licences : `yes 2>/dev/null` (stderr supprimé) + `|| true`
+          # car `yes` reçoit SIGPIPE quand sdkmanager se ferme — c'est normal et NE
+          # doit PAS faire échouer le job (sinon pipefail+errexit avortent).
+          yes 2>/dev/null | "$SM" --sdk_root="$ROOT" --licenses >/dev/null 2>&1 || true
+          # Installs SANS `yes` : licences déjà acceptées → aucun prompt → aucun SIGPIPE.
+          "$SM" --sdk_root="$ROOT" "platform-tools" >/dev/null
+          echo "Bootstrap terminé: $ROOT"
+        fi
+
+        # Composants optionnels (platform / build-tools). Licences acceptées une
+        # fois (SIGPIPE-safe), puis installs SANS `yes`. Atterrissent dans $ROOT,
+        # donc cachés avec ~/android-sdk au run suivant.
+        SM="$ROOT/cmdline-tools/latest/bin/sdkmanager"
+        [ -x "$SM" ] || SM="$(command -v sdkmanager || true)"
+        if [ -n "$SM" ] && { [ -n "${{ inputs.compile-sdk-version }}" ] || [ -n "${{ inputs.build-tools-version }}" ]; }; then
+          yes 2>/dev/null | "$SM" --sdk_root="$ROOT" --licenses >/dev/null 2>&1 || true
+          if [ -n "${{ inputs.compile-sdk-version }}" ]; then
+            "$SM" --sdk_root="$ROOT" "platforms;android-${{ inputs.compile-sdk-version }}" >/dev/null
+          fi
+          if [ -n "${{ inputs.build-tools-version }}" ]; then
+            "$SM" --sdk_root="$ROOT" "build-tools;${{ inputs.build-tools-version }}" >/dev/null
+          fi
+        fi
+
+        echo "ANDROID_HOME=$ROOT" >> "$GITHUB_ENV"
+        echo "ANDROID_SDK_ROOT=$ROOT" >> "$GITHUB_ENV"
+        WD="${{ inputs.working-directory }}"
+        LP="local.properties"
+        [ "$WD" != "." ] && LP="$WD/local.properties"
+        if [ ! -f "$LP" ] || ! grep -q '^sdk\.dir=' "$LP"; then
+          printf 'sdk.dir=%s\n' "$ROOT" >> "$LP"
+          echo "sdk.dir=$ROOT ajoute a $LP"
+        else
+          echo "$LP contient deja sdk.dir — inchange"
+        fi
+        echo "Android SDK resolu: $ROOT"
+
     - name: Setup Gradle (cache)
       uses: gradle/actions/setup-gradle@v4
       with:
         cache-disabled: ${{ inputs.enable-gradle-cache != 'true' }}
         cache-read-only: ${{ inputs.gradle-cache-read-only == 'true' }}
-
-    - name: Cache Android SDK packages
-      if: ${{ inputs.enable-android-sdk-cache == 'true' && (inputs.compile-sdk-version != '' || inputs.build-tools-version != '') }}
-      uses: actions/cache@v4
-      with:
-        path: |
-          ${{ env.ANDROID_HOME }}/platforms
-          ${{ env.ANDROID_HOME }}/build-tools
-          ${{ env.ANDROID_HOME }}/cmdline-tools
-        key: android-sdk-${{ runner.os }}-${{ inputs.compile-sdk-version }}-${{ inputs.build-tools-version }}
-
-    - name: Install Android SDK components
-      if: ${{ inputs.compile-sdk-version != '' || inputs.build-tools-version != '' }}
-      shell: bash
-      run: |
-        set -euo pipefail
-        SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-        [[ -x "$SDKMANAGER" ]] || SDKMANAGER="sdkmanager"
-        if [[ -n "${{ inputs.compile-sdk-version }}" ]]; then
-          yes | "$SDKMANAGER" "platforms;android-${{ inputs.compile-sdk-version }}" >/dev/null
-        fi
-        if [[ -n "${{ inputs.build-tools-version }}" ]]; then
-          yes | "$SDKMANAGER" "build-tools;${{ inputs.build-tools-version }}" >/dev/null
-        fi
 
     - name: Cache Kotlin/Native (Konan)
       if: ${{ inputs.enable-konan-cache == 'true' }}
@@ -106,5 +250,6 @@ runs:
       if: ${{ inputs.setup-bundler == 'true' }}
       uses: ruby/setup-ruby@v1
       with:
+        ruby-version: ${{ inputs.ruby-version }}
         bundler-cache: ${{ inputs.enable-bundler-cache == 'true' }}
         working-directory: ${{ inputs.working-directory == '.' && inputs.bundler-working-directory || format('{0}/{1}', inputs.working-directory, inputs.bundler-working-directory) }}
