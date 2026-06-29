@@ -326,6 +326,15 @@ on:
         type: string
         required: false
         default: 'iosApp'
+      iosJdkVersion:
+        description: >-
+          JDK utilisé par la phase Xcode « Setup Shared Modules » qui compile
+          le framework KMP shared (./gradlew :shared:embedAndSignAppleFrameworkForXcode).
+          DOIT être 21 : build-logic est compilé en bytecode Java 21, un daemon
+          Gradle en JDK < 21 lève UnsupportedClassVersionError. Parité Azure (Temurin 21).
+        type: string
+        required: false
+        default: '21'
       iosValidateLane:
         description: "Lane validation PR. Azure: `validate_build`."
         type: string
@@ -351,6 +360,11 @@ on:
         type: string
         required: false
         default: 'dgag_qa'
+      iosUnitTestsScheme:
+        description: "Scheme Xcode pour les tests unitaires (scan). Azure testing-template: `DesjardinsAssurances`."
+        type: string
+        required: false
+        default: 'DesjardinsAssurances'
       iosSwiftlintScript:
         description: "Script SwiftLint. Azure: `./swiftlint_ci.sh`."
         type: string
@@ -1185,6 +1199,7 @@ jobs:
         uses: ./.github/actions/emerald-setup-ios-env
         with:
           ios-working-directory: ${{ inputs.iosWorkingDirectory }}
+          jdk-version: ${{ inputs.iosJdkVersion }}
           xcode-version: ${{ inputs.xcodeVersion }}
           enable-gradle-cache: ${{ inputs.enableGradleCache }}
           enable-konan-cache: ${{ inputs.enableKonanCache }}
@@ -1204,6 +1219,10 @@ jobs:
         shell: bash
         env:
           CI: ${{ inputs.iosUnitTestsCiValue }}
+          # Scheme Xcode pour scan() (parité Azure testing-template: SCHEME).
+          # La lane unit_tests_sonarqube lit ENV["SCHEME"] ; sans lui scan échoue
+          # avec « Multiple schemes found ».
+          SCHEME: ${{ inputs.iosUnitTestsScheme }}
           # Stabilité Fastlane en CI (pattern mobile-gha-workflows-ios)
           FASTLANE_HIDE_TIMESTAMP: "true"
           FASTLANE_XCODE_LIST_TIMEOUT: "60"
@@ -1468,10 +1487,15 @@ jobs:
           lfs: true
           token: ${{ env.GIT_ACCESS_TOKEN || github.token }}
 
+      # DIAG réseau (non-bloquant) : Artifactory/Vault joignables depuis macOS ?
+      - name: Diagnostic réseau (hôtes internes)
+        uses: ./.github/actions/emerald-mobile-diag-network
+
       - name: Setup iOS environment
         uses: ./.github/actions/emerald-setup-ios-env
         with:
           ios-working-directory: ${{ inputs.iosWorkingDirectory }}
+          jdk-version: ${{ inputs.iosJdkVersion }}
           xcode-version: ${{ inputs.xcodeVersion }}
           enable-gradle-cache: ${{ inputs.enableGradleCache }}
           enable-konan-cache: ${{ inputs.enableKonanCache }}
@@ -1520,6 +1544,19 @@ jobs:
           secrets: |
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.appliveryTokenDaSecret }} value | APP_LIVERY_API_TOKEN_DA ;
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.appliveryTokenLpSecret }} value | APP_LIVERY_API_TOKEN_LP ;
+
+      - name: Install native build toolchain (gems natifs)
+        if: ${{ runner.os == 'Linux' && inputs.androidAppliveryPublishMode == 'fastlane' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends build-essential
+            echo "build-essential installé (compilation des gems natifs Fastlane)."
+          else
+            echo "::warning::apt-get indisponible — toolchain non installé (les gems natifs peuvent échouer)."
+          fi
 
       - name: Setup Ruby / Bundler
         if: ${{ inputs.androidAppliveryPublishMode == 'fastlane' }}

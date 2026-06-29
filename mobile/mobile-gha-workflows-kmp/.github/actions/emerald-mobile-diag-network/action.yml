@@ -1,0 +1,79 @@
+# =============================================================================
+# Version: 1.0.0
+# Changelog:
+#   1.0.0 — Création : diagnostic réseau (DNS + TCP + HTTPS) vers les hôtes
+#           internes (Artifactory, Vault) depuis un runner. macOS-compatible.
+# =============================================================================
+name: "Emerald Mobile Diag Network"
+description: >
+  Diagnostic réseau NON-bloquant : pour chaque hôte interne (Artifactory, Vault),
+  teste la résolution DNS, la connectivité TCP/443 et le HTTPS applicatif, et
+  imprime un résultat clair. Ne fait jamais échouer le job (sortie 0) — c'est un
+  outil de diagnostic à mettre en tête des jobs macOS pour comprendre ce qui bloque.
+
+inputs:
+  artifactory-host:
+    description: "Hôte Artifactory à tester."
+    required: false
+    default: "artifacts.lc.az.nuagesdesjardins.com"
+  vault-host:
+    description: "Hôte Vault à tester. Vide = non testé."
+    required: false
+    default: "vault.cfzcea.dev.desjardins.com"
+
+runs:
+  using: composite
+  steps:
+    - name: "[🔍 DIAG] Réseau vers les hôtes internes"
+      shell: bash
+      env:
+        ARTIFACTORY_HOST: ${{ inputs.artifactory-host }}
+        VAULT_HOST: ${{ inputs.vault-host }}
+      run: |
+        # NON-bloquant : on n'utilise PAS `set -e`, et on finit toujours en exit 0.
+        line() { printf '%s\n' "------------------------------------------------------------"; }
+
+        check_host() {
+          # $1 = host  $2 = chemin HTTPS de health
+          host="$1"; health_path="$2"
+          [ -z "$host" ] && return 0
+          line
+          echo "HÔTE : $host"
+          line
+
+          echo "1) DNS (nslookup) :"
+          if nslookup "$host" >/tmp/diag_dns.txt 2>&1; then
+            grep -E 'Address|Name' /tmp/diag_dns.txt | grep -v '#53' | sed 's/^/   /' || true
+            echo "   -> DNS: OK"
+          else
+            echo "   -> DNS: ÉCHEC (hôte non résolu) — DNS interne probablement absent"
+          fi
+
+          echo "2) TCP/443 (nc) :"
+          if nc -vz -G 10 "$host" 443 >/tmp/diag_tcp.txt 2>&1; then
+            echo "   -> TCP 443: OK (route + port ouverts)"
+          else
+            echo "   -> TCP 443: ÉCHEC (timeout/route absente). Détail :"
+            sed 's/^/      /' /tmp/diag_tcp.txt || true
+          fi
+
+          echo "3) HTTPS applicatif (curl) :"
+          code="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "https://$host$health_path" 2>/tmp/diag_curl.txt || true)"
+          if [ -n "$code" ] && [ "$code" != "000" ]; then
+            echo "   -> HTTP $code (l'hôte répond — accès réseau OK)"
+          else
+            echo "   -> ÉCHEC HTTPS (code=000). Détail :"
+            sed 's/^/      /' /tmp/diag_curl.txt || true
+          fi
+          echo ""
+        }
+
+        echo "================ DIAGNOSTIC RÉSEAU (runner $(uname -s)) ================"
+        check_host "$ARTIFACTORY_HOST" "/artifactory/api/system/ping"
+        check_host "$VAULT_HOST"       "/v1/sys/health"
+        line
+        echo "Lecture : DNS ÉCHEC + TCP ÉCHEC  -> pas de route (ticket infra)."
+        echo "          DNS ÉCHEC + TCP OK      -> juste le DNS (entrée hosts possible)."
+        echo "          tout OK                 -> le réseau n'est pas la cause."
+        line
+        exit 0
