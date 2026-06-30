@@ -1,6 +1,9 @@
 # =============================================================================
-# Version: 1.0.0
+# Version: 1.1.0
 # Changelog:
+#   1.1.0 — Ajout de gradlePluginPortal() dans dependencyResolutionManagement
+#           (build-logic tire des plugins en classpath, ex. ktlint-gradle) ;
+#           jitpack repositionné en dernier.
 #   1.0.0 — Création : sur macOS, installe un init script Gradle qui remplace les
 #           dépôts .lc. (injoignables) par le mirror Maven local + les dépôts
 #           publics (Maven Central, Google, Gradle Plugin Portal, jitpack).
@@ -60,8 +63,9 @@ runs:
                 repositories.clear()
                 repositories {
                     maven { url mirrorUri }
-                    google()
+                    gradlePluginPortal()
                     mavenCentral()
+                    google()
                     maven { url 'https://jitpack.io' }
                 }
             }
