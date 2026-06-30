@@ -1,15 +1,20 @@
 # =============================================================================
-# Version: 1.0.0
+# Version: 1.2.0
 # Changelog:
+#   1.2.0 — Ajout du test des DÉPÔTS PUBLICS (Maven Central, Google, JetBrains)
+#           depuis le runner : valide la voie "publiques depuis Internet" (mirror).
+#   1.1.0 — Ajout infos machine/VM (OS, DNS, route, réseau) + test de ROUTE via
+#           `curl --resolve <IP>` (input artifactory-ip) pour distinguer
+#           "DNS absent" de "pas de route".
 #   1.0.0 — Création : diagnostic réseau (DNS + TCP + HTTPS) vers les hôtes
 #           internes (Artifactory, Vault) depuis un runner. macOS-compatible.
 # =============================================================================
 name: "Emerald Mobile Diag Network"
 description: >
-  Diagnostic réseau NON-bloquant : pour chaque hôte interne (Artifactory, Vault),
-  teste la résolution DNS, la connectivité TCP/443 et le HTTPS applicatif, et
-  imprime un résultat clair. Ne fait jamais échouer le job (sortie 0) — c'est un
-  outil de diagnostic à mettre en tête des jobs macOS pour comprendre ce qui bloque.
+  Diagnostic réseau NON-bloquant : infos machine/VM, puis pour chaque hôte interne
+  (Artifactory, Vault) teste DNS + TCP/443 + HTTPS. Si une IP est fournie
+  (artifactory-ip), teste aussi la ROUTE en contournant le DNS (curl --resolve) —
+  ça dit si un simple /etc/hosts suffirait. Ne fait jamais échouer le job (exit 0).
 
 inputs:
   artifactory-host:
@@ -20,6 +25,13 @@ inputs:
     description: "Hôte Vault à tester. Vide = non testé."
     required: false
     default: "vault.cfzcea.dev.desjardins.com"
+  artifactory-ip:
+    description: >
+      IP de l'Artifactory (résolue côté Linux). Si fournie, on teste la ROUTE via
+      `curl --resolve` en contournant le DNS. Succès = route OK, seul le DNS manque
+      (=> /etc/hosts suffit). Échec = pas de route (=> infra). Vide = test sauté.
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -29,9 +41,29 @@ runs:
       env:
         ARTIFACTORY_HOST: ${{ inputs.artifactory-host }}
         VAULT_HOST: ${{ inputs.vault-host }}
+        ARTIFACTORY_IP: ${{ inputs.artifactory-ip }}
       run: |
         # NON-bloquant : on n'utilise PAS `set -e`, et on finit toujours en exit 0.
         line() { printf '%s\n' "------------------------------------------------------------"; }
+
+        line
+        echo "INFOS MACHINE / VM"
+        line
+        echo "uname     : $(uname -a 2>/dev/null)"
+        command -v sw_vers >/dev/null 2>&1 && echo "macOS     : $(sw_vers -productVersion 2>/dev/null) (build $(sw_vers -buildVersion 2>/dev/null))"
+        echo "hostname  : $(hostname 2>/dev/null)"
+        echo "user      : $(id -un 2>/dev/null) (uid $(id -u 2>/dev/null))"
+        echo "cpu/arch  : $(uname -m 2>/dev/null) | $(sysctl -n hw.ncpu 2>/dev/null || nproc 2>/dev/null) cœurs"
+        echo "RAM       : $(sysctl -n hw.memsize 2>/dev/null | awk '{printf "%.1f Go", $1/1024/1024/1024}' || true)"
+        echo "DNS configurés (scutil) :"
+        if command -v scutil >/dev/null 2>&1; then
+          scutil --dns 2>/dev/null | grep -E 'nameserver|search domain' | sort -u | sed 's/^/   /' || echo "   (aucun)"
+        fi
+        echo "/etc/resolv.conf :"; sed 's/^/   /' /etc/resolv.conf 2>/dev/null | grep -v '^   #' || echo "   (absent)"
+        echo "/etc/hosts (entrées non-locales) :"; grep -vE '^\s*#|127\.0\.0\.1|::1|^\s*$' /etc/hosts 2>/dev/null | sed 's/^/   /' || echo "   (aucune)"
+        echo "Route par défaut :"; (route -n get default 2>/dev/null | grep -E 'gateway|interface' | sed 's/^/   /') || (ip route 2>/dev/null | grep default | sed 's/^/   /') || true
+        echo "Services réseau (macOS) :"; command -v networksetup >/dev/null 2>&1 && networksetup -listallnetworkservices 2>/dev/null | sed 's/^/   /' | head -8
+        echo ""
 
         check_host() {
           # $1 = host  $2 = chemin HTTPS de health
@@ -69,11 +101,45 @@ runs:
         }
 
         echo "================ DIAGNOSTIC RÉSEAU (runner $(uname -s)) ================"
+        echo ">>> HÔTES INTERNES (doivent répondre pour le build actuel)"
         check_host "$ARTIFACTORY_HOST" "/artifactory/api/system/ping"
         check_host "$VAULT_HOST"       "/v1/sys/health"
+
+        echo ">>> DÉPÔTS PUBLICS (doivent répondre pour la méthode mirror : publiques depuis Internet)"
+        check_host "repo1.maven.org"        "/maven2/"
+        check_host "dl.google.com"          "/android/maven2/"
+        check_host "download.jetbrains.com" "/"
+        pub_ok=0
+        for h in repo1.maven.org dl.google.com download.jetbrains.com; do
+          code="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' "https://$h/" 2>/dev/null || true)"
+          { [ -n "$code" ] && [ "$code" != "000" ]; } && pub_ok=$((pub_ok+1))
+        done
+        echo "   -> Dépôts publics joignables : $pub_ok / 3"
+
+        # Test de ROUTE en contournant le DNS (si l'IP Linux est fournie).
+        if [ -n "${ARTIFACTORY_IP:-}" ] && [ -n "${ARTIFACTORY_HOST:-}" ]; then
+          line
+          echo "TEST DE ROUTE (curl --resolve, contourne le DNS) : $ARTIFACTORY_HOST -> $ARTIFACTORY_IP"
+          line
+          rcode="$(curl -sS -m 10 -o /dev/null -w '%{http_code}' \
+            --resolve "${ARTIFACTORY_HOST}:443:${ARTIFACTORY_IP}" \
+            "https://${ARTIFACTORY_HOST}/artifactory/api/system/ping" 2>/tmp/diag_route.txt || true)"
+          if [ -n "$rcode" ] && [ "$rcode" != "000" ]; then
+            echo "   -> HTTP $rcode : la ROUTE EXISTE. Seul le DNS manque."
+            echo "   -> FIX SIMPLE possible : '$ARTIFACTORY_IP  $ARTIFACTORY_HOST' dans /etc/hosts du runner."
+          else
+            echo "   -> ÉCHEC : pas de route vers $ARTIFACTORY_IP non plus. Détail :"
+            sed 's/^/      /' /tmp/diag_route.txt || true
+            echo "   -> Conclusion : segmentation réseau -> ticket infra obligatoire."
+          fi
+          echo ""
+        fi
         line
-        echo "Lecture : DNS ÉCHEC + TCP ÉCHEC  -> pas de route (ticket infra)."
-        echo "          DNS ÉCHEC + TCP OK      -> juste le DNS (entrée hosts possible)."
-        echo "          tout OK                 -> le réseau n'est pas la cause."
+        echo "Lecture INTERNES : DNS+TCP ÉCHEC -> pas de route (ticket infra) ;"
+        echo "                   DNS ÉCHEC + TCP OK -> juste le DNS (/etc/hosts possible) ;"
+        echo "                   tout OK -> le réseau n'est pas la cause."
+        echo "Lecture PUBLICS  : 3/3 joignables -> méthode MIRROR viable (publiques depuis"
+        echo "                   Maven Central/Google/JetBrains, interne depuis le mirror) ;"
+        echo "                   <3 -> me dire lesquels échouent (on adaptera)."
         line
         exit 0
