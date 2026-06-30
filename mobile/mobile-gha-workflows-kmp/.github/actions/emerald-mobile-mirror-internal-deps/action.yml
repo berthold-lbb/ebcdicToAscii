@@ -1,0 +1,89 @@
+# =============================================================================
+# Version: 1.0.0
+# Changelog:
+#   1.0.0 — Création : télécharge (sur Linux, qui atteint .lc.) les groupes Maven
+#           INTERNES depuis Artifactory vers une arborescence Maven locale, pour
+#           la transmettre aux runners macOS (qui n'atteignent pas .lc.).
+# =============================================================================
+name: "Emerald Mobile Mirror Internal Deps"
+description: >
+  À exécuter sur un runner LINUX (qui atteint Artifactory). Télécharge, via l'API
+  storage d'Artifactory + curl, TOUS les fichiers des groupes Maven internes
+  (toutes versions, toutes plateformes — y compris les klibs iOS, récupérés par
+  CHEMIN et non par résolution Gradle). Produit un dépôt Maven local (out-dir)
+  destiné à être transmis aux runners macOS.
+
+inputs:
+  artifactory-base:
+    description: "Base Artifactory (sans / final)."
+    required: false
+    default: "https://artifacts.lc.az.nuagesdesjardins.com/artifactory"
+  repos:
+    description: "Dépôts Artifactory à parcourir (séparés par des espaces)."
+    required: false
+    default: "maven-virtual gradle-plugins"
+  paths:
+    description: "Chemins de groupes Maven à mirrorer (séparés par des espaces)."
+    required: false
+    default: "com/desjardins/mobile com/dgag ca/dgag"
+  out-dir:
+    description: "Dossier de sortie (racine du dépôt Maven local)."
+    required: false
+    default: "internal-mirror"
+
+runs:
+  using: composite
+  steps:
+    - name: Download internal Maven groups (Artifactory storage API)
+      shell: bash
+      env:
+        BASE: ${{ inputs.artifactory-base }}
+        REPOS: ${{ inputs.repos }}
+        PATHS: ${{ inputs.paths }}
+        OUT: ${{ inputs.out-dir }}
+        # ARTIFACTORY_REF_TOKEN doit être exporté avant (vault-action).
+      run: |
+        set -euo pipefail
+        if [ -z "${ARTIFACTORY_REF_TOKEN:-}" ]; then
+          echo "::error::ARTIFACTORY_REF_TOKEN absent — importer le secret Vault avant ce step."
+          exit 1
+        fi
+        AUTH=(-H "Authorization: Bearer ${ARTIFACTORY_REF_TOKEN}")
+        mkdir -p "$OUT"
+        total=0
+
+        for repo in $REPOS; do
+          for path in $PATHS; do
+            echo "::group::Mirror $repo/$path"
+            # Liste récursive des fichiers (API storage Artifactory).
+            list_url="${BASE}/api/storage/${repo}/${path}?list&deep=1&listFolders=0&includeRootPath=0"
+            json="$(curl -fsS "${AUTH[@]}" "$list_url" 2>/dev/null || true)"
+            if [ -z "$json" ]; then
+              echo "  (rien à ${repo}/${path} ou chemin absent — on continue)"
+              echo "::endgroup::"
+              continue
+            fi
+            # Chaque .files[].uri est relatif au path. On reconstruit l'arbo Maven.
+            mapfile -t uris < <(printf '%s' "$json" | jq -r '.files[]?.uri')
+            for uri in "${uris[@]}"; do
+              rel="${path}${uri}"                 # ex: com/desjardins/mobile/dsd/2.13.0/dsd-2.13.0.pom
+              dest="${OUT}/${rel}"
+              mkdir -p "$(dirname "$dest")"
+              if [ ! -f "$dest" ]; then           # dédoublonnage entre repos
+                if curl -fsS "${AUTH[@]}" -o "$dest" "${BASE}/${repo}/${rel}"; then
+                  total=$((total+1))
+                else
+                  echo "  ⚠️ échec téléchargement: ${repo}/${rel}"
+                fi
+              fi
+            done
+            echo "::endgroup::"
+          done
+        done
+
+        echo "::notice::Mirror interne : $total fichiers dans '$OUT'."
+        du -sh "$OUT" 2>/dev/null || true
+        # Sanity : au moins quelques artefacts clés attendus
+        for probe in com/desjardins/mobile/dsd com/dgag ca/dgag; do
+          [ -d "$OUT/$probe" ] && echo "   ✓ $probe présent" || echo "   ⚠️ $probe ABSENT (à vérifier)"
+        done

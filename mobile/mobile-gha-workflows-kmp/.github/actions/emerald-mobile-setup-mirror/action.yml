@@ -1,0 +1,73 @@
+# =============================================================================
+# Version: 1.0.0
+# Changelog:
+#   1.0.0 — Création : sur macOS, installe un init script Gradle qui remplace les
+#           dépôts .lc. (injoignables) par le mirror Maven local + les dépôts
+#           publics (Maven Central, Google, Gradle Plugin Portal, jitpack).
+# =============================================================================
+name: "Emerald Mobile Setup Mirror"
+description: >
+  À exécuter sur le runner macOS APRÈS extraction de l'artifact du mirror interne.
+  Écrit un init script Gradle (init.d) qui, pour ce run :
+  - force dependencyResolutionManagement en PREFER_SETTINGS (ignore les repos .lc.
+    déclarés dans le projet) ;
+  - remplace les dépôts (deps ET plugins) par : mirror local (internes) + dépôts
+    publics (publiques, joignables depuis macOS). Plus aucun appel à .lc.
+
+inputs:
+  mirror-dir:
+    description: "Chemin absolu du dépôt Maven local extrait (racine du mirror)."
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install Gradle init script (mirror + public repos)
+      shell: bash
+      env:
+        MIRROR_DIR: ${{ inputs.mirror-dir }}
+      run: |
+        set -euo pipefail
+        if [ ! -d "$MIRROR_DIR" ]; then
+          echo "::error::mirror-dir introuvable: $MIRROR_DIR"
+          exit 1
+        fi
+        abs="$(cd "$MIRROR_DIR" && pwd)"
+        ghome="${GRADLE_USER_HOME:-$HOME/.gradle}"
+        mkdir -p "$ghome/init.d"
+        init="$ghome/init.d/zz-emerald-mirror.init.gradle"
+
+        # Init script Groovy : remplace les dépôts pour TOUTES les builds (y compris
+        # les builds composites includeBuild). 'zz-' pour passer en dernier.
+        cat > "$init" <<EOF
+        // Généré par emerald-mobile-setup-mirror — macOS sans accès Artifactory .lc.
+        import org.gradle.api.initialization.resolve.RepositoriesMode
+
+        def mirrorUri = new File('${abs}').toURI().toString()
+
+        gradle.settingsEvaluated { settings ->
+            settings.pluginManagement {
+                repositories.clear()
+                repositories {
+                    maven { url mirrorUri }
+                    gradlePluginPortal()
+                    mavenCentral()
+                    google()
+                }
+            }
+            settings.dependencyResolutionManagement {
+                repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
+                repositories.clear()
+                repositories {
+                    maven { url mirrorUri }
+                    google()
+                    mavenCentral()
+                    maven { url 'https://jitpack.io' }
+                }
+            }
+        }
+        EOF
+
+        echo "::notice::Init script mirror installé : $init (mirror=$abs)"
+        echo "----- contenu -----"; sed 's/^/   /' "$init"
+        echo "----- mirror (top) -----"; ls "$abs" 2>/dev/null | sed 's/^/   /' | head
