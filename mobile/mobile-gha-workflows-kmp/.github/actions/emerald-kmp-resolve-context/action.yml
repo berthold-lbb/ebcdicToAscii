@@ -1,6 +1,24 @@
 # =============================================================================
-# Version: 1.1.0
+# Version: 1.5.1
 # Changelog:
+#   1.5.1 — Doc uniquement : exemple businessLabel "RAS" -> "DGAG".
+#   1.5.0 — Nouvel input `branch-rules-json` : règles de branches configurables
+#           (clé = branch_type, valeur = {env, buildConfiguration, distribution,
+#           fullMatrix}) qui SURCHARGENT le case par défaut (parité Azure).
+#           Permet d'utiliser le workflow dans d'autres orgs sans fork.
+#   1.4.0 — `manual-distribution` est désormais honoré sur TOUT événement (plus
+#           seulement workflow_dispatch), pour permettre de déclencher une
+#           publication depuis une PR via un label (ex. `publish:applivery`).
+#           Le consumer mappe le label -> manual-distribution.
+#   1.3.0 — Documentation/parité Azure pour `matchRepo` (matrix iOS) : le
+#           Fastfile appelle match() systématiquement (prepare_build), donc
+#           MATCH_GIT_URL est requis pour TOUTE build iOS, y compris les PR.
+#           matchRepo est donc toujours renseigné (jamais vide), corrigeant
+#           l'erreur Fastlane « No value found for 'git_url' » observée sur PR.
+#   1.2.0 — `android-java-version-qa` par défaut passe de 17 à 21 : le module
+#           `:build-logic:convention` est compilé en JVM 21
+#           (sourceCompatibility/jvmTarget = 21), donc tout build Gradle —
+#           même Qa — requiert un JDK 21, pas seulement les builds Store.
 #   1.1.0 — Ajout input `ios-match-secret-map` (mapping explicite du secret Match,
 #           prioritaire sur le template) + fix bash `${VAR:-{}}` (accolade parasite).
 #   1.0.0 — Baseline (résolution contexte + matrices Android/iOS).
@@ -55,7 +73,7 @@ inputs:
       JSON array décrivant chaque scheme iOS.
       Champs: brandKey, businessLabel, scheme (vrai scheme Xcode),
       ipaNameEnterprise, ipaNameStore, matchRepoEnterprise, matchRepoStore.
-      Exemple: [{"brandKey":"dgag","businessLabel":"RAS","scheme":"DesjardinsAssurances", ...}].
+      Exemple: [{"brandKey":"dgag","businessLabel":"DGAG","scheme":"DesjardinsAssurances", ...}].
     required: true
   android-default-brand-key:
     description: "BrandKey utilisé pour le build de validation PR. Exemple: `dgag`."
@@ -73,6 +91,14 @@ inputs:
     description: "Environnement attribué aux branches rc/*. Exemple: `Qa` ou `Rc`."
     required: false
     default: "Qa"
+  branch-rules-json:
+    description: >
+      Règles de branches personnalisées (JSON). Clé = branch_type
+      (feature|pr|main|applivery-archives|rc|release|release-gia), valeur =
+      {"env","buildConfiguration","distribution","fullMatrix"} — champs optionnels,
+      appliqués APRÈS les règles par défaut (surcharge partielle). '{}' = désactivé.
+    required: false
+    default: "{}"
   enable-applivery:
     description: "Autorise la publication AppLivery (main, rc/*, applivery-archives). Exemple: `true`."
     required: false
@@ -98,9 +124,12 @@ inputs:
     required: false
     default: "aab"
   android-java-version-qa:
-    description: "JDK pour les builds APK/Qa. Azure: `17`."
+    description: >
+      JDK pour les builds APK/Qa. Doit être >= 21 car le projet inclut
+      `:build-logic:convention` compilé en JVM 21 (sourceCompatibility/
+      jvmTarget = 21) : tout build, même Qa, requiert un JDK 21.
     required: false
-    default: "17"
+    default: "21"
   android-java-version-store:
     description: "JDK pour les builds AAB Prod/Beta. Azure: `21`."
     required: false
@@ -295,6 +324,7 @@ runs:
         ANDROID_DEFAULT_BRAND_KEY: ${{ inputs.android-default-brand-key }}
         IOS_DEFAULT_SCHEME_KEY: ${{ inputs.ios-default-scheme-key }}
         RC_ENV_NAME: ${{ inputs.rc-env-name }}
+        BRANCH_RULES: ${{ inputs.branch-rules-json }}
         ENABLE_APPLIVERY: ${{ inputs.enable-applivery }}
         ENABLE_TESTFLIGHT: ${{ inputs.enable-testflight }}
         ENABLE_GOOGLE_PLAY: ${{ inputs.enable-google-play }}
@@ -369,19 +399,36 @@ runs:
             distribution="testflight-beta" ;;
         esac
 
-        # Overrides manuels (workflow_dispatch uniquement)
+        # Règles de branches PERSONNALISÉES (v8) : JSON clé=branch_type, valeur=
+        # {env,buildConfiguration,distribution,fullMatrix}. Surcharge PARTIELLE des
+        # défauts ci-dessus (seuls les champs fournis remplacent). '{}' = inactif.
+        rules="$BRANCH_RULES"; [ -z "$rules" ] && rules='{}'
+        rule="$(jq -c --arg bt "$branch_type" '.[$bt] // empty' <<<"$rules" 2>/dev/null || true)"
+        if [[ -n "$rule" ]]; then
+          v="$(jq -r '.env // empty' <<<"$rule")";                [[ -n "$v" ]] && env_name="$v"
+          v="$(jq -r '.buildConfiguration // empty' <<<"$rule")"; [[ -n "$v" ]] && build_configuration="$v"
+          v="$(jq -r '.distribution // empty' <<<"$rule")";       [[ -n "$v" ]] && distribution="$v"
+          v="$(jq -r '.fullMatrix // empty' <<<"$rule")";         [[ -n "$v" ]] && full_matrix="$v"
+          echo "branch-rules: override '$branch_type' -> env=$env_name cfg=$build_configuration dist=$distribution"
+        fi
+
+        # Overrides manuels workflow_dispatch (env/config/branch_type).
         if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
           branch_type="manual"
           [[ -n "$MANUAL_ENV_NAME" ]]            && env_name="$MANUAL_ENV_NAME"
           [[ -n "$MANUAL_BUILD_CONFIGURATION" ]] && build_configuration="$MANUAL_BUILD_CONFIGURATION"
-          if [[ -n "$MANUAL_DISTRIBUTION" ]]; then
-            case "$MANUAL_DISTRIBUTION" in
-              none)        distribution="none" ;;
-              applivery)   distribution="applivery" ;;
-              testflight)  distribution="testflight" ;;
-              google-play) distribution="testflight" ;;
-            esac
-          fi
+        fi
+
+        # Distribution manuelle : honorée sur TOUT événement (workflow_dispatch OU
+        # label de PR mappé par le consumer, ex. `publish:applivery`). Permet de
+        # tester une publication depuis une PR sans passer par une branche release.
+        if [[ -n "$MANUAL_DISTRIBUTION" ]]; then
+          case "$MANUAL_DISTRIBUTION" in
+            none)        distribution="none" ;;
+            applivery)   distribution="applivery" ;;
+            testflight)  distribution="testflight" ;;
+            google-play) distribution="testflight" ;;
+          esac
         fi
 
         env_lc=$(echo "$env_name" | tr '[:upper:]' '[:lower:]')
@@ -482,6 +529,9 @@ runs:
         # ------------------------------------------------------------
         # 9. Matrix iOS
         # ------------------------------------------------------------
+        # Le Fastfile appelle match() systématiquement (prepare_build) : MATCH_GIT_URL
+        # est donc requis pour TOUTE build iOS, y compris les PR (parité Azure, qui
+        # clonait toujours le repo enterprise). matchRepo est donc toujours renseigné.
         ios_matrix=$(jq -c --arg filter "$ios_filter" \
           --arg env "$env_name" --arg cfg "$i_config" \
           --arg profile "$i_profile" --arg lane "$i_lane" '
