@@ -1,6 +1,10 @@
 # =============================================================================
-# Version: 8.4.0   (ligne de version : dossier v8.4 ; détail dans CHANGELOG.md)
+# Version: 8.5.0   (ligne de version : dossier v8.5 ; détail dans CHANGELOG.md)
 # Changelog (résumé — voir CHANGELOG.md pour le détail) :
+#   8.5.0 — matchRepos: mobile-support/codesigning-* -> Desjardins/mobile-codesigning-*
+#           (defaults) ; install-android-sdk:'true' explicite (3 call-sites) ;
+#           nouvel input forcePublish (bypass allow_publish en run manuel — un
+#           gate Sonar FAILED bloquait la publication dispatch) ; doc dryRun.
 #   8.4.0 — businessLabel "RAS" -> "DGAG" (defaults) ; retrait du mécanisme de
 #           label PR côté consumer (publication de test = workflow_dispatch
 #           uniquement) ; chaîne dispatch→publication vérifiée + testée
@@ -30,7 +34,7 @@
 # Règle : toute modif de ce fichier ou d'une action => bump Version + Changelog
 #         (+ synchro ci-kmp.local.yml). Voir mémoire versioned-files-bump-policy.
 # =============================================================================
-name: "Reusable - CI KMP Mobile (v8.4)"
+name: "Reusable - CI KMP Mobile (v8.5)"
 
 # =============================================================================
 # ci-kmp v5.5 — Voir CHANGELOG.md. `azureFeedSecret` renommé `mavenFeedSecret`
@@ -163,7 +167,7 @@ on:
         description: "JSON des schemes iOS (brandKey, businessLabel, scheme, ipaNameEnterprise, ipaNameStore, matchRepoEnterprise, matchRepoStore, appliveryTokenEnv)."
         type: string
         required: false
-        default: '[{"brandKey":"dgag","businessLabel":"DGAG","scheme":"DesjardinsAssurances","ipaNameEnterprise":"com.ent.dgaginno.desjardins.assurances.ipa","ipaNameStore":"com.desjardins.ajusto.ipa","matchRepoEnterprise":"mobile-support/codesigning-ios-enterprise-dgag","matchRepoStore":"mobile-support/codesigning-ios-public-desjardins","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_DA"},{"brandKey":"tpic","businessLabel":"LP","scheme":"LaPersonnelle","ipaNameEnterprise":"com.ent.dgaginno.tpic.ipa","ipaNameStore":"com.lapersonnelle.ajusto.ipa","matchRepoEnterprise":"mobile-support/codesigning-ios-enterprise-dgag","matchRepoStore":"mobile-support/codesigning-ios-public-lapersonnelle","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_LP"}]'
+        default: '[{"brandKey":"dgag","businessLabel":"DGAG","scheme":"DesjardinsAssurances","ipaNameEnterprise":"com.ent.dgaginno.desjardins.assurances.ipa","ipaNameStore":"com.desjardins.ajusto.ipa","matchRepoEnterprise":"Desjardins/mobile-codesigning-ios-enterprise-dgag","matchRepoStore":"Desjardins/mobile-codesigning-ios-public-desjardins","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_DA"},{"brandKey":"tpic","businessLabel":"LP","scheme":"LaPersonnelle","ipaNameEnterprise":"com.ent.dgaginno.tpic.ipa","ipaNameStore":"com.lapersonnelle.ajusto.ipa","matchRepoEnterprise":"Desjardins/mobile-codesigning-ios-enterprise-dgag","matchRepoStore":"Desjardins/mobile-codesigning-ios-public-lapersonnelle","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_LP"}]'
       androidDefaultBrandKey:
         description: "Brand du build de validation PR."
         type: string
@@ -221,7 +225,21 @@ on:
         required: false
         default: "0"
       dryRun:
-        description: "Builds réels, publications simulées."
+        description: >
+          Builds RÉELS, publications SIMULÉES : les jobs publish s'exécutent mais
+          les actions loggent au lieu d'uploader (AppLivery/TestFlight ne reçoivent
+          rien). Sert à valider toute la chaîne (secrets, signature, artefacts,
+          conditions) sans rien pousser. À combiner avec forcePublish pour une
+          répétition générale complète.
+        type: boolean
+        required: false
+        default: false
+      forcePublish:
+        description: >
+          v8.5 — Force la publication lors d'un run MANUEL même si les quality
+          gates la bloquent (allow_publish=false, y compris gate Sonar FAILED).
+          Ne contourne PAS l'exigence d'un build vert ni les flags de
+          distribution. Réservé aux tests pilotés (workflow_dispatch).
         type: boolean
         required: false
         default: false
@@ -773,7 +791,7 @@ jobs:
       ios_publish_testflight: ${{ steps.resolve.outputs.ios-publish-testflight }}
     steps:
       - id: resolve
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-kmp-resolve-context@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-kmp-resolve-context@v8.5
         with:
           event-name: ${{ github.event_name }}
           ref-name: ${{ github.ref_name }}
@@ -982,7 +1000,7 @@ jobs:
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.artifactoryTokenSecret }} value | ARTIFACTORY_REF_TOKEN ;
 
       - name: Download internal Maven mirror
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-mirror-internal-deps@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-mirror-internal-deps@v8.5
         with:
           out-dir: internal-mirror
 
@@ -1053,14 +1071,15 @@ jobs:
 
       - name: Export ArkanaKeys
         if: ${{ inputs.sharedQualityArkana && inputs.androidArkanaSecretsLines == '' }}
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-export-dotenv@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-export-dotenv@v8.5
         with:
           dotenv: ${{ env.ARKANA_DOTENV }}
           output-file: androidApp/.env
 
       - name: Setup Android environment
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-setup-android-env@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-setup-android-env@v8.5
         with:
+          install-android-sdk: 'true'
           jdk-version: ${{ inputs.androidJdkVersionQuality }}
           compile-sdk-version: ${{ inputs.compileSdkVersion }}
           build-tools-version: ${{ inputs.buildToolsVersion }}
@@ -1070,7 +1089,7 @@ jobs:
           enable-konan-cache: ${{ inputs.enableKonanCache }}
 
       - name: Tests + Kover + Sonar (shared)
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-sonar-scan-gradle@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-sonar-scan-gradle@v8.5
         with:
           # Tâches dérivées de sharedModule si non fournies
           test-task: ${{ inputs.sharedQualityTasks != '' && inputs.sharedQualityTasks || format('{0}:testDebugUnitTest', inputs.sharedModule) }}
@@ -1160,14 +1179,15 @@ jobs:
 
       - name: Export ArkanaKeys (.env + env)
         if: ${{ inputs.androidArkanaSecretsLines == '' }}
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-export-dotenv@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-export-dotenv@v8.5
         with:
           dotenv: ${{ env.ARKANA_DOTENV }}
           output-file: androidApp/.env
 
       - name: Setup Android environment
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-setup-android-env@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-setup-android-env@v8.5
         with:
+          install-android-sdk: 'true'
           jdk-version: ${{ inputs.androidJdkVersionQuality }}
           compile-sdk-version: ${{ inputs.compileSdkVersion }}
           build-tools-version: ${{ inputs.buildToolsVersion }}
@@ -1177,7 +1197,7 @@ jobs:
           enable-konan-cache: ${{ inputs.enableKonanCache }}
 
       - name: Ktlint + tests + Kover + Sonar (androidApp)
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-sonar-scan-gradle@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-sonar-scan-gradle@v8.5
         with:
           # Tâches dérivées de androidModule + brand par défaut (1ère entrée
           # de androidBrandsConfig) si non fournies — parité Azure (Dgag Qa).
@@ -1211,7 +1231,7 @@ jobs:
           && (needs.mirror-internal-deps.result == 'success' || needs.mirror-internal-deps.result == 'skipped') }}
     steps:
       - name: Unseal iOS secrets (no Vault on macOS)
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-unseal-ios-secrets@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-unseal-ios-secrets@v8.5
         with:
           sealed: ${{ needs.seal-ios-secrets.outputs.sealed }}
 
@@ -1231,12 +1251,12 @@ jobs:
           path: internal-mirror
       - name: Setup Gradle mirror (no .lc. on macOS)
         if: ${{ inputs.enableMacosOfflineWorkaround }}
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-setup-mirror@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-setup-mirror@v8.5
         with:
           mirror-dir: internal-mirror
 
       - name: Setup iOS environment
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-setup-ios-env@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-setup-ios-env@v8.5
         with:
           ios-working-directory: ${{ inputs.iosWorkingDirectory }}
           jdk-version: ${{ inputs.iosJdkVersion }}
@@ -1310,7 +1330,7 @@ jobs:
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.sonarTokenSecret }} value | SONAR_TOKEN ;
 
       - name: Sonar scan iOS
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-sonar-scan-ios@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-sonar-scan-ios@v8.5
         with:
           sonar-url: ${{ inputs.sonarqubeUrl }}
           sonar-token: ${{ env.SONAR_TOKEN }}
@@ -1349,7 +1369,7 @@ jobs:
           fi
 
       - id: policy
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-gate-policy@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-gate-policy@v8.5
         with:
           enable-quality-gates: ${{ inputs.enableQualityGates }}
           enable-shared-quality-gate: ${{ inputs.enableSharedQualityGate }}
@@ -1448,14 +1468,15 @@ jobs:
 
       - name: Export ArkanaKeys (.env + env)
         if: ${{ inputs.androidArkanaSecretsLines == '' }}
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-export-dotenv@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-export-dotenv@v8.5
         with:
           dotenv: ${{ env.ARKANA_DOTENV }}
           output-file: androidApp/.env
 
       - name: Setup Android environment (JDK ${{ matrix.javaVersion }})
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-setup-android-env@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-setup-android-env@v8.5
         with:
+          install-android-sdk: 'true'
           jdk-version: ${{ matrix.javaVersion }}
           compile-sdk-version: ${{ inputs.compileSdkVersion }}
           build-tools-version: ${{ inputs.buildToolsVersion }}
@@ -1468,7 +1489,7 @@ jobs:
 
       - name: Prepare Android signing (${{ matrix.signingMode }})
         id: signing
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-android-signing@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-android-signing@v8.5
         with:
           signing-mode: ${{ matrix.signingMode }}
           keystore-target-path: ${{ matrix.prodKeystorePath }}
@@ -1479,7 +1500,7 @@ jobs:
           key-password-env: keyPassword
 
       - name: Build ${{ matrix.buildVariant }}
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-build-android-app@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-build-android-app@v8.5
         with:
           build-mode: ${{ inputs.androidBuildMode }}
           build-variant: ${{ matrix.buildVariant }}
@@ -1518,7 +1539,7 @@ jobs:
       matrix: ${{ fromJSON(needs.resolve-context.outputs.ios_matrix) }}
     steps:
       - name: Unseal iOS secrets (no Vault on macOS)
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-unseal-ios-secrets@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-unseal-ios-secrets@v8.5
         with:
           sealed: ${{ needs.seal-ios-secrets.outputs.sealed }}
           match-profile: ${{ matrix.signingVaultProfile }}
@@ -1538,12 +1559,12 @@ jobs:
           path: internal-mirror
       - name: Setup Gradle mirror (no .lc. on macOS)
         if: ${{ inputs.enableMacosOfflineWorkaround }}
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-setup-mirror@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-setup-mirror@v8.5
         with:
           mirror-dir: internal-mirror
 
       - name: Setup iOS environment
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-setup-ios-env@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-setup-ios-env@v8.5
         with:
           ios-working-directory: ${{ inputs.iosWorkingDirectory }}
           jdk-version: ${{ inputs.iosJdkVersion }}
@@ -1557,7 +1578,7 @@ jobs:
           enable-derived-data-cache: ${{ inputs.enableXcodeDerivedDataCache }}
 
       - name: Build iOS ${{ matrix.scheme }}
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-build-ios-app@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-build-ios-app@v8.5
         with:
           ios-working-directory: ${{ inputs.iosWorkingDirectory }}
           scheme: ${{ matrix.scheme }}
@@ -1580,7 +1601,7 @@ jobs:
     name: 40 - Publish Android AppLivery
     runs-on: ${{ inputs.linuxRunnerLabel }}
     needs: [evaluate, resolve-context, gates, build-android]
-    if: ${{ always() && needs.resolve-context.outputs.android_publish_applivery == 'true' && needs.gates.outputs.allow_publish == 'true' && needs.build-android.result == 'success' }}
+    if: ${{ always() && needs.resolve-context.outputs.android_publish_applivery == 'true' && (needs.gates.outputs.allow_publish == 'true' || inputs.forcePublish) && needs.build-android.result == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -1617,7 +1638,7 @@ jobs:
           working-directory: ${{ inputs.androidFastlaneDirectory }}
 
       - name: Publish to AppLivery
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-publish-applivery@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-publish-applivery@v8.5
         with:
           publish-mode: ${{ inputs.androidAppliveryPublishMode }}
           artifact-pattern: android-*
@@ -1634,7 +1655,7 @@ jobs:
     name: 42 - Publish iOS AppLivery ${{ matrix.scheme }}
     runs-on: ${{ inputs.linuxRunnerLabel }}
     needs: [evaluate, resolve-context, gates, build-ios]
-    if: ${{ always() && needs.resolve-context.outputs.ios_publish_applivery == 'true' && needs.gates.outputs.allow_publish == 'true' && needs.build-ios.result == 'success' }}
+    if: ${{ always() && needs.resolve-context.outputs.ios_publish_applivery == 'true' && (needs.gates.outputs.allow_publish == 'true' || inputs.forcePublish) && needs.build-ios.result == 'success' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve-context.outputs.ios_matrix) }}
@@ -1652,7 +1673,7 @@ jobs:
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.appliveryTokenLpSecret }} value | APP_LIVERY_API_TOKEN_LP ;
 
       - name: Publish ${{ matrix.scheme }} to AppLivery
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-publish-applivery@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-publish-applivery@v8.5
         with:
           publish-mode: ${{ inputs.iosAppliveryPublishMode }}
           artifact-pattern: ${{ matrix.artifactName }}
@@ -1669,13 +1690,13 @@ jobs:
     name: 43 - Publish TestFlight ${{ matrix.scheme }}
     runs-on: ${{ inputs.macosRunnerLabel }}
     needs: [evaluate, resolve-context, gates, build-ios, seal-ios-secrets]
-    if: ${{ always() && needs.resolve-context.outputs.ios_publish_testflight == 'true' && needs.gates.outputs.allow_publish == 'true' && needs.build-ios.result == 'success' }}
+    if: ${{ always() && needs.resolve-context.outputs.ios_publish_testflight == 'true' && (needs.gates.outputs.allow_publish == 'true' || inputs.forcePublish) && needs.build-ios.result == 'success' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve-context.outputs.ios_matrix) }}
     steps:
       - name: Unseal iOS secrets (no Vault on macOS)
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-unseal-ios-secrets@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-unseal-ios-secrets@v8.5
         with:
           sealed: ${{ needs.seal-ios-secrets.outputs.sealed }}
           altool-brand: ${{ matrix.brandKey }}
@@ -1689,7 +1710,7 @@ jobs:
           token: ${{ env.GIT_ACCESS_TOKEN || github.token }}
 
       - name: Publish ${{ matrix.scheme }} to TestFlight
-        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-publish-testflight@v8.4
+        uses: Desjardins/mobile-gha-workflows-kmp/.github/actions/emerald-mobile-publish-testflight@v8.5
         with:
           publish-mode: ${{ inputs.iosTestflightPublishMode }}
           artifact-name: ${{ matrix.artifactName }}

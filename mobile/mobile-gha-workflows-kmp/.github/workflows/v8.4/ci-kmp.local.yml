@@ -1,6 +1,8 @@
 # =============================================================================
-# Version: 8.4.0   (variante LOCAL de ci-kmp.yml v8.4 ; doit rester synchronisée)
+# Version: 8.5.0   (variante LOCAL de ci-kmp.yml v8.5 ; doit rester synchronisée)
 # Changelog (résumé — voir CHANGELOG.md) :
+#   8.5.0 — matchRepos Desjardins/mobile-codesigning-* ; install-android-sdk:'true' ;
+#           input forcePublish (bypass allow_publish en run manuel).
 #   8.4.0 — businessLabel DGAG ; retrait labels PR (dispatch only) ; docs pédagogiques.
 #   8.3.0 — Summary enrichi : liens Sonar, icônes, build number, lien artefacts.
 #   8.2.0 — Épuration : retrait DIAG, GIT_PAT, Google Play, enableUpdateBuildVersion.
@@ -14,13 +16,13 @@
 #           iosMatchSecretMap, ruby-version.
 # Règle : toute modif => bump Version + Changelog + synchro avec ci-kmp.yml.
 # =============================================================================
-name: "Reusable - CI KMP Mobile (v8.4) — LOCAL TEST (chemins relatifs)"
+name: "Reusable - CI KMP Mobile (v8.5) — LOCAL TEST (chemins relatifs)"
 
 # =============================================================================
 # ⚠️ VARIANTE LOCALE — NE PAS UTILISER COMME WORKFLOW RÉUTILISABLE EN PROD.
 #
 # Toutes les composite actions sont référencées en chemin RELATIF
-# (./.github/actions/...) au lieu de Desjardins/...@v8.4. Conséquence GitHub :
+# (./.github/actions/...) au lieu de Desjardins/...@v8.5. Conséquence GitHub :
 # un chemin relatif est résolu contre le workspace CHECKOUT du job — donc, en
 # usage `workflow_call` réel, contre le repo APPELANT (l'app), qui ne contient
 # PAS .github/actions/emerald-* → échec. Cette variante ne fonctionne QUE si
@@ -162,7 +164,7 @@ on:
         description: "JSON des schemes iOS (brandKey, businessLabel, scheme, ipaNameEnterprise, ipaNameStore, matchRepoEnterprise, matchRepoStore, appliveryTokenEnv)."
         type: string
         required: false
-        default: '[{"brandKey":"dgag","businessLabel":"DGAG","scheme":"DesjardinsAssurances","ipaNameEnterprise":"com.ent.dgaginno.desjardins.assurances.ipa","ipaNameStore":"com.desjardins.ajusto.ipa","matchRepoEnterprise":"mobile-support/codesigning-ios-enterprise-dgag","matchRepoStore":"mobile-support/codesigning-ios-public-desjardins","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_DA"},{"brandKey":"tpic","businessLabel":"LP","scheme":"LaPersonnelle","ipaNameEnterprise":"com.ent.dgaginno.tpic.ipa","ipaNameStore":"com.lapersonnelle.ajusto.ipa","matchRepoEnterprise":"mobile-support/codesigning-ios-enterprise-dgag","matchRepoStore":"mobile-support/codesigning-ios-public-lapersonnelle","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_LP"}]'
+        default: '[{"brandKey":"dgag","businessLabel":"DGAG","scheme":"DesjardinsAssurances","ipaNameEnterprise":"com.ent.dgaginno.desjardins.assurances.ipa","ipaNameStore":"com.desjardins.ajusto.ipa","matchRepoEnterprise":"Desjardins/mobile-codesigning-ios-enterprise-dgag","matchRepoStore":"Desjardins/mobile-codesigning-ios-public-desjardins","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_DA"},{"brandKey":"tpic","businessLabel":"LP","scheme":"LaPersonnelle","ipaNameEnterprise":"com.ent.dgaginno.tpic.ipa","ipaNameStore":"com.lapersonnelle.ajusto.ipa","matchRepoEnterprise":"Desjardins/mobile-codesigning-ios-enterprise-dgag","matchRepoStore":"Desjardins/mobile-codesigning-ios-public-lapersonnelle","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_LP"}]'
       androidDefaultBrandKey:
         description: "Brand du build de validation PR."
         type: string
@@ -213,7 +215,12 @@ on:
         required: false
         default: "0"
       dryRun:
-        description: "Builds réels, publications simulées."
+        description: "Builds RÉELS, publications SIMULÉES (les jobs publish tournent mais loggent au lieu d'uploader). Valide la chaîne sans rien pousser."
+        type: boolean
+        required: false
+        default: false
+      forcePublish:
+        description: "v8.5 — Force la publication en run manuel même si allow_publish=false (gate Sonar FAILED incl.). N'outrepasse ni le build vert ni les flags de distribution."
         type: boolean
         required: false
         default: false
@@ -1050,6 +1057,7 @@ jobs:
       - name: Setup Android environment
         uses: ./.github/actions/emerald-setup-android-env
         with:
+          install-android-sdk: 'true'
           jdk-version: ${{ inputs.androidJdkVersionQuality }}
           compile-sdk-version: ${{ inputs.compileSdkVersion }}
           build-tools-version: ${{ inputs.buildToolsVersion }}
@@ -1157,6 +1165,7 @@ jobs:
       - name: Setup Android environment
         uses: ./.github/actions/emerald-setup-android-env
         with:
+          install-android-sdk: 'true'
           jdk-version: ${{ inputs.androidJdkVersionQuality }}
           compile-sdk-version: ${{ inputs.compileSdkVersion }}
           build-tools-version: ${{ inputs.buildToolsVersion }}
@@ -1448,6 +1457,7 @@ jobs:
       - name: Setup Android environment (JDK ${{ matrix.javaVersion }})
         uses: ./.github/actions/emerald-setup-android-env
         with:
+          install-android-sdk: 'true'
           jdk-version: ${{ matrix.javaVersion }}
           compile-sdk-version: ${{ inputs.compileSdkVersion }}
           build-tools-version: ${{ inputs.buildToolsVersion }}
@@ -1575,7 +1585,7 @@ jobs:
     name: 40 - Publish Android AppLivery
     runs-on: ${{ inputs.linuxRunnerLabel }}
     needs: [evaluate, resolve-context, gates, build-android]
-    if: ${{ always() && needs.resolve-context.outputs.android_publish_applivery == 'true' && needs.gates.outputs.allow_publish == 'true' && needs.build-android.result == 'success' }}
+    if: ${{ always() && needs.resolve-context.outputs.android_publish_applivery == 'true' && (needs.gates.outputs.allow_publish == 'true' || inputs.forcePublish) && needs.build-android.result == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -1629,7 +1639,7 @@ jobs:
     name: 42 - Publish iOS AppLivery ${{ matrix.scheme }}
     runs-on: ${{ inputs.linuxRunnerLabel }}
     needs: [evaluate, resolve-context, gates, build-ios]
-    if: ${{ always() && needs.resolve-context.outputs.ios_publish_applivery == 'true' && needs.gates.outputs.allow_publish == 'true' && needs.build-ios.result == 'success' }}
+    if: ${{ always() && needs.resolve-context.outputs.ios_publish_applivery == 'true' && (needs.gates.outputs.allow_publish == 'true' || inputs.forcePublish) && needs.build-ios.result == 'success' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve-context.outputs.ios_matrix) }}
@@ -1665,7 +1675,7 @@ jobs:
     name: 43 - Publish TestFlight ${{ matrix.scheme }}
     runs-on: ${{ inputs.macosRunnerLabel }}
     needs: [evaluate, resolve-context, gates, build-ios, seal-ios-secrets]
-    if: ${{ always() && needs.resolve-context.outputs.ios_publish_testflight == 'true' && needs.gates.outputs.allow_publish == 'true' && needs.build-ios.result == 'success' }}
+    if: ${{ always() && needs.resolve-context.outputs.ios_publish_testflight == 'true' && (needs.gates.outputs.allow_publish == 'true' || inputs.forcePublish) && needs.build-ios.result == 'success' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve-context.outputs.ios_matrix) }}

@@ -41,7 +41,11 @@ on:
         default: none
         options: [none, applivery, testflight]
       dryRun:
-        description: 'Exécution à blanc : pas de publication ni de tag, pour valider le pipeline.'
+        description: 'Exécution à blanc : les jobs publish tournent mais SIMULENT (rien envoyé à AppLivery/TestFlight). Pour valider la chaîne complète.'
+        type: boolean
+        default: false
+      forcePublish:
+        description: 'v8.5 — Publier MÊME si les quality gates bloquent (Sonar FAILED). Nécessite quand même un build vert.'
         type: boolean
         default: false
 
@@ -52,7 +56,7 @@ permissions:
 
 jobs:
   ci-kmp:
-    uses: Desjardins/mobile-gha-workflows-kmp/.github/workflows/v8.4/ci-kmp.yml@v8.4
+    uses: Desjardins/mobile-gha-workflows-kmp/.github/workflows/v8.5/ci-kmp.yml@v8.5
     with:
       # ------------------------------------------------------------------
       # IDENTITÉ — comment le CI sait "qui" il build.
@@ -331,6 +335,8 @@ jobs:
       # de la PR + distribution=applivery|testflight (+ dryRun pour un essai à blanc).
       manualDistribution: ${{ github.event_name == 'workflow_dispatch' && inputs.distribution || '' }}
       dryRun: ${{ github.event_name == 'workflow_dispatch' && inputs.dryRun || false }}
+      # v8.5 — bypass des gates pour un test de publication piloté (dispatch only).
+      forcePublish: ${{ github.event_name == 'workflow_dispatch' && inputs.forcePublish || false }}
     secrets:
       # Seuls les credentials AppRole Vault sont des secrets GitHub. Le PAT GitHub
       # (submodule privé, repos Match) est lu depuis Vault (input gitPatSecret).
@@ -342,7 +348,7 @@ jobs:
 #
 #   jobs:
 #     ci-kmp:
-#       uses: Desjardins/mobile-gha-workflows-kmp/.github/workflows/v8.4/ci-kmp.yml@v8.4
+#       uses: Desjardins/mobile-gha-workflows-kmp/.github/workflows/v8.5/ci-kmp.yml@v8.5
 #       with:
 #         productName: ui-ad-digital-mobile
 #         iosSonarProjectKey: 'com.desjardins.addigitalmobile:ui-ad-digital-mobile-ios'
