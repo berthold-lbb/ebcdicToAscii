@@ -1,8 +1,30 @@
+# =============================================================================
+# Version: 1.1.0
+# Changelog:
+#   1.1.0 — Contexte Pull Request passé EXPLICITEMENT à Sonar
+#           (`sonar.pullrequest.key/branch/base`, déduits de `github.event`)
+#           au lieu de reposer sur l'autodétection : celle-ci dépend de la
+#           liaison DevOps configurée PAR PROJET côté SonarQube, donc deux
+#           projectKey (shared / androidApp) pouvaient ne pas analyser le même
+#           périmètre sur un même run. Nouveaux inputs `pull-request-key`,
+#           `pull-request-branch`, `pull-request-base` (surcharge ; `-` = off).
+#           Nouveau step `if: always()` publiant le lien du dashboard Sonar lu
+#           dans `build/sonar/report-task.txt` : Gradle n'imprime l'URL que
+#           dans le message d'échec du quality gate, donc un gate qui PASSE ne
+#           laissait aucune trace exploitable. Le step émet aussi un
+#           `::warning::` si l'analyse a tourné hors contexte PR. Désactivable
+#           via l'input `publish-summary`.
+#   1.0.0 — Baseline (tests unitaires + rapport Kover + scan Sonar, avec
+#           credentials du feed Maven).
+# =============================================================================
 name: "Emerald Mobile Sonar Scan Gradle"
 description: >
   Qualité d'un module Gradle (parité Azure scan-template-gradle) :
   tests unitaires + rapport Kover + scan Sonar, avec credentials du feed Maven.
   Les ArkanaKeys nécessaires aux tests doivent déjà être en environnement.
+  Sur un événement `pull_request`, le contexte PR est passé EXPLICITEMENT à
+  Sonar (sonar.pullrequest.*) et le lien du dashboard est publié dans le résumé
+  du job — que le quality gate passe ou non.
 
 inputs:
   working-directory:
@@ -37,6 +59,27 @@ inputs:
     description: "Attend le résultat du quality gate Sonar (sonar.qualitygate.wait). Exemple: `true`."
     required: false
     default: "true"
+  pull-request-key:
+    description: >
+      Numéro de PR analysé (sonar.pullrequest.key). Vide + événement
+      `pull_request` = déduit de `github.event.pull_request.number`.
+      Mettre `-` pour désactiver explicitement l'analyse en mode PR.
+    required: false
+    default: ""
+  pull-request-branch:
+    description: "Branche source de la PR (sonar.pullrequest.branch). Vide = `github.head_ref`."
+    required: false
+    default: ""
+  pull-request-base:
+    description: "Branche cible de la PR (sonar.pullrequest.base). Vide = `github.base_ref`."
+    required: false
+    default: ""
+  publish-summary:
+    description: >
+      Publie le lien du dashboard Sonar (et le contexte d'analyse) dans le
+      résumé du job, succès comme échec. Exemple: `true`.
+    required: false
+    default: "true"
   gradle-jvm-args:
     description: "JVM args Gradle (OOM Metaspace sur gros projets). Exemple: `-Xmx3g -XX:MaxMetaspaceSize=1g`."
     required: false
@@ -62,6 +105,7 @@ runs:
   using: "composite"
   steps:
     - name: Run tests + coverage + sonar
+      id: scan
       shell: bash
       working-directory: ${{ inputs.working-directory }}
       env:
@@ -94,6 +138,25 @@ runs:
           [[ -n "$SONAR_TOKEN"    ]] && sonar_props+=("-Dsonar.token=$SONAR_TOKEN")
           [[ -n "${{ inputs.sonar-project-key }}" ]] && sonar_props+=("-Dsonar.projectKey=${{ inputs.sonar-project-key }}")
           [[ "${{ inputs.quality-gate-wait }}" == "true" ]] && sonar_props+=("-Dsonar.qualitygate.wait=true")
+
+          # --- Contexte Pull Request (explicite) -----------------------------
+          # Sans ces propriétés, le mode PR repose sur l'autodétection et sur la
+          # liaison DevOps configurée PAR PROJET côté SonarQube. Deux projectKey
+          # distincts (shared / androidApp) peuvent donc se comporter
+          # différemment sur le même run. On rend le contexte explicite pour que
+          # les deux analysent le même périmètre : les fichiers de la PR.
+          pr_key="${{ inputs.pull-request-key }}"
+          if [[ -z "$pr_key" && "${{ github.event_name }}" == "pull_request" ]]; then
+            pr_key="${{ github.event.pull_request.number }}"
+          fi
+          if [[ -n "$pr_key" && "$pr_key" != "-" ]]; then
+            pr_branch="${{ inputs.pull-request-branch }}"; [[ -z "$pr_branch" ]] && pr_branch="${{ github.head_ref }}"
+            pr_base="${{ inputs.pull-request-base }}";     [[ -z "$pr_base" ]]   && pr_base="${{ github.base_ref }}"
+            sonar_props+=("-Dsonar.pullrequest.key=$pr_key")
+            [[ -n "$pr_branch" ]] && sonar_props+=("-Dsonar.pullrequest.branch=$pr_branch")
+            [[ -n "$pr_base" ]]   && sonar_props+=("-Dsonar.pullrequest.base=$pr_base")
+            echo "Analyse Sonar en mode Pull Request #$pr_key ($pr_branch → $pr_base)"
+          fi
         fi
 
         if [[ ${#tasks[@]} -eq 0 ]]; then
@@ -106,3 +169,50 @@ runs:
           ${sonar_props[@]+"${sonar_props[@]}"} \
           ${{ inputs.extra-gradle-args }} \
           --stacktrace
+
+    # Le lien du dashboard n'est imprimé par Gradle QUE lorsque le quality gate
+    # échoue (message de l'exception). Un gate qui passe ne laisse aucune trace.
+    # Le scanner écrit en revanche TOUJOURS build/sonar/report-task.txt, qui
+    # contient la même URL — `&pullRequest=<n>` compris en mode PR.
+    # `always()` : on veut le lien surtout quand le step précédent a échoué.
+    - name: Résumé Sonar (lien dashboard + contexte d'analyse)
+      if: ${{ always() && inputs.sonar-task != '' && inputs.publish-summary == 'true' }}
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        found="false"
+
+        while IFS= read -r f; do
+          found="true"
+          module="${f#./}"; module="${module%%/build/*}"
+          url="$(grep -m1 '^dashboardUrl=' "$f" | cut -d= -f2- || true)"
+          ce="$(grep -m1 '^ceTaskUrl=' "$f" | cut -d= -f2- || true)"
+
+          case "$url" in
+            *pullRequest=*) scope="Pull Request" ;;
+            *branch=*)      scope="Branche" ;;
+            *)              scope="⚠️ Projet global — aucun contexte PR" ;;
+          esac
+
+          if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+            {
+              echo "### 🔍 Sonar — \`$module\`"
+              echo ""
+              echo "- **Contexte** : $scope"
+              echo "- **Dashboard** : ${url:-indisponible}"
+              [[ -n "$ce" ]] && echo "- **Tâche CE** : $ce"
+              echo ""
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          echo "Sonar $module [$scope] → ${url:-indisponible}"
+
+          if [[ "$url" != *pullRequest=* && "${GITHUB_EVENT_NAME:-}" == "pull_request" ]]; then
+            echo "::warning::$module analysé HORS contexte PR alors que le run est un pull_request — vérifier la liaison DevOps du projet dans SonarQube."
+          fi
+        done < <(find . -path "*/build/sonar/report-task.txt" -type f)
+
+        if [[ "$found" != "true" ]]; then
+          echo "::warning::Aucun report-task.txt trouvé — le scan Sonar n'a pas produit de rapport (échec avant l'upload ?)."
+        fi
