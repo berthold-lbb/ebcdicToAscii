@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AjustoDashboardScreen — anatomie de la construction des MessageBox</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#30363d;
+    --tx:#e6edf3; --tx2:#9aa7b4; --acc:#58a6ff;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --info:#a371f7;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1500px;margin:0 auto;padding:40px 28px 120px}
+  h1{font-size:34px;line-height:1.2;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--tx2);font-size:15px;margin-bottom:38px}
+  h2{font-size:26px;margin:64px 0 8px;padding-top:26px;border-top:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:19px;margin:34px 0 10px;color:var(--acc)}
+  h4{font-size:16px;margin:22px 0 8px;color:var(--tx2);text-transform:uppercase;letter-spacing:.08em}
+  p{margin:12px 0}
+  code{font-family:var(--mono);font-size:.9em;background:#1f2733;padding:2px 6px;border-radius:4px;color:#a5d6ff}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+      padding:18px 20px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.6}
+  pre .c{color:#7d8590}
+  .fig{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+       padding:26px 20px;margin:26px 0;overflow-x:auto}
+  .fig .cap{color:var(--tx2);font-size:13.5px;margin:0 0 18px;text-transform:uppercase;letter-spacing:.09em}
+  .mermaid{min-width:100%;display:flex;justify-content:center}
+  .mermaid svg{max-width:none !important;height:auto !important}
+  table{border-collapse:collapse;width:100%;margin:20px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600;color:var(--tx2);
+     text-transform:uppercase;font-size:12px;letter-spacing:.06em}
+  td code{font-size:12.5px}
+  tr:nth-child(even) td{background:#12171f}
+  .note{border-left:4px solid var(--acc);background:#12202f;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .warn{border-left:4px solid var(--warn);background:#241f10;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .key{border-left:4px solid var(--info);background:#1d1630;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;font-family:var(--mono)}
+  .p-core{background:#3d1414;color:#ffb3ad} .p-frag{background:#3a2a10;color:#ffd591}
+  .p-kmp{background:#12293d;color:#9fd4ff}  .p-ui{background:#123020;color:#8ce8a8}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:1000px){.grid2{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .card h5{margin:0 0 10px;font-size:15px;color:var(--acc)}
+  ul{margin:12px 0;padding-left:22px} li{margin:7px 0}
+  .lineno{color:#6e7681;font-family:var(--mono);font-size:12px}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 26px;margin:30px 0}
+  .toc a{color:var(--acc);text-decoration:none} .toc a:hover{text-decoration:underline}
+  .toc ol{margin:0;padding-left:22px} .toc li{margin:6px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>AjustoDashboardScreen — comment les MessageBox sont construites</h1>
+<p class="sub">
+  Lecture intégrale de <code>AjustoDashboardScreen.kt</code> (544 lignes),
+  <code>AjustoDashboardFragment.kt</code> (469 lignes) et
+  <code>AjustoDashboardUiState.kt</code> (130 lignes). Objectif : comprendre, pas modifier.
+</p>
+
+<div class="toc">
+  <ol>
+    <li><a href="#s1">La vue d'ensemble : deux sources, un seul StateFlow</a></li>
+    <li><a href="#s2">Anatomie du fichier : les 16 fonctions</a></li>
+    <li><a href="#s3">L'arbre d'appel des composables</a></li>
+    <li><a href="#s4">Le routeur <code>Dashboard()</code> : 3 branches exclusives</a></li>
+    <li><a href="#s5">Les 2 fabriques de MessageBox (badge / générique)</a></li>
+    <li><a href="#s6">Les 4 mappers d'icône : de l'enum Core au pixel</a></li>
+    <li><a href="#s7">Le chemin complet, type par type</a></li>
+    <li><a href="#s8">Le cycle de vie d'une MessageBox : naissance → clic → mort</a></li>
+    <li><a href="#s9">Le modèle de données</a></li>
+    <li><a href="#s10">Les 6 subtilités à retenir</a></li>
+  </ol>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s1">1 · La vue d'ensemble : deux sources, un seul StateFlow</h2>
+
+<p>
+  C'est <strong>la</strong> chose à comprendre avant tout le reste. Le Dashboard legacy n'a pas une
+  source de données mais <strong>deux</strong>, qui écrivent dans le <em>même</em>
+  <code>MutableStateFlow&lt;DashboardUiState&gt;</code>.
+</p>
+
+<div class="fig">
+  <p class="cap">Figure 1 — Les deux sources qui alimentent <code>_dashboardStateFlow</code></p>
+  <div class="mermaid">
+flowchart TB
+    subgraph KMP["&nbsp;SOURCE A — ViewModel KMP (shared)&nbsp;"]
+        direction TB
+        VM["AjustoDashboardViewModel<br/>collectLatest sur les données"]
+        UIP["ajustoDashboardUiStatesProvider<br/>.uiStates(data, scope)"]
+        NOT["notifyUiState(uiStates)<br/>+ trackAnalytics(uiStates)"]
+        VM --> UIP --> NOT
+    end
+
+    subgraph SCR["&nbsp;SOURCE B — Core SCRATCH (natif Java)&nbsp;"]
+        direction TB
+        TS["TripService<br/>.contextualMessageObservable"]
+        LIS["initializeBadgeMessageBoxListener()<br/>abonnement manuel SCRATCH"]
+        TS --> LIS
+    end
+
+    NOT --> RS["renderState(List de AjustoDashboardUiState)"]
+    RS --> CS["copyState(state, legacyUiStates)<br/>copie 7 champs"]
+
+    CS --> SF[("_dashboardStateFlow<br/>MutableStateFlow de DashboardUiState")]
+    LIS --> SF
+
+    SF --> ROOT["AjustoDashboardRoot(dashboardStateFlow, onLegacyAction)"]
+    ROOT --> PARAMS["DashboardParams — 8 champs nullables"]
+    PARAMS --> DASH["Dashboard(params, onLegacyAction)"]
+
+    style KMP fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style SCR fill:#3d1414,stroke:#f85149,color:#e6edf3
+    style SF fill:#1d1630,stroke:#a371f7,color:#e6edf3
+    style DASH fill:#123020,stroke:#3fb950,color:#e6edf3
+  </div>
+</div>
+
+<div class="key">
+  <strong>Le détail qui explique tout.</strong> Regarde ce que <code>copyState()</code> copie
+  réellement depuis le ViewModel KMP :
+  <pre style="margin-top:12px;background:#0d1117">private fun copyState(state: DashboardUiState, legacyUiStates: List&lt;AjustoDashboardUiState&gt;) =
+    state.copy(
+        header            = legacyUiStates.findInstanceOf(),
+        scoreGauge        = legacyUiStates.findInstanceOf(),
+        tripsGauge        = legacyUiStates.findInstanceOf(),
+        informationalList = legacyUiStates.findInstanceOf(),
+        tileButtons       = legacyUiStates.findInstanceOf(),
+        locationDisabled  = legacyUiStates.findInstanceOf(),
+        networkDisabled   = legacyUiStates.findInstanceOf()
+    )   <span class="c">// ← messageBox ET badge ABSENTS de la liste</span></pre>
+  <p style="margin-bottom:0">
+    <code>messageBox</code> et <code>badge</code> sont les <strong>seuls</strong> champs que le
+    ViewModel KMP ne fournit pas. Ils viennent exclusivement du chemin SCRATCH. C'est délibéré :
+    le message contextuel n'existe pas dans le monde KMP du legacy.
+  </p>
+</div>
+
+<h4>Les 8 points d'écriture dans <code>_dashboardStateFlow</code></h4>
+<table>
+  <tr><th>Ligne</th><th>Écrit par</th><th>Champs touchés</th><th>Source</th></tr>
+  <tr><td class="lineno">114</td><td>déclaration + valeur initiale</td><td>tous à <code>null</code></td><td>—</td></tr>
+  <tr><td class="lineno">202</td><td><code>renderState()</code> → <code>copyState()</code></td><td>header, scoreGauge, tripsGauge, informationalList, tileButtons, locationDisabled, networkDisabled</td><td><span class="pill p-kmp">ViewModel KMP</span></td></tr>
+  <tr><td class="lineno">283</td><td>listener SCRATCH — branche <code>BadgeContextualMessage</code></td><td><strong>messageBox</strong> + <strong>badge</strong></td><td><span class="pill p-core">TripService</span></td></tr>
+  <tr><td class="lineno">309</td><td>listener SCRATCH — branche <code>AjustoContextualMessage</code></td><td><strong>messageBox</strong></td><td><span class="pill p-core">TripService</span></td></tr>
+  <tr><td class="lineno">189</td><td><code>handleReaction(CloseMessageBox)</code></td><td>messageBox = null, badge = null</td><td><span class="pill p-frag">Fragment</span></td></tr>
+  <tr><td class="lineno">410</td><td><code>showClaimedBadgeFragment()</code> après <code>delay(500)</code></td><td>messageBox = null</td><td><span class="pill p-frag">Fragment</span></td></tr>
+  <tr><td class="lineno">183</td><td><code>handleReaction(NavigateToClaimedBadgeView)</code> — <em>lecture</em></td><td>lit <code>badge</code></td><td><span class="pill p-frag">Fragment</span></td></tr>
+  <tr><td class="lineno">212</td><td>passage à Compose</td><td>lecture complète</td><td><span class="pill p-ui">Compose</span></td></tr>
+</table>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s2">2 · Anatomie du fichier : les 16 fonctions</h2>
+
+<p>
+  <code>AjustoDashboardScreen.kt</code> contient 16 fonctions. Une seule est publique
+  (<code>AjustoDashboardRoot</code>), tout le reste est <code>private</code>.
+  Trois d'entre elles seulement concernent le MessageBox.
+</p>
+
+<table>
+  <tr><th>#</th><th>Ligne</th><th>Fonction</th><th>Visibilité</th><th>Rôle</th><th>MessageBox ?</th></tr>
+  <tr><td>1</td><td class="lineno">96</td><td><code>AjustoDashboardRoot</code></td><td>public</td><td>point d'entrée, collecte le StateFlow, construit <code>DashboardParams</code></td><td>✅ passe <code>messageBox</code></td></tr>
+  <tr><td>2</td><td class="lineno">166</td><td><code>Dashboard</code></td><td>private</td><td><strong>routeur</strong> — 3 branches exclusives</td><td>⚠️ peut le <em>bloquer</em></td></tr>
+  <tr><td>3</td><td class="lineno">118</td><td><code>AjustoDashboardScreen</code></td><td>private</td><td>assemble les sections dans un <code>Column</code> scrollable</td><td>✅ appelle la section</td></tr>
+  <tr><td>4</td><td class="lineno">191</td><td><code>HeaderSection</code></td><td>private</td><td>titre + sous-titre</td><td>—</td></tr>
+  <tr><td>5</td><td class="lineno">199</td><td><code>ScoreGaugeSection</code></td><td>private</td><td>jauge de score</td><td>—</td></tr>
+  <tr><td>6</td><td class="lineno">211</td><td><code>TripsGaugeSection</code></td><td>private</td><td>jauge de trajets</td><td>—</td></tr>
+  <tr><td>7</td><td class="lineno">223</td><td><code>InformationalListSection</code></td><td>private</td><td>liste d'infos + tooltips</td><td>—</td></tr>
+  <tr><td>8</td><td class="lineno">288</td><td><code>MessageBoxSection</code></td><td>private</td><td><strong>le rendu de la carte</strong></td><td>✅ <strong>c'est lui</strong></td></tr>
+  <tr><td>9</td><td class="lineno">367</td><td><code>TileButtonsSection</code></td><td>private</td><td>grille de 4 tuiles</td><td>—</td></tr>
+  <tr><td>10</td><td class="lineno">422</td><td><code>RowScope.TileButton</code></td><td>private</td><td>une tuile</td><td>—</td></tr>
+  <tr><td>11</td><td class="lineno">466</td><td><code>getIconResource</code></td><td>private</td><td><strong>IconKey → @DrawableRes Int</strong></td><td>✅ mapper</td></tr>
+  <tr><td>12</td><td class="lineno">485</td><td><code>getIconColor</code></td><td>private</td><td><strong>IconColor → Compose Color</strong></td><td>✅ mapper</td></tr>
+  <tr><td>13</td><td class="lineno">497</td><td><code>getColorsForProgressStatus</code></td><td>public</td><td>dégradé de la jauge</td><td>—</td></tr>
+  <tr><td>14</td><td class="lineno">508</td><td><code>AjustoDashboardPreview</code></td><td>internal</td><td>preview Compose</td><td>—</td></tr>
+  <tr><td>15</td><td class="lineno">535</td><td><code>DashboardParams</code></td><td>private data class</td><td>sac de paramètres, 8 champs nullables</td><td>✅ 1 slot</td></tr>
+  <tr><td>16</td><td class="lineno">—</td><td><code>AjustoLocationDisabledView</code></td><td>externe</td><td>écran plein "localisation désactivée"</td><td>—</td></tr>
+</table>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s3">3 · L'arbre d'appel des composables</h2>
+
+<div class="fig">
+  <p class="cap">Figure 2 — Qui appelle qui, du Fragment jusqu'au pixel</p>
+  <div class="mermaid">
+flowchart TB
+    F["AjustoDashboardFragment<br/>ComposeView.setContent"]
+    F --> ROOT["AjustoDashboardRoot(dashboardStateFlow, onLegacyAction)<br/>PUBLIC — ligne 96"]
+
+    ROOT --> COL["collectAsState()<br/>StateFlow devient State Compose"]
+    COL --> DP["DashboardParams(...)<br/>8 champs nullables — ligne 535"]
+    DP --> D["Dashboard(params, onLegacyAction)<br/>ROUTEUR — ligne 166"]
+
+    D -->|"locationDisabled != null"| LD["AjustoLocationDisabledView<br/>ECRAN PLEIN"]
+    D -->|"networkAccessDisabled != null"| NI["NoInternetView<br/>ECRAN PLEIN"]
+    D -->|"sinon"| ADS["AjustoDashboardScreen(params, onClick)<br/>ligne 118"]
+
+    ADS --> C["Column verticalScroll<br/>heightIn min = screenHeight"]
+
+    C --> S1["params.header?.let<br/>HeaderSection(title, subtitle)"]
+    C --> S2["params.scoreGauge?.let ... ?: params.tripsGauge?.let<br/>ScoreGaugeSection OU TripsGaugeSection"]
+    C --> S3["params.informationalList?.let<br/>InformationalListSection(items)"]
+    C --> S4["params.messageBox?.let mb<br/>MessageBoxSection(...)"]
+    C --> S5["params.tileButtons?.let tb<br/>TileButtonsSection(4 tuiles) + Spacer weight 1f"]
+
+    S4 --> M1["title = mb.title"]
+    S4 --> M2["message = mb.message"]
+    S4 --> M3["iconRes = mb.iconKey?.let getIconResource<br/>ligne 466"]
+    S4 --> M4["iconTint = getIconColor(mb.iconKey?.color)<br/>ligne 485"]
+    S4 --> M5["buttonText = mb.buttonText"]
+    S4 --> M6["onBoxClick = mb.action?.let a onClick(a)"]
+
+    M1 --> BOX["MessageBoxSection — ligne 288<br/>Box shadow + Row + Image + Column"]
+    M2 --> BOX
+    M3 --> BOX
+    M4 --> BOX
+    M5 --> BOX
+    M6 --> BOX
+
+    style ROOT fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style D fill:#241f10,stroke:#d29922,color:#e6edf3
+    style S4 fill:#1d1630,stroke:#a371f7,color:#e6edf3
+    style BOX fill:#123020,stroke:#3fb950,color:#e6edf3
+    style LD fill:#3d1414,stroke:#f85149,color:#e6edf3
+    style NI fill:#3d1414,stroke:#f85149,color:#e6edf3
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s4">4 · Le routeur <code>Dashboard()</code> : 3 branches exclusives</h2>
+
+<pre>@Composable
+private fun Dashboard(params: DashboardParams, onLegacyAction: (LegacyAjustoDashboardAction) -&gt; Unit) {
+    with(params) {
+        when {
+            locationDisabled != null -&gt; AjustoLocationDisabledView(
+                title = locationDisabled.title,
+                message = locationDisabled.message,
+                buttonText = locationDisabled.buttonText,
+                onButtonClick = { onLegacyAction(locationDisabled.buttonAction) }
+            )
+            networkAccessDisabled != null -&gt; NoInternetView()
+            else -&gt; AjustoDashboardScreen(params = params, onClick = onLegacyAction)
+        }
+    }
+}</pre>
+
+<div class="warn">
+  <strong>Conséquence forte, souvent oubliée.</strong>
+  <code>locationDisabled</code> et <code>networkAccessDisabled</code> ne sont
+  <em>pas</em> des MessageBox : ce sont des écrans pleins qui <strong>remplacent
+  tout le contenu</strong>. Si la localisation est désactivée, le message
+  « batterie faible » <strong>n'est jamais affiché</strong>, même s'il existe
+  dans le state. Il est calculé, transporté, stocké… et court-circuité au dernier moment.
+</div>
+
+<div class="fig">
+  <p class="cap">Figure 3 — Les 3 branches, et où le MessageBox est perdu</p>
+  <div class="mermaid">
+flowchart TB
+    START(["Dashboard(params)"]) --> Q1{"locationDisabled != null ?"}
+    Q1 -->|OUI| B1["AjustoLocationDisabledView<br/>ECRAN PLEIN — titre, message, bouton"]
+    Q1 -->|non| Q2{"networkAccessDisabled != null ?"}
+    Q2 -->|OUI| B2["NoInternetView<br/>ECRAN PLEIN"]
+    Q2 -->|non| B3["AjustoDashboardScreen<br/>le contenu normal"]
+
+    B1 --> X1["params.messageBox<br/>JAMAIS RENDU"]
+    B2 --> X2["params.messageBox<br/>JAMAIS RENDU"]
+    B3 --> OK["params.messageBox?.let<br/>MessageBoxSection AFFICHE"]
+
+    style B1 fill:#3d1414,stroke:#f85149,color:#e6edf3
+    style B2 fill:#3d1414,stroke:#f85149,color:#e6edf3
+    style B3 fill:#123020,stroke:#3fb950,color:#e6edf3
+    style X1 fill:#241f10,stroke:#d29922,color:#e6edf3
+    style X2 fill:#241f10,stroke:#d29922,color:#e6edf3
+    style OK fill:#123020,stroke:#3fb950,color:#e6edf3
+  </div>
+</div>
+
+<h3>Position du MessageBox dans la colonne</h3>
+<p>L'ordre est fixe et non paramétrable — il est écrit en dur dans <code>AjustoDashboardScreen</code> :</p>
+<pre>Column(verticalScroll) {
+    1. HeaderSection            <span class="c">// titre "Période de conduite en cours"</span>
+    2. ScoreGaugeSection  OU  TripsGaugeSection   <span class="c">// jauge 75 / Excellent score</span>
+    3. InformationalListSection <span class="c">// fin de période, km parcourus, trajets supprimables</span>
+    4. MessageBoxSection        <span class="c">// ◄── LE MESSAGE CONTEXTUEL, ici et nulle part ailleurs</span>
+    5. TileButtonsSection       <span class="c">// Votre conduite / Vos trajets / Historique / Score</span>
+       + Spacer(weight = 1f)
+}</pre>
+<p>
+  Ça correspond exactement à tes maquettes : la carte se glisse entre la liste d'infos et la grille
+  de tuiles, dans les deux cas (batterie faible à gauche, nouvelle médaille à droite).
+</p>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s5">5 · Les 2 fabriques de MessageBox</h2>
+
+<p>
+  Le <code>MessageBoxSection</code> ne fabrique rien : il <em>rend</em>. La fabrication se fait dans
+  le Fragment, dans <code>initializeBadgeMessageBoxListener()</code>, avec <strong>deux branches
+  seulement</strong> — alors que le Core produit 7 types de messages.
+</p>
+
+<div class="fig">
+  <p class="cap">Figure 4 — Les deux fabriques et leurs stratégies opposées</p>
+  <div class="mermaid">
+flowchart TB
+    EV["onEvent(eventData: AjustoContextualMessage?)<br/>observeOn(UiThreadDispatchQueue)"]
+    EV --> W{"when (eventData)"}
+
+    W -->|"is BadgeContextualMessage"| FAB1["FABRIQUE 1 — BADGE<br/>IGNORE le contenu du Core"]
+    W -->|"is AjustoContextualMessage"| FAB2["FABRIQUE 2 — GENERIQUE<br/>UTILISE le contenu du Core"]
+    W -->|"else"| NOP["ne fait rien"]
+
+    FAB1 --> F1a["title = localizedStringSource[<br/>AJUSTO_DASHBOARD_NEW_MEDAL_TITLE]<br/>chaine FIXE"]
+    FAB1 --> F1b["message = localizedStringSource[<br/>CONTEXTUAL_MESSAGE_CLAIM_BADGE_BUTTON]<br/>chaine FIXE"]
+    FAB1 --> F1c["action = AjustoDashboardAction.ClaimBadge<br/>CLIQUABLE"]
+    FAB1 --> F1d["iconKey = FileWithMedal(GREEN)<br/>EN DUR"]
+    FAB1 --> F1e["badge = eventData.badge()<br/>objet Core garde en state"]
+
+    FAB2 --> F2z["si messageIcon == BATTERY :<br/>track(ajustoDashboardLowBatteryContent())"]
+    FAB2 --> F2a["title = eventData.title()"]
+    FAB2 --> F2b["message = eventData.message()"]
+    FAB2 --> F2c["buttonText = eventData.messageButton()"]
+    FAB2 --> F2d["iconKey = getKoreIconKeyFromImageKey(<br/>eventData.messageIcon(),<br/>eventData.messageIconTint())"]
+    FAB2 --> F2e["action = NON RENSEIGNE donc null<br/>NON CLIQUABLE"]
+
+    F1a --> UPD1["_dashboardStateFlow.update<br/>messageBox + badge"]
+    F1b --> UPD1
+    F1c --> UPD1
+    F1d --> UPD1
+    F1e --> UPD1
+
+    F2a --> UPD2["_dashboardStateFlow.update<br/>messageBox seulement"]
+    F2b --> UPD2
+    F2c --> UPD2
+    F2d --> UPD2
+    F2e --> UPD2
+
+    style FAB1 fill:#123020,stroke:#3fb950,color:#e6edf3
+    style FAB2 fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style F2z fill:#241f10,stroke:#d29922,color:#e6edf3
+    style NOP fill:#21262d,stroke:#30363d,color:#9aa7b4
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h5>Fabrique 1 — Badge</h5>
+    <p><strong>Stratégie : substitution totale.</strong> Le Core envoie
+    <code>title = nom du badge</code> et <code>message = badgeLevelText</code>.
+    Le Fragment les <em>jette</em> et met ses propres chaînes produit.</p>
+    <p>C'est ce qui produit « Félicitations pour votre nouvelle médaille! / Touchez pour la
+    réclamer » de ta maquette de droite — <strong>ce texte n'existe pas dans le Core</strong>.</p>
+    <p>C'est la seule MessageBox <strong>cliquable</strong> du Dashboard, et la seule qui
+    stocke un objet <code>Badge</code> à côté.</p>
+  </div>
+  <div class="card">
+    <h5>Fabrique 2 — Générique</h5>
+    <p><strong>Stratégie : pass-through.</strong> Titre, message et bouton viennent tels quels du
+    Core, qui les a déjà localisés via <code>LocalizedStringSource</code>.</p>
+    <p>Seule l'icône est traduite, via <code>getKoreIconKeyFromImageKey()</code>.</p>
+    <p><code>action</code> n'est jamais renseigné ⇒ <code>null</code> ⇒
+    <code>onBoxClick</code> vaut <code>null</code> ⇒ la carte n'est <strong>pas cliquable</strong>.
+    Elle couvre 6 des 7 types du Core.</p>
+  </div>
+</div>
+
+<div class="note">
+  <strong>Asymétrie clé.</strong> La fabrique 1 fabrique un contenu <em>produit</em> ;
+  la fabrique 2 transporte un contenu <em>Core</em>. Deux philosophies opposées dans le même
+  <code>when</code>. C'est pour ça qu'on ne peut pas remplacer l'une par l'autre mécaniquement.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s6">6 · Les 4 mappers d'icône : de l'enum Core au pixel</h2>
+
+<p>
+  Entre l'énumération Java du Core et le drawable affiché à l'écran, il y a
+  <strong>quatre fonctions de traduction</strong>, réparties sur deux fichiers.
+  C'est la partie la plus mécanique, et la plus facile à casser.
+</p>
+
+<div class="fig">
+  <p class="cap">Figure 5 — La chaîne complète de traduction d'une icône</p>
+  <div class="mermaid">
+flowchart LR
+    subgraph CORE["&nbsp;CORE JAVA&nbsp;"]
+        direction TB
+        I["ImageKey<br/>AjustoContextualMessage.Icon"]
+        C["ColorKey<br/>AjustoContextualMessage.Color"]
+    end
+
+    subgraph FRAG["&nbsp;FRAGMENT — AjustoDashboardFragment.kt&nbsp;"]
+        direction TB
+        M1["getKoreIconKeyFromImageKey<br/>(imageKey, colorKey)<br/>MAPPER 1"]
+        M2["getKoreIconColorFromColorKey<br/>(colorKey)<br/>MAPPER 2"]
+    end
+
+    subgraph SHARED["&nbsp;SHARED KMP&nbsp;"]
+        direction TB
+        K["AjustoDashboardIconKey<br/>sealed class + color"]
+        KC["AjustoDashboardIconColor<br/>enum 7 valeurs"]
+    end
+
+    subgraph SCREEN["&nbsp;SCREEN — AjustoDashboardScreen.kt&nbsp;"]
+        direction TB
+        M3["getIconResource(iconKey)<br/>MAPPER 3 — ligne 466"]
+        M4["getIconColor(colorKey)<br/>MAPPER 4 — ligne 485"]
+    end
+
+    subgraph ANDROID["&nbsp;ANDROID&nbsp;"]
+        direction TB
+        R["@DrawableRes Int"]
+        CO["Compose Color"]
+    end
+
+    I --> M1
+    C --> M2
+    M2 --> M1
+    M1 --> K
+    M2 --> KC
+    K --> M3 --> R
+    KC --> M4 --> CO
+    R --> IMG["Image(painterResource(iconRes),<br/>colorFilter = tint(iconTint))"]
+    CO --> IMG
+
+    style CORE fill:#3d1414,stroke:#f85149,color:#e6edf3
+    style FRAG fill:#241f10,stroke:#d29922,color:#e6edf3
+    style SHARED fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style SCREEN fill:#123020,stroke:#3fb950,color:#e6edf3
+    style ANDROID fill:#1d1630,stroke:#a371f7,color:#e6edf3
+  </div>
+</div>
+
+<h3>Mapper 1 &amp; 2 — dans le Fragment</h3>
+<pre>private fun getKoreIconKeyFromImageKey(imageKey: ImageKey, colorKey: ColorKey?): AjustoDashboardIconKey? {
+    val iconColor = getKoreIconColorFromColorKey(colorKey)      <span class="c">// ← mapper 2 imbriqué</span>
+    return when (imageKey) {
+        CONTEXTUAL_MESSAGE_CLASSIFY           -&gt; EditPen(iconColor)
+        CONTEXTUAL_MESSAGE_BATTERY            -&gt; BatteryLow(iconColor)
+        CONTEXTUAL_MESSAGE_POLICY_EFFECTIVE   -&gt; FileWithMedal(iconColor)
+        CONTEXTUAL_MESSAGE_DEVICE_NOT_COMPATIBLE -&gt; DeviceNotCompatible(iconColor)
+        DEVICE_BRAND_NOT_COMPATIBLE           -&gt; WarningSign(iconColor)
+        else                                  -&gt; null
+    }
+}
+
+private fun getKoreIconColorFromColorKey(colorKey: ColorKey?): AjustoDashboardIconColor =
+    when (colorKey as? AjustoContextualMessage.Color) {
+        AjustoContextualMessage.Color.ACCENT  -&gt; AjustoDashboardIconColor.BRAND
+        AjustoContextualMessage.Color.WARNING -&gt; AjustoDashboardIconColor.WARNING
+        AjustoContextualMessage.Color.BLUE    -&gt; AjustoDashboardIconColor.BLUE
+        AjustoContextualMessage.Color.RED     -&gt; AjustoDashboardIconColor.RED
+        null                                  -&gt; AjustoDashboardIconColor.DEFAULT
+    }</pre>
+
+<div class="note">
+  <strong>Point d'architecture élégant.</strong> La couleur n'est pas un champ séparé de
+  <code>MessageBox</code> : elle est <em>portée par l'IconKey lui-même</em>.
+  <code>sealed class AjustoDashboardIconKey(val color: AjustoDashboardIconColor?)</code>.
+  Donc <code>BatteryLow(RED)</code> et <code>BatteryLow(WARNING)</code> sont deux valeurs distinctes
+  du même type. C'est ce qui permet au Dashboard d'afficher correctement « batterie faible » en rouge
+  et « économie d'énergie » en orange, alors que le Core envoie la même icône.
+</div>
+
+<h3>Mapper 3 — <code>getIconResource</code>, ligne 466</h3>
+<p>15 cas, <code>when</code> exhaustif sans <code>else</code> — donc vérifié par le compilateur.</p>
+<table>
+  <tr><th>AjustoDashboardIconKey</th><th>Drawable</th><th>Utilisé par</th></tr>
+  <tr><td><code>BatteryLow</code></td><td><code>R.drawable.dgag_icn_low_battery</code></td><td>batterie faible + économie d'énergie</td></tr>
+  <tr><td><code>EditPen</code></td><td><code>R.drawable.dgag_icn_classify_invite</code></td><td>invitation à classifier</td></tr>
+  <tr><td><code>FileWithMedal</code></td><td><code>R.drawable.dgag_icn_policy_effective</code></td><td>police en vigueur <strong>et</strong> badge</td></tr>
+  <tr><td><code>DeviceNotCompatible</code></td><td><code>R.drawable.dgag_icn_device_not_compatible</code></td><td>appareil non compatible</td></tr>
+  <tr><td><code>WarningSign</code></td><td><code>R.drawable.dgag_icn_warning</code></td><td>marque non compatible</td></tr>
+  <tr><td colspan="3" style="color:#6e7681">— les 10 autres (Calendar, Car, History, QuestionMark, Road, RoadWithMinusSign, Steering, LightBulb, ClappingHands, UpAndDownArrows) servent aux tuiles et à la liste d'infos, jamais au MessageBox —</td></tr>
+</table>
+
+<h3>Mapper 4 — <code>getIconColor</code>, ligne 485</h3>
+<table>
+  <tr><th>AjustoDashboardIconColor</th><th>Ressource couleur</th></tr>
+  <tr><td><code>DEFAULT</code></td><td><code>Colors.iconDefault</code></td></tr>
+  <tr><td><code>BRAND</code></td><td><code>Colors.brand</code></td></tr>
+  <tr><td><code>BLUE</code></td><td><code>R.color.ajusto_dashboard_blue_icon</code></td></tr>
+  <tr><td><code>RED</code></td><td><code>R.color.ajusto_dashboard_red_icon</code></td></tr>
+  <tr><td><code>GREY</code></td><td><code>R.color.ajusto_dashboard_new_medal_icon</code></td></tr>
+  <tr><td><code>WARNING</code></td><td><code>R.color.dgag_battery_power_saving_color</code></td></tr>
+  <tr><td><code>GREEN</code></td><td><code>R.color.ajusto_dashboard_green_icon</code></td></tr>
+  <tr><td><code>null</code> / <code>else</code></td><td><code>null</code> — pas de teinte, l'icône garde ses couleurs d'origine</td></tr>
+</table>
+
+<div class="note">
+  Le nom <code>dgag_battery_power_saving_color</code> confirme l'intention d'origine :
+  la valeur <code>WARNING</code> a été créée <em>spécifiquement</em> pour le message d'économie
+  d'énergie. Le design distingue bien les deux cas batterie — la distinction se perd ailleurs,
+  pas ici.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s7">7 · Le chemin complet, type par type</h2>
+
+<div class="fig">
+  <p class="cap">Figure 6 — Les 7 types du Core traversant les 2 fabriques et les 4 mappers</p>
+  <div class="mermaid">
+flowchart LR
+    subgraph C["&nbsp;CORE — 7 types&nbsp;"]
+        direction TB
+        T1["Marque non compatible<br/>DEVICE_BRAND_NOT_COMPATIBLE<br/>tint null"]
+        T2["Appareil non compatible<br/>DEVICE_NOT_COMPATIBLE<br/>tint null"]
+        T3["Batterie faible<br/>BATTERY / tint RED"]
+        T4["Economie energie<br/>BATTERY / tint WARNING"]
+        T5["Classifier<br/>CLASSIFY / tint BLUE"]
+        T6["Police en vigueur<br/>POLICY_EFFECTIVE / tint ACCENT"]
+        T7["Badge<br/>aucune icone / aucun tint"]
+    end
+
+    subgraph F["&nbsp;FRAGMENT — 2 fabriques&nbsp;"]
+        direction TB
+        FG["FABRIQUE GENERIQUE<br/>pass-through + mappers 1 et 2"]
+        FB["FABRIQUE BADGE<br/>substitution totale"]
+    end
+
+    subgraph K["&nbsp;ICONKEY resultant&nbsp;"]
+        direction TB
+        K1["WarningSign(DEFAULT)"]
+        K2["DeviceNotCompatible(DEFAULT)"]
+        K3["BatteryLow(RED)"]
+        K4["BatteryLow(WARNING)"]
+        K5["EditPen(BLUE)"]
+        K6["FileWithMedal(BRAND)"]
+        K7["FileWithMedal(GREEN)"]
+    end
+
+    subgraph U["&nbsp;RENDU FINAL&nbsp;"]
+        direction TB
+        U1["dgag_icn_warning<br/>iconDefault"]
+        U2["dgag_icn_device_not_compatible<br/>iconDefault"]
+        U3["dgag_icn_low_battery<br/>ROUGE"]
+        U4["dgag_icn_low_battery<br/>ORANGE"]
+        U5["dgag_icn_classify_invite<br/>BLEU"]
+        U6["dgag_icn_policy_effective<br/>BRAND"]
+        U7["dgag_icn_policy_effective<br/>VERT + CLIQUABLE"]
+    end
+
+    T1 --> FG --> K1 --> U1
+    T2 --> FG
+    T3 --> FG
+    T4 --> FG
+    T5 --> FG
+    T6 --> FG
+    T7 --> FB --> K7 --> U7
+
+    FG --> K2 --> U2
+    FG --> K3 --> U3
+    FG --> K4 --> U4
+    FG --> K5 --> U5
+    FG --> K6 --> U6
+
+    style C fill:#3d1414,stroke:#f85149,color:#e6edf3
+    style F fill:#241f10,stroke:#d29922,color:#e6edf3
+    style K fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style U fill:#123020,stroke:#3fb950,color:#e6edf3
+  </div>
+</div>
+
+<h3>Tableau de référence complet</h3>
+<table>
+  <tr>
+    <th>Type Core</th><th>Fabrique</th><th>title affiché</th><th>IconKey</th>
+    <th>Drawable</th><th>Teinte</th><th>Cliquable</th><th>Bouton</th>
+  </tr>
+  <tr>
+    <td>Marque non compatible</td><td>générique</td><td>Core</td>
+    <td><code>WarningSign(DEFAULT)</code></td><td><code>dgag_icn_warning</code></td>
+    <td>iconDefault</td><td>❌</td><td>libellé présent mais <strong>jamais rendu</strong></td>
+  </tr>
+  <tr>
+    <td>Appareil non compatible</td><td>générique</td><td>Core</td>
+    <td><code>DeviceNotCompatible(DEFAULT)</code></td><td><code>dgag_icn_device_not_compatible</code></td>
+    <td>iconDefault</td><td>❌</td><td>—</td>
+  </tr>
+  <tr>
+    <td>Batterie faible</td><td>générique</td><td>Core</td>
+    <td><code>BatteryLow(RED)</code></td><td><code>dgag_icn_low_battery</code></td>
+    <td><strong>rouge</strong></td><td>❌</td><td>—</td>
+  </tr>
+  <tr>
+    <td>Économie d'énergie</td><td>générique</td><td>Core</td>
+    <td><code>BatteryLow(WARNING)</code></td><td><code>dgag_icn_low_battery</code></td>
+    <td><strong>orange</strong></td><td>❌</td><td>—</td>
+  </tr>
+  <tr>
+    <td>Invitation à classifier</td><td>générique</td><td>Core</td>
+    <td><code>EditPen(BLUE)</code></td><td><code>dgag_icn_classify_invite</code></td>
+    <td>bleu</td><td>❌</td><td>—</td>
+  </tr>
+  <tr>
+    <td>Police en vigueur</td><td>générique</td><td>Core</td>
+    <td><code>FileWithMedal(BRAND)</code></td><td><code>dgag_icn_policy_effective</code></td>
+    <td>brand</td><td>❌</td><td>—</td>
+  </tr>
+  <tr>
+    <td>Badge réclamable</td><td><strong>badge</strong></td><td><strong>chaîne produit fixe</strong></td>
+    <td><code>FileWithMedal(GREEN)</code></td><td><code>dgag_icn_policy_effective</code></td>
+    <td>vert</td><td>✅</td><td>—</td>
+  </tr>
+</table>
+
+<div class="note">
+  <strong>Détail amusant :</strong> « police en vigueur » et « badge » partagent le même drawable
+  <code>dgag_icn_policy_effective</code>. Seule la teinte les distingue (brand vs vert).
+  Le nom du drawable est trompeur — il est utilisé pour deux choses sans rapport.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s8">8 · Le cycle de vie d'une MessageBox</h2>
+
+<div class="fig">
+  <p class="cap">Figure 7 — Naissance, affichage, clic et disparition (cas du badge)</p>
+  <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant CO as Core TripService
+    participant FR as AjustoDashboardFragment
+    participant SF as _dashboardStateFlow
+    participant UI as AjustoDashboardScreen
+    participant BC as badgeController
+
+    Note over FR: onViewCreated
+    FR->>CO: initializeBadgeMessageBoxListener()<br/>subscribe(contextualMessageObservable)
+
+    CO-->>FR: onEvent(BadgeContextualMessage)
+    FR->>FR: FABRIQUE 1 — substitution des textes
+    FR->>SF: update { messageBox = MessageBox(...), badge = eventData.badge() }
+    SF-->>UI: collectAsState -> DashboardParams
+    UI->>UI: params.messageBox?.let { MessageBoxSection(...) }
+    Note over UI: carte verte affichee et cliquable
+
+    UI->>FR: onBoxClick -> onClick(AjustoDashboardAction.ClaimBadge)
+    FR->>FR: ViewModel handleReaction(NavigateToClaimedBadgeView)
+    FR->>SF: LECTURE de _dashboardStateFlow.value.badge
+    FR->>FR: onClaimBadgeClicked(badge) + startProgressDialog()
+    FR->>BC: badgeController.claimBadge(badge).start()
+
+    BC-->>FR: didFinishEvent -> isSuccess
+    FR->>FR: stopProgressDialog()
+    FR->>FR: showClaimedBadgeFragment(badge)
+    Note over FR: lifecycleScope.launch { delay(500) }
+    FR->>SF: update { messageBox = null }
+    SF-->>UI: recomposition
+    Note over UI: la carte disparait
+  </div>
+</div>
+
+<div class="warn">
+  <strong>Le <code>delay(500L)</code> de la ligne 408.</strong> Ce n'est pas de la logique métier,
+  c'est du timing d'animation : on laisse le fragment « badge réclamé » apparaître avant de faire
+  disparaître la carte, sinon l'utilisateur voit un saut de layout derrière la transition.
+  Un détail d'UX codé dans le Fragment — à ne pas oublier si un jour la logique bouge ailleurs.
+</div>
+
+<h3>Les 3 façons de faire disparaître une MessageBox</h3>
+<table>
+  <tr><th>Déclencheur</th><th>Ligne</th><th>Effet</th></tr>
+  <tr><td>Le Core envoie <code>null</code> (plus aucune condition vraie)</td><td class="lineno">—</td><td>aucune des deux branches ne s'exécute — <strong>la carte reste affichée</strong> ⚠️</td></tr>
+  <tr><td><code>CloseMessageBox</code> (réaction du ViewModel)</td><td class="lineno">188</td><td><code>messageBox = null</code> + <code>badge = null</code></td></tr>
+  <tr><td>Badge réclamé avec succès</td><td class="lineno">408</td><td><code>delay(500)</code> puis <code>messageBox = null</code></td></tr>
+</table>
+
+<div class="warn">
+  <strong>Bug latent du legacy.</strong> Le <code>when (eventData)</code> a une branche
+  <code>else -&gt; {}</code> vide. Quand le Core envoie <code>null</code> — c'est-à-dire quand plus
+  aucune des 7 conditions n'est vraie, par exemple quand l'utilisateur rebranche son téléphone —
+  <strong>le Fragment ne fait rien</strong>. L'ancienne carte reste à l'écran jusqu'au prochain
+  message non-null ou jusqu'à un <code>CloseMessageBox</code>.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s9">9 · Le modèle de données</h2>
+
+<div class="fig">
+  <p class="cap">Figure 8 — Les types impliqués et leur localisation</p>
+  <div class="mermaid">
+classDiagram
+    class DashboardUiState {
+        <<Fragment - androidApp>>
+        +Header header
+        +ScoreGauge scoreGauge
+        +TripsGauge tripsGauge
+        +InformationalList informationalList
+        +MessageBox messageBox
+        +TileButtons tileButtons
+        +LocationDisabled locationDisabled
+        +NetworkAccessDisabled networkDisabled
+        +Badge badge
+    }
+    class DashboardParams {
+        <<Screen - private data class>>
+        +Header header
+        +ScoreGauge scoreGauge
+        +TripsGauge tripsGauge
+        +InformationalList informationalList
+        +MessageBox messageBox
+        +TileButtons tileButtons
+        +LocationDisabled locationDisabled
+        +NetworkAccessDisabled networkAccessDisabled
+    }
+    class MessageBox {
+        <<shared KMP>>
+        +String title
+        +String message
+        +String buttonText
+        +AjustoDashboardAction action
+        +AjustoDashboardIconKey iconKey
+    }
+    class AjustoDashboardIconKey {
+        <<sealed class - shared KMP>>
+        +AjustoDashboardIconColor color
+        BatteryLow(color)
+        EditPen(color)
+        FileWithMedal(color)
+        DeviceNotCompatible(color)
+        WarningSign(color)
+    }
+    class AjustoDashboardIconColor {
+        <<enum - shared KMP>>
+        DEFAULT
+        BRAND
+        BLUE
+        GREY
+        RED
+        GREEN
+        WARNING
+    }
+    DashboardUiState --> MessageBox
+    DashboardUiState --> DashboardParams : copie 8 champs sur 9
+    DashboardParams --> MessageBox
+    MessageBox --> AjustoDashboardIconKey
+    AjustoDashboardIconKey --> AjustoDashboardIconColor
+  </div>
+</div>
+
+<div class="note">
+  <strong>Observation.</strong> <code>DashboardParams</code> est une copie quasi identique de
+  <code>DashboardUiState</code>, moins le champ <code>badge</code>. Pourquoi cette duplication ?
+  Parce que <code>DashboardUiState</code> est une <em>inner class du Fragment</em> — donc un type
+  Android — et que le Composable ne doit pas dépendre du Fragment. <code>DashboardParams</code> est
+  la barrière. Elle est <code>private</code> et vit dans le fichier du Screen.
+  <br><br>
+  Le champ <code>badge: Badge?</code> ne franchit pas cette barrière : c'est un type Core Java,
+  il reste côté Fragment. La MessageBox ne transporte que l'<em>intention</em>
+  (<code>action = ClaimBadge</code>), et le Fragment retrouve le badge dans son propre state au
+  moment du clic.
+</div>
+
+<h3>La signature de <code>MessageBoxSection</code></h3>
+<pre>@Composable
+private fun MessageBoxSection(
+    title: String,                        <span class="c">// obligatoire</span>
+    message: String,                      <span class="c">// obligatoire</span>
+    buttonText: String? = null,
+    onButtonClick: (() -&gt; Unit)? = null,  <span class="c">// ← JAMAIS passé par AjustoDashboardScreen</span>
+    onBoxClick: (() -&gt; Unit)? = null,     <span class="c">// ← seul mécanisme de clic utilisé</span>
+    @DrawableRes iconRes: Int?,           <span class="c">// type ANDROID</span>
+    iconTint: Color?                      <span class="c">// type COMPOSE</span>
+)</pre>
+
+<p>Structure du rendu :</p>
+<pre>Box(fillMaxWidth, padding horizontal spacingTiny, padding bottom spacingMedium)
+ └─ Box(shadow cardElevation, RoundedCornerShape 2.dp,
+        background dgag_detention_light_gray,
+        clickable si onBoxClick != null)          <span class="c">// ← toute la carte est la zone de clic</span>
+     └─ Row(padding start 10, top 10, end 42, bottom 10)
+         ├─ iconRes?.let { Image(size 28.dp, colorFilter = iconTint?.let { tint(it) }) }
+         ├─ Spacer(width 10.dp)
+         └─ Column(fillMaxSize)
+             ├─ Body4(title, fontFamily = bold)
+             ├─ Body5(message)
+             ├─ Spacer(height 5.dp)
+             └─ onButtonClick?.let { Body5("$buttonText", align End, clickable, dgag_action_color) }
+                <span class="c">// ← ce bloc ne s'exécute JAMAIS : onButtonClick est toujours null</span></pre>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s10">10 · Les 6 subtilités à retenir</h2>
+
+<div class="grid2">
+  <div class="card">
+    <h5>① Un seul slot MessageBox</h5>
+    <p><code>DashboardParams.messageBox</code> est un champ unique, pas une liste. Cohérent avec le
+    Core, dont la cascade ne renvoie qu'un message à la fois. Il n'y a jamais deux cartes
+    empilées.</p>
+  </div>
+  <div class="card">
+    <h5>② La couleur voyage dans l'IconKey</h5>
+    <p><code>MessageBox</code> n'a pas de champ couleur. C'est <code>iconKey.color</code> qui la
+    porte. <code>BatteryLow(RED)</code> ≠ <code>BatteryLow(WARNING)</code>. Élégant, et c'est ce qui
+    fait fonctionner la distinction batterie / économie d'énergie côté Dashboard.</p>
+  </div>
+  <div class="card">
+    <h5>③ Le bouton est du code mort</h5>
+    <p><code>onButtonClick</code> n'est jamais passé par <code>AjustoDashboardScreen</code>.
+    Le <code>buttonText</code> du Core (présent uniquement sur « marque non compatible ») n'est
+    donc <strong>jamais affiché</strong>. Le paramètre existe, la branche existe, rien ne
+    l'active.</p>
+  </div>
+  <div class="card">
+    <h5>④ Une seule carte cliquable sur sept</h5>
+    <p>Seule la fabrique badge renseigne <code>action</code>. Les 6 autres types produisent
+    <code>action = null</code> ⇒ <code>onBoxClick = null</code> ⇒ pas de <code>clickable</code>
+    dans le modifier.</p>
+  </div>
+  <div class="card">
+    <h5>⑤ Deux écrans pleins peuvent l'éclipser</h5>
+    <p>Localisation désactivée ou réseau absent ⇒ <code>Dashboard()</code> route vers un écran plein
+    et le <code>messageBox</code> n'est jamais rendu, même s'il est présent dans le state.</p>
+  </div>
+  <div class="card">
+    <h5>⑥ <code>null</code> ne nettoie pas</h5>
+    <p>Le <code>when</code> du listener a un <code>else -&gt; {}</code> vide. Quand le Core envoie
+    <code>null</code>, l'ancienne carte reste affichée. Seuls <code>CloseMessageBox</code> et le
+    claim réussi la font disparaître.</p>
+  </div>
+</div>
+
+<h3>Récapitulatif : la chaîne en 9 étapes</h3>
+<pre>1.  TripServiceImpl.notifyContextualMessage()
+        combineLatest(6 observables) + subscribeOnce(profil)
+2.  AjustoContextualMessageHelper.findContextualMessage()
+        cascade de 7 règles, priorité stricte, 1 seul message
+3.  contextualMessageObservable.notifyEventIfChanged(message)
+        ┈┈┈┈┈┈┈┈┈┈┈┈ frontière Core / Android ┈┈┈┈┈┈┈┈┈┈┈┈
+4.  AjustoDashboardFragment.initializeBadgeMessageBoxListener()
+        .observeOn(UiThreadDispatchQueue).subscribe { … }
+5.  when (eventData) → FABRIQUE 1 (badge) ou FABRIQUE 2 (générique)
+        + getKoreIconKeyFromImageKey() / getKoreIconColorFromColorKey()
+6.  _dashboardStateFlow.update { it.copy(messageBox = …, badge = …) }
+        ┈┈┈┈┈┈┈┈┈┈┈┈ frontière State / Compose ┈┈┈┈┈┈┈┈┈┈┈┈
+7.  AjustoDashboardRoot → collectAsState() → DashboardParams
+8.  Dashboard() → routeur 3 branches → AjustoDashboardScreen()
+9.  params.messageBox?.let { MessageBoxSection(iconRes = getIconResource(…),
+                                                iconTint = getIconColor(…), …) }</pre>
+
+<p style="color:var(--tx2);font-size:14px;margin-top:40px">
+  Sources lues : <code>AjustoDashboardScreen.kt</code> (544 l.),
+  <code>AjustoDashboardFragment.kt</code> (469 l.),
+  <code>AjustoDashboardUiState.kt</code> (130 l., module <code>shared</code>),
+  <code>AjustoContextualMessageHelper.java</code> et <code>TripServiceImpl.java</code>
+  (<code>ad-digital-mobile-core-lib</code>).
+</p>
+
+</div>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    fontSize: '17px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+    primaryColor: '#1c2230',
+    primaryTextColor: '#e6edf3',
+    primaryBorderColor: '#58a6ff',
+    lineColor: '#7d8590',
+    secondaryColor: '#161b22',
+    tertiaryColor: '#12293d',
+    background: '#0d1117',
+    mainBkg: '#1c2230',
+    nodeBorder: '#58a6ff',
+    clusterBkg: '#161b22',
+    clusterBorder: '#30363d',
+    edgeLabelBackground: '#0d1117',
+    actorBkg: '#1c2230',
+    actorBorder: '#58a6ff',
+    actorTextColor: '#e6edf3',
+    signalColor: '#e6edf3',
+    signalTextColor: '#e6edf3',
+    noteBkgColor: '#241f10',
+    noteTextColor: '#e6edf3',
+    noteBorderColor: '#d29922',
+    sequenceNumberColor: '#0d1117'
+  },
+  flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 55, rankSpacing: 75, padding: 20 },
+  sequence: { actorMargin: 90, width: 190, height: 60, messageFontSize: 15, noteFontSize: 14, boxTextMargin: 8 },
+  class: { padding: 20 }
+});
+</script>
+</body>
+</html>
