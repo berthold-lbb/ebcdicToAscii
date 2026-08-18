@@ -1,0 +1,1011 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AjustoSummaryScreen — anatomie de l'existant et vulnérabilités du bridger</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#30363d;
+    --tx:#e6edf3; --tx2:#9aa7b4; --acc:#58a6ff;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --info:#a371f7;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1500px;margin:0 auto;padding:40px 28px 120px}
+  h1{font-size:34px;line-height:1.2;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--tx2);font-size:15px;margin-bottom:38px}
+  h2{font-size:26px;margin:64px 0 8px;padding-top:26px;border-top:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:19px;margin:34px 0 10px;color:var(--acc)}
+  h4{font-size:16px;margin:22px 0 8px;color:var(--tx2);text-transform:uppercase;letter-spacing:.08em}
+  p{margin:12px 0}
+  code{font-family:var(--mono);font-size:.9em;background:#1f2733;padding:2px 6px;border-radius:4px;color:#a5d6ff}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+      padding:18px 20px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.6}
+  pre .c{color:#7d8590} pre .r{color:#ff7b72} pre .g{color:#7ee787} pre .y{color:#e3b341}
+  .fig{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+       padding:26px 20px;margin:26px 0;overflow-x:auto}
+  .fig .cap{color:var(--tx2);font-size:13.5px;margin:0 0 18px;text-transform:uppercase;letter-spacing:.09em}
+  .mermaid{min-width:100%;display:flex;justify-content:center}
+  .mermaid svg{max-width:none !important;height:auto !important}
+  table{border-collapse:collapse;width:100%;margin:20px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600;color:var(--tx2);
+     text-transform:uppercase;font-size:12px;letter-spacing:.06em}
+  td code{font-size:12.5px}
+  tr:nth-child(even) td{background:#12171f}
+  .note{border-left:4px solid var(--acc);background:#12202f;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .warn{border-left:4px solid var(--warn);background:#241f10;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .bad{border-left:4px solid var(--bad);background:#2b1414;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .key{border-left:4px solid var(--info);background:#1d1630;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;font-family:var(--mono)}
+  .p-core{background:#3d1414;color:#ffb3ad} .p-and{background:#3a2a10;color:#ffd591}
+  .p-kmp{background:#12293d;color:#9fd4ff}  .p-ui{background:#123020;color:#8ce8a8}
+  .p-sh{background:#2b1a3d;color:#d6b3ff}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+  @media(max-width:1050px){.grid2,.grid3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .card h5{margin:0 0 10px;font-size:15px;color:var(--acc)}
+  .card.r{border-color:#5a2020} .card.r h5{color:#ff9d94}
+  .card.w{border-color:#5a4520} .card.w h5{color:#ffd591}
+  ul{margin:12px 0;padding-left:22px} li{margin:7px 0}
+  .lineno{color:#6e7681;font-family:var(--mono);font-size:12px}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 26px;margin:30px 0}
+  .toc a{color:var(--acc);text-decoration:none} .toc a:hover{text-decoration:underline}
+  .toc ol{margin:0;padding-left:22px} .toc li{margin:6px 0}
+  .vuln{background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--bad);
+        border-radius:0 12px 12px 0;padding:20px 24px;margin:24px 0}
+  .vuln h4{margin:0 0 4px;color:#ff9d94;font-size:17px;text-transform:none;letter-spacing:0}
+  .vuln .sev{float:right;font-size:12px;font-family:var(--mono);padding:3px 10px;border-radius:99px}
+  .sev-h{background:#5a1c1c;color:#ff9d94} .sev-m{background:#5a4520;color:#ffd591} .sev-l{background:#1c3a5a;color:#9fd4ff}
+  .bar{display:flex;align-items:center;gap:12px;margin:7px 0;font-family:var(--mono);font-size:13px}
+  .bar .lbl{width:230px;flex-shrink:0;color:var(--tx2)}
+  .bar .track{flex:1;height:16px;background:#21262d;border-radius:4px;overflow:hidden}
+  .bar .fill{height:100%;border-radius:4px}
+  .bar .val{width:56px;text-align:right;flex-shrink:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>AjustoSummaryScreen — l'existant, le bridger, et ce qui a été oublié</h1>
+<p class="sub">
+  Lecture intégrale de <code>AjustoSummaryScreen.kt</code> (407 l.),
+  <code>AjustoSummaryViewModel.kt</code>, <code>AjustoSummaryUiState.kt</code> (312 l.),
+  <code>AjustoSummaryShimImpl.kt</code>, <code>AjustoContextualMessageSource.kt</code>,
+  <code>AjustoContextualMessageBridger.kt</code>, <code>KoreStartupInputKoinModule.kt</code>.
+  État du disque au moment de l'analyse.
+</p>
+
+<div class="toc">
+  <ol>
+    <li><a href="#s1">La chaîne complète : 6 couches, 1 seule source</a></li>
+    <li><a href="#s2">Anatomie de <code>AjustoSummaryScreen.kt</code> : 14 fonctions, 0 MessageBox</a></li>
+    <li><a href="#s3">Comment le Summary atteint <code>TripService</code> : le voyage de l'objet</a></li>
+    <li><a href="#s4">Le cycle de vie <code>start</code>/<code>stop</code> — et pourquoi il est neutralisé</a></li>
+    <li><a href="#s5">Les MessageBox produites : l'entonnoir des pertes</a></li>
+    <li><a href="#s6">Les 11 vulnérabilités, une par une</a></li>
+    <li><a href="#s7">Cas d'école : « économie d'énergie »</a></li>
+    <li><a href="#s8">Comment un message contextuel est envoyé <em>aujourd'hui</em></a></li>
+    <li><a href="#s9">Dashboard vs Summary, côte à côte</a></li>
+  </ol>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s1">1 · La chaîne complète : 6 couches, 1 seule source</h2>
+
+<p>
+  Différence structurelle majeure avec le Dashboard : là où le Dashboard avait
+  <strong>deux sources</strong> écrivant dans un même StateFlow (ViewModel KMP + SCRATCH direct),
+  le Summary n'en a qu'<strong>une</strong>. Tout passe par le ViewModel KMP. Le message contextuel
+  arrive par une branche latérale — le <em>shim</em> — au lieu d'un abonnement dans le Fragment.
+</p>
+
+<div class="fig">
+  <p class="cap">Figure 1 — Les 6 couches traversées, du Core Java jusqu'à l'écran</p>
+  <div class="mermaid">
+flowchart TB
+    subgraph L1["&nbsp;1 · CORE JAVA — ad-digital-mobile-core-lib&nbsp;"]
+        direction TB
+        HELP["AjustoContextualMessageHelper<br/>findContextualMessage — cascade 7 regles"]
+        TSI["TripServiceImpl.notifyContextualMessage<br/>combineLatest 6 observables"]
+        OBS["contextualMessageObservable<br/>SCRATCHObservable"]
+        TSI --> HELP --> OBS
+    end
+
+    subgraph L2["&nbsp;2 · ANDROID — androidApp/bridger&nbsp;"]
+        direction TB
+        BR["AjustoContextualMessageBridger<br/>object : AjustoContextualMessageSource()"]
+        SUB["subscribe(subscriptionManager, onEvent)<br/>AndroidScope.get()[TripService]"]
+        TOP["toPayload()<br/>2 branches seulement"]
+        BR --> SUB --> TOP
+    end
+
+    subgraph L3["&nbsp;3 · DOMAIN KMP — modules/feature/ajusto/domain&nbsp;"]
+        direction TB
+        SRC["AjustoContextualMessageSource<br/>abstract class"]
+        MSF["_contextualMessageStateFlow<br/>MutableStateFlow"]
+        PAY["AjustoContextualMessagePayload<br/>7 champs"]
+        SRC --> MSF --> PAY
+    end
+
+    subgraph L4["&nbsp;4 · SHARED — shared/commonMain&nbsp;"]
+        direction TB
+        SHIM["AjustoSummaryShimImpl<br/>combine 3 flows"]
+        SST["AjustoSummaryShimState<br/>network + location + battery + message"]
+        SHIM --> SST
+    end
+
+    subgraph L5["&nbsp;5 · PRESENTATION KMP — modules/feature/ajusto/presentation&nbsp;"]
+        direction TB
+        VM["AjustoSummaryViewModel<br/>init collectLatest"]
+        TMB["toMessageBox()<br/>2 branches"]
+        UIS["AjustoSummaryUiState<br/>messageBox calcule"]
+        VM --> TMB --> UIS
+    end
+
+    subgraph L6["&nbsp;6 · UI ANDROID — androidApp Compose&nbsp;"]
+        direction TB
+        ROOT["AjustoSummaryRoot<br/>koinViewModel + collectAsStateWithLifecycle"]
+        SCR["AjustoSummaryScreen<br/>Scaffold topBar bottomBar"]
+        CONT["SummaryContent<br/>Header + Gauges + InformationalList"]
+        ROOT --> SCR --> CONT
+    end
+
+    OBS --> BR
+    TOP -->|"publishContextualMessage(payload)"| SRC
+    PAY --> SHIM
+    SST --> VM
+    UIS --> ROOT
+    CONT -.->|"AUCUN COMPOSABLE MESSAGEBOX"| NADA["messageBox jamais rendu"]
+
+    style L1 fill:#3d1414,stroke:#f85149,color:#e6edf3
+    style L2 fill:#3a2a10,stroke:#d29922,color:#e6edf3
+    style L3 fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style L4 fill:#2b1a3d,stroke:#a371f7,color:#e6edf3
+    style L5 fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style L6 fill:#123020,stroke:#3fb950,color:#e6edf3
+    style NADA fill:#5a1c1c,stroke:#f85149,color:#fff
+  </div>
+</div>
+
+<h3>Localisation physique de chaque maillon</h3>
+<table>
+  <tr><th>#</th><th>Élément</th><th>Module</th><th>Chemin</th></tr>
+  <tr><td>1</td><td><code>AjustoContextualMessageHelper</code></td><td><span class="pill p-core">core-lib</span></td><td><code>ca/dgag/ajusto/core/trip/</code></td></tr>
+  <tr><td>2</td><td><code>AjustoContextualMessageBridger</code></td><td><span class="pill p-and">androidApp</span></td><td><code>ca/dgag/ajusto/bridger/ajusto/legacy/</code></td></tr>
+  <tr><td>3</td><td><code>AjustoContextualMessageSource</code> + <code>Payload</code> + <code>IconKey</code></td><td><span class="pill p-kmp">feature/ajusto/domain</span></td><td><code>…/domain/summary/shim/</code></td></tr>
+  <tr><td>4</td><td><code>AjustoSummaryShim</code> (interface)</td><td><span class="pill p-kmp">feature/ajusto/domain</span></td><td><code>…/domain/summary/shim/</code></td></tr>
+  <tr><td>5</td><td><code>AjustoSummaryShimImpl</code></td><td><span class="pill p-sh">shared</span> ⚠️</td><td><code>ca/dgag/ajusto/ajusto/domain/summary/shim/</code></td></tr>
+  <tr><td>6</td><td><code>AjustoSummaryViewModel</code> + <code>UiState</code></td><td><span class="pill p-kmp">feature/ajusto/presentation</span></td><td><code>…/presentation/summary/</code></td></tr>
+  <tr><td>7</td><td><code>AjustoSummaryRoot</code> / <code>Screen</code> / <code>Content</code></td><td><span class="pill p-ui">androidApp</span></td><td><code>…/feature/ajusto/presentation/summary/view/</code></td></tr>
+  <tr><td>8</td><td><code>AjustoSummaryFragment</code></td><td><span class="pill p-ui">androidApp</span></td><td><code>…/feature/ajusto/presentation/summary/</code></td></tr>
+</table>
+
+<div class="warn">
+  <strong>Anomalie de placement.</strong> <code>AjustoSummaryShimImpl</code> est le seul maillon
+  logique qui vit dans <code>shared/</code> et non dans un module <code>feature</code>. Ce n'est pas
+  un oubli : il importe <code>ca.dgag.ajusto.kore.info.DeviceInfo</code> et
+  <code>NetworkState</code>, deux types Kore que <code>feature/ajusto/domain</code> ne peut pas voir
+  (il ne dépend que de <code>transverse/domain</code>). Il est <em>coincé</em> là par ces deux
+  imports.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s2">2 · Anatomie de <code>AjustoSummaryScreen.kt</code></h2>
+
+<p>
+  407 lignes, 14 fonctions, une seule publique. Structure <strong>Scaffold</strong> — très différente
+  du Dashboard qui était une simple <code>Column</code>.
+</p>
+
+<table>
+  <tr><th>#</th><th>Ligne</th><th>Fonction</th><th>Visibilité</th><th>Rôle</th><th>MessageBox ?</th></tr>
+  <tr><td>1</td><td class="lineno">69</td><td><code>AjustoSummaryRoot</code></td><td>public</td><td><code>koinViewModel()</code>, <code>collectAsStateWithLifecycle()</code>, <code>ObserveAsEvents</code></td><td>—</td></tr>
+  <tr><td>2</td><td class="lineno">118</td><td><code>AjustoSummaryScreen</code></td><td>private</td><td><code>Scaffold</code> : topBar + bottomBar + content</td><td>—</td></tr>
+  <tr><td>3</td><td class="lineno">149</td><td><code>SummaryContent</code></td><td><strong>public</strong></td><td>Column scrollable : Header + Gauge + InformationalList</td><td>❌ <strong>absent</strong></td></tr>
+  <tr><td>4</td><td class="lineno">192</td><td><code>Header</code></td><td>private</td><td>titre + sous-titre</td><td>—</td></tr>
+  <tr><td>5</td><td class="lineno">208</td><td><code>InformationalList</code></td><td>private</td><td>liste + tooltips</td><td>—</td></tr>
+  <tr><td>6</td><td class="lineno">234</td><td><code>InformationalListItem</code></td><td>private</td><td>une ligne d'info</td><td>—</td></tr>
+  <tr><td>7</td><td class="lineno">276</td><td><code>Tiles</code></td><td>private</td><td>grille de tuiles (bottomBar)</td><td>—</td></tr>
+  <tr><td>8</td><td class="lineno">335</td><td><code>getIconResource</code></td><td>private</td><td><strong>IconKey → @DrawableRes</strong> — 15 cas</td><td>✅ prêt, inutilisé</td></tr>
+  <tr><td>9–12</td><td class="lineno">355+</td><td>4 <code>@Preview</code></td><td>internal</td><td>DGAG, TPIC, TripGauge, ScoreGauge</td><td>—</td></tr>
+  <tr><td>13–14</td><td>—</td><td><code>SummaryScoreGauge</code>, <code>SummaryTripGauge</code></td><td>externes</td><td>composants de jauge</td><td>—</td></tr>
+</table>
+
+<div class="bad">
+  <strong>Le fait central de tout ce document.</strong>
+  <pre style="margin:12px 0 0;background:#0d1117"><span class="c">$</span> grep -c 'MessageBox' AjustoSummaryScreen.kt
+<span class="r">0</span></pre>
+  <p style="margin-bottom:0">
+    Il n'existe <strong>aucun composable MessageBox</strong> dans le Summary. Le champ
+    <code>AjustoSummaryUiState.messageBox</code> est calculé par le ViewModel à chaque émission…
+    et <strong>personne ne le lit</strong>. Toute la chaîne des couches 1 à 5 fonctionne dans le
+    vide.
+  </p>
+</div>
+
+<div class="fig">
+  <p class="cap">Figure 2 — Arbre d'appel des composables, et l'emplacement manquant</p>
+  <div class="mermaid">
+flowchart TB
+    FRAG["AjustoSummaryFragment<br/>ComposeView + InsuranceTheme<br/>setToolbarVisibility(false)"]
+    FRAG --> ROOT["AjustoSummaryRoot(viewModel = koinViewModel())<br/>PUBLIC — ligne 69"]
+
+    ROOT --> ST["val state by viewModel.uiState<br/>.collectAsStateWithLifecycle()"]
+    ROOT --> NAV["NavigationBarColor(brand200)"]
+    ROOT --> OBS["ObserveAsEvents(viewModel.events)<br/>when — 6 cas + else vide"]
+    ROOT --> SCR["AjustoSummaryScreen(state, onAction)<br/>ligne 118"]
+
+    SCR --> SCA["Scaffold(contentWindowInsets = safeDrawing)"]
+    SCA --> TB["topBar = ToolBarContainer<br/>BackAppBarWithTitle(state.getToolbar)"]
+    SCA --> BB["bottomBar = Tiles(state.getTileButtons)"]
+    SCA --> CC["content = ContentContainer(innerPadding)"]
+
+    CC --> SC["SummaryContent(state, onAction)<br/>ligne 149 — PUBLIC"]
+    SC --> COL["Column(padding small, verticalScroll,<br/>heightIn min = containerSize.height)"]
+
+    COL --> E1["Header(state.getHeader(language, timeZone))"]
+    COL --> E2["state.getScoreGauge(language)?.let<br/>SummaryScoreGauge"]
+    COL --> E3["state.getTripGauge(language)?.let<br/>SummaryTripGauge"]
+    COL --> E4["InformationalList(state.getListItems(...))"]
+    COL -.->|"EMPLACEMENT ATTENDU"| E5["state.messageBox?.let<br/>MessageBoxSection<br/>N EXISTE PAS"]
+
+    style ROOT fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style SC fill:#123020,stroke:#3fb950,color:#e6edf3
+    style E5 fill:#5a1c1c,stroke:#f85149,color:#fff,stroke-dasharray: 6 4
+    style OBS fill:#241f10,stroke:#d29922,color:#e6edf3
+  </div>
+</div>
+
+<div class="note">
+  <strong>Différence de philosophie avec le Dashboard.</strong> Dans le Summary, l'UiState ne porte
+  pas des objets prêts à l'emploi : il expose des <strong>fonctions de dérivation</strong>
+  paramétrées par la langue — <code>getToolbar(language)</code>, <code>getHeader(language, timeZone)</code>,
+  <code>getScoreGauge(language)</code>, <code>getTripGauge(language)</code>,
+  <code>getListItems(language, timeZone)</code>, <code>getTileButtons(language)</code>.
+  <br><br>
+  <code>messageBox</code> est le <strong>seul élément d'affichage qui est un champ stocké</strong>
+  et non une fonction dérivée. C'est le symptôme de son origine différente : il est <em>poussé</em>
+  par le shim, pas <em>calculé</em> depuis <code>data</code>.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s3">3 · Comment le Summary atteint <code>TripService</code></h2>
+
+<p>
+  Le Summary ne connaît pas <code>TripService</code>. Il ne connaît même pas le bridger.
+  Il connaît une <strong>interface KMP</strong>, et Koin fait le reste. Voici le voyage complet de
+  l'objet, du démarrage de l'application jusqu'au ViewModel.
+</p>
+
+<div class="fig">
+  <p class="cap">Figure 3 — Le voyage de l'objet : de <code>KoreInitializer</code> au ViewModel</p>
+  <div class="mermaid">
+flowchart TB
+    A["Application.onCreate()"] --> B["KoreInitializer.initialize(context)"]
+
+    B --> C["val ajustoContextualMessageSource = AjustoContextualMessageBridger"]
+    C --> C2["premier acces a l object Kotlin<br/>DECLENCHE le bloc init"]
+    C2 --> C3["init startObserving()<br/>AndroidScope.get()[TripService::class.java]<br/>subscribe immediatement"]
+
+    B --> D["KoreStartupKoinInputs(<br/>ajustoContextualMessageSource = ...,<br/>ajustoBadgeSource = ...,<br/>+ 24 autres champs)"]
+
+    D --> E["AndroidKoin.start(context, startupInputs, additionalModules)"]
+    E --> F["koreStartupInputsModule(inputs)<br/>single AjustoContextualMessageSource<br/>= inputs.ajustoContextualMessageSource"]
+
+    F --> G["FeatureKoinModules.ajustoShimModule<br/>single AjustoSummaryShim = AjustoSummaryShimImpl(<br/>deviceInfo = get(), networkState = get(),<br/>contextualMessageSource = get())"]
+
+    G --> H["AjustoSummaryPresentationModule<br/>viewModel AjustoSummaryViewModel(<br/>repository = get(), analyticDataSource = get(),<br/>shim = get())"]
+
+    H --> I["AjustoSummaryRoot<br/>viewModel = koinViewModel()"]
+    I --> J["viewModel.uiState.collectAsStateWithLifecycle()"]
+
+    style C3 fill:#5a4520,stroke:#d29922,color:#fff
+    style F fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style G fill:#2b1a3d,stroke:#a371f7,color:#e6edf3
+    style H fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style J fill:#123020,stroke:#3fb950,color:#e6edf3
+  </div>
+</div>
+
+<h3>Le code, maillon par maillon</h3>
+
+<pre><span class="c">// 1 · androidApp — KoreInitializer.kt</span>
+val ajustoContextualMessageSource = AjustoContextualMessageBridger   <span class="c">// ← déclenche init{}</span>
+val startupInputs = KoreStartupKoinInputs(
+    …,
+    ajustoContextualMessageSource = ajustoContextualMessageSource,
+    ajustoBadgeSource = AjustoBadgeControllerBridger,
+    …
+)
+AndroidKoin.start(context, startupInputs, AndroidAppKoinModules.modules)
+
+<span class="c">// 2 · shared — KoreStartupInputKoinModule.kt</span>
+internal fun koreStartupInputsModule(inputs: KoreStartupKoinInputs): Module = module {
+    …
+    single&lt;AjustoContextualMessageSource&gt; { inputs.ajustoContextualMessageSource }   <span class="g">// ✅ câblé</span>
+    single&lt;AjustoBadgeSource&gt;             { inputs.ajustoBadgeSource }               <span class="g">// ✅ câblé</span>
+}
+
+<span class="c">// 3 · shared — FeatureKoinModules.kt</span>
+single&lt;AjustoSummaryShim&gt; {
+    AjustoSummaryShimImpl(
+        deviceInfo              = get(),
+        networkState            = get(),
+        contextualMessageSource = get()      <span class="c">// ← résout vers le bridger</span>
+    )
+}
+
+<span class="c">// 4 · feature/ajusto/presentation — AjustoSummaryPresentationModule.kt</span>
+viewModel {
+    AjustoSummaryViewModel(repository = get(), analyticDataSource = get(), shim = get())
+}</pre>
+
+<div class="note">
+  <strong>Le câblage Koin est complet et correct.</strong> C'était le gros trou des analyses
+  précédentes ; il est comblé. Le ViewModel reçoit bien un shim, qui reçoit bien le bridger, sous
+  l'identité de l'interface KMP <code>AjustoContextualMessageSource</code>. Le Summary ne voit à
+  aucun moment un type Android.
+</div>
+
+<h3>Le <code>AjustoSummaryShimImpl</code> en détail</h3>
+
+<pre>class AjustoSummaryShimImpl(
+    private val deviceInfo: DeviceInfo,                              <span class="c">// Kore</span>
+    private val networkState: NetworkState,                          <span class="c">// Kore</span>
+    private val contextualMessageSource: AjustoContextualMessageSource,  <span class="c">// KMP ← le bridger</span>
+    dispatcher: CoroutineDispatcher = Dispatchers.Default
+) : AjustoSummaryShim {
+
+    private val shimScope = CoroutineScope(SupervisorJob() + dispatcher)   <span class="y">// jamais annulé</span>
+
+    override val state: StateFlow&lt;AjustoSummaryShimState&gt; = combine(
+        deviceInfo.isLocationEnabledStateFlow,                        <span class="c">// flow 1</span>
+        networkState.connectionTypeStateFlow,                         <span class="c">// flow 2 — valeur IGNORÉE (_)</span>
+        contextualMessageSource.<span class="r">contextualMessagesStateFlow</span>       <span class="r">// flow 3 — NOM FAUX (voir V1)</span>
+    ) { isLocationEnabled, _, contextualMessage -&gt;
+        AjustoSummaryShimState(
+            hasNetworkAccess  = networkState.hasNetworkAccess(),      <span class="y">// appel impératif</span>
+            isLocationEnabled = isLocationEnabled,
+            isBatteryLow      = deviceInfo.isBatteryLow(),            <span class="y">// appel impératif</span>
+            contextualMessage = contextualMessage
+        )
+    }
+    .onStart      { contextualMessageSource.startObserving() }        <span class="c">// ← branche le legacy</span>
+    .onCompletion { contextualMessageSource.stopObserving()  }        <span class="c">// ← débranche</span>
+    .stateIn(shimScope, SharingStarted.WhileSubscribed(5_000), currentState())
+}</pre>
+
+<div class="note">
+  <strong>Le placement de <code>onStart</code>/<code>onCompletion</code> est correct.</strong>
+  Ils sont appliqués <em>avant</em> <code>stateIn</code>, donc sur le flow amont — ce qui les rend
+  bien pilotés par le <code>WhileSubscribed(5_000)</code>. L'intention est juste : le legacy n'est
+  abonné que tant qu'un écran KMP regarde. C'est la section suivante qui explique pourquoi ça ne
+  fonctionne pas en pratique.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s4">4 · Le cycle de vie <code>start</code>/<code>stop</code> — neutralisé</h2>
+
+<div class="fig">
+  <p class="cap">Figure 4 — Le <code>init{}</code> du bridger court-circuite le pilotage du shim</p>
+  <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant KI as KoreInitializer
+    participant BR as Bridger (object)
+    participant AS as AndroidScope
+    participant KO as Koin
+    participant SH as AjustoSummaryShimImpl
+    participant VM as AjustoSummaryViewModel
+
+    Note over KI: demarrage de l application
+    KI->>BR: val src = AjustoContextualMessageBridger
+    activate BR
+    Note over BR: premier acces -> bloc init execute
+    BR->>BR: startObserving()
+    BR->>BR: started = false donc on continue
+    BR->>BR: started = true
+    BR->>AS: AndroidScope.get()[TripService::class.java]
+    Note over AS: si le scope n est pas encore peuple : CRASH
+    AS-->>BR: tripService
+    BR->>BR: subscribe(autoSubscriptionManager)
+    deactivate BR
+    Note over BR: ABONNE, hors de tout cycle de vie
+
+    KI->>KO: AndroidKoin.start(startupInputs)
+    KO->>KO: single AjustoContextualMessageSource = bridger
+
+    Note over VM: l ecran s ouvre plus tard
+    VM->>SH: collecte de shim.state
+    SH->>BR: onStart -> startObserving()
+    BR->>BR: if (started) return
+    Note over BR: NO-OP — deja demarre depuis le boot
+
+    Note over VM: l ecran se ferme, 5s passent
+    SH->>BR: onCompletion -> stopObserving()
+    BR->>BR: started = false, subscriptionManager.cancel()
+    Note over BR: MAINTENANT seulement le pilotage devient reel
+  </div>
+</div>
+
+<div class="warn">
+  <strong>Trois conséquences.</strong>
+  <ul style="margin-bottom:0">
+    <li><strong>Risque au démarrage</strong> — <code>AndroidScope.get()[TripService]</code> est
+      appelé <em>avant</em> <code>AndroidKoin.start()</code>. Si le scope Itch n'est pas encore
+      peuplé, c'est un crash au lancement.</li>
+    <li><strong>Le premier <code>onStart</code> est un no-op</strong> — la garde
+      <code>if (started) return</code> le neutralise. Le <code>WhileSubscribed(5_000)</code> ne
+      contrôle rien tant qu'un <code>stopObserving()</code> n'a pas eu lieu.</li>
+    <li><strong>Le cycle de vie a deux propriétaires</strong> — le bloc <code>init</code> avant le
+      premier stop, le shim après. Le comportement diffère selon le moment.</li>
+  </ul>
+</div>
+
+<div class="key">
+  <strong>Pourquoi l'argument « capturer le message avant que le ViewModel existe » ne tient pas.</strong>
+  Un <code>StateFlow</code> conserve sa dernière valeur par construction, et un
+  <code>SCRATCHObservable</code> republie son état courant à la souscription
+  (<code>notifyEventIfChanged</code> côté Core garde le dernier résultat, sauf après
+  <code>clearLastResult()</code>). Supprimer le bloc <code>init</code> ne perd donc rien, et rend le
+  schéma <code>onStart</code>/<code>onCompletion</code> conforme à ce qu'il prétend faire.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s5">5 · Les MessageBox produites : l'entonnoir des pertes</h2>
+
+<p>
+  Sept types entrent dans le bridger. Deux formes en sortent. Deux icônes arrivent au bout.
+  Zéro s'affichent. Voici l'entonnoir.
+</p>
+
+<div class="fig">
+  <p class="cap">Figure 5 — L'entonnoir : 7 types Core → 2 payloads → 2 icônes → 0 rendu</p>
+  <div class="mermaid">
+flowchart LR
+    subgraph IN["&nbsp;ENTREE — 7 types Core&nbsp;"]
+        direction TB
+        A1["1 Marque non compatible<br/>DEVICE_BRAND_NOT_COMPATIBLE / tint null<br/>+ messageButton + buttonExecutable"]
+        A2["2 Appareil non compatible<br/>DEVICE_NOT_COMPATIBLE / tint null"]
+        A3["3 Batterie faible<br/>BATTERY / tint RED"]
+        A4["4 Economie d energie<br/>BATTERY / tint WARNING"]
+        A5["5 Invitation a classifier<br/>CLASSIFY / tint BLUE"]
+        A6["6 Police en vigueur<br/>POLICY_EFFECTIVE / tint ACCENT"]
+        A7["7 Badge reclamable<br/>titre = nom du badge"]
+    end
+
+    subgraph BR["&nbsp;BRIDGER toPayload — 2 branches&nbsp;"]
+        direction TB
+        B1["branche is BadgeContextualMessage<br/>isBadgeMessage = true<br/>badgeIdentifier rempli"]
+        B2["branche else<br/>isLowBatteryMessage = icon == BATTERY<br/>iconKey = toContextualIconKey()"]
+    end
+
+    subgraph VM["&nbsp;VIEWMODEL toMessageBox — 2 branches&nbsp;"]
+        direction TB
+        C1["if isBadgeMessage<br/>FileWithMedal(GREEN) + OnClaimBadge"]
+        C2["else if isLowBatteryMessage<br/>BatteryLow(WARNING)"]
+        C3["else<br/>QuestionMark"]
+    end
+
+    subgraph OUT["&nbsp;RENDU&nbsp;"]
+        direction TB
+        D1["uiState.messageBox<br/>calcule"]
+        D2["SummaryContent<br/>AUCUN COMPOSABLE"]
+        D1 --> D2
+    end
+
+    A7 --> B1 --> C1 --> D1
+    A3 --> B2
+    A4 --> B2
+    B2 --> C2 --> D1
+    A1 --> B2
+    A2 --> B2
+    A5 --> B2
+    A6 --> B2
+    B2 --> C3 --> D1
+
+    style IN fill:#3d1414,stroke:#f85149,color:#e6edf3
+    style BR fill:#3a2a10,stroke:#d29922,color:#e6edf3
+    style VM fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style OUT fill:#5a1c1c,stroke:#f85149,color:#fff
+    style C3 fill:#5a1c1c,stroke:#f85149,color:#fff
+  </div>
+</div>
+
+<h3>Le résultat, type par type</h3>
+<table>
+  <tr>
+    <th>Type Core</th><th>Payload produit</th><th><code>iconKey</code> du payload</th>
+    <th>IconKey final (VM)</th><th>Correct ?</th><th>Affiché ?</th>
+  </tr>
+  <tr>
+    <td>Marque non compatible</td><td>générique</td><td><code>DEVICE_BRAND_NOT_COMPATIBLE</code></td>
+    <td><code>QuestionMark</code></td><td>❌ icône perdue + bouton mort</td><td>❌</td>
+  </tr>
+  <tr>
+    <td>Appareil non compatible</td><td>générique</td><td><code>DEVICE_NOT_COMPATIBLE</code></td>
+    <td><code>QuestionMark</code></td><td>❌ icône perdue</td><td>❌</td>
+  </tr>
+  <tr>
+    <td>Batterie faible</td><td>générique, <code>isLowBattery=true</code></td><td><code>BATTERY</code></td>
+    <td><code>BatteryLow(WARNING)</code></td><td>⚠️ orange au lieu de rouge</td><td>❌</td>
+  </tr>
+  <tr>
+    <td>Économie d'énergie</td><td>générique, <code>isLowBattery=true</code></td><td><code>BATTERY</code></td>
+    <td><code>BatteryLow(WARNING)</code></td><td>⚠️ confondu avec batterie faible</td><td>❌</td>
+  </tr>
+  <tr>
+    <td>Invitation à classifier</td><td>générique</td><td><code>CLASSIFY</code></td>
+    <td><code>QuestionMark</code></td><td>❌ icône perdue</td><td>❌</td>
+  </tr>
+  <tr>
+    <td>Police en vigueur</td><td>générique</td><td><code>POLICY_EFFECTIVE</code></td>
+    <td><code>QuestionMark</code></td><td>❌ icône perdue</td><td>❌</td>
+  </tr>
+  <tr>
+    <td>Badge réclamable</td><td>badge, <code>badgeIdentifier</code> rempli</td><td>—</td>
+    <td><code>FileWithMedal(GREEN)</code></td><td>❌ textes du Core, pas les textes produit</td><td>❌</td>
+  </tr>
+</table>
+
+<div class="bad">
+  <strong>Le gâchis le plus frustrant.</strong> Le bridger remplit correctement
+  <code>payload.iconKey</code> avec les 5 valeurs de l'enum <code>AjustoContextualIconKey</code>.
+  Le module presentation possède déjà les 5 <code>AjustoSummaryIconKey</code> correspondantes et
+  leur <code>getIconResource()</code>. <strong>Il ne manque que le mapping entre les deux</strong> —
+  et le <code>toMessageBox()</code> ne lit jamais <code>payload.iconKey</code> :
+  <pre style="margin:12px 0 0;background:#0d1117">iconKey = if (payload.isLowBatteryMessage) {
+    AjustoSummaryIconKey.BatteryLow(AjustoSummaryIconColor.WARNING)
+} else {
+    AjustoSummaryIconKey.QuestionMark      <span class="r">// ← payload.iconKey est là, juste à côté, ignoré</span>
+}</pre>
+</div>
+
+<h4>Taux de fidélité de la chaîne actuelle</h4>
+<div style="margin:18px 0">
+  <div class="bar"><span class="lbl">title / message</span><span class="track"><span class="fill" style="width:100%;background:#3fb950"></span></span><span class="val">100 %</span></div>
+  <div class="bar"><span class="lbl">buttonText (libellé)</span><span class="track"><span class="fill" style="width:100%;background:#3fb950"></span></span><span class="val">100 %</span></div>
+  <div class="bar"><span class="lbl">badgeIdentifier transporté</span><span class="track"><span class="fill" style="width:100%;background:#3fb950"></span></span><span class="val">100 %</span></div>
+  <div class="bar"><span class="lbl">iconKey transporté</span><span class="track"><span class="fill" style="width:100%;background:#3fb950"></span></span><span class="val">100 %</span></div>
+  <div class="bar"><span class="lbl">iconKey <em>utilisé</em> par le VM</span><span class="track"><span class="fill" style="width:0%;background:#f85149"></span></span><span class="val">0 %</span></div>
+  <div class="bar"><span class="lbl">badgeIdentifier <em>utilisé</em></span><span class="track"><span class="fill" style="width:0%;background:#f85149"></span></span><span class="val">0 %</span></div>
+  <div class="bar"><span class="lbl">messageIconTint lu</span><span class="track"><span class="fill" style="width:0%;background:#f85149"></span></span><span class="val">0 %</span></div>
+  <div class="bar"><span class="lbl">buttonExecutable porté</span><span class="track"><span class="fill" style="width:0%;background:#f85149"></span></span><span class="val">0 %</span></div>
+  <div class="bar"><span class="lbl">types distingués (7 → 2)</span><span class="track"><span class="fill" style="width:28%;background:#d29922"></span></span><span class="val">28 %</span></div>
+  <div class="bar"><span class="lbl">icônes correctes (2/7)</span><span class="track"><span class="fill" style="width:29%;background:#d29922"></span></span><span class="val">29 %</span></div>
+  <div class="bar"><span class="lbl">analytics</span><span class="track"><span class="fill" style="width:0%;background:#f85149"></span></span><span class="val">0 %</span></div>
+  <div class="bar"><span class="lbl">rendu à l'écran</span><span class="track"><span class="fill" style="width:0%;background:#f85149"></span></span><span class="val">0 %</span></div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s6">6 · Les 11 vulnérabilités</h2>
+
+<div class="vuln">
+  <span class="sev sev-h">BLOQUANT</span>
+  <h4>V1 · <code>contextualMessagesStateFlow</code> vs <code>contextualMessageStateFlow</code></h4>
+  <p>Le <code>ShimImpl</code> lit une propriété avec un <strong>S</strong> qui n'existe pas.
+  La source expose <code>contextualMessageStateFlow</code>, sans S. Deux occurrences :
+  dans le <code>combine(...)</code> et dans <code>currentState()</code>.</p>
+  <pre style="margin-bottom:0"><span class="c">// AjustoSummaryShimImpl.kt</span>
+contextualMessageSource.<span class="r">contextualMessages</span>StateFlow     <span class="c">// ← n'existe pas</span>
+<span class="c">// AjustoContextualMessageSource.kt</span>
+val <span class="g">contextualMessage</span>StateFlow: StateFlow&lt;…&gt;       <span class="c">// ← la vraie</span></pre>
+  <p style="margin-bottom:0"><strong>Effet</strong> : le module ne compile pas. C'est le seul écart purement mécanique qui reste.</p>
+</div>
+
+<div class="vuln">
+  <span class="sev sev-h">HAUTE</span>
+  <h4>V2 · <code>messageIconTint()</code> n'est jamais lu → batterie ≡ économie d'énergie</h4>
+  <p>Le Core produit deux messages avec la <strong>même icône</strong> <code>BATTERY</code> et des
+  teintes différentes : <code>RED</code> pour batterie faible, <code>WARNING</code> pour économie
+  d'énergie. Le bridger teste uniquement l'icône.</p>
+  <pre style="margin-bottom:0">isLowBatteryMessage = messageIcon() == CONTEXTUAL_MESSAGE_BATTERY   <span class="r">// vrai dans les DEUX cas</span></pre>
+  <p style="margin-bottom:0"><strong>Effet</strong> : impossible de distinguer les deux situations en aval. Détaillé en §7.</p>
+</div>
+
+<div class="vuln">
+  <span class="sev sev-h">HAUTE</span>
+  <h4>V3 · Aucun composable MessageBox dans le Summary</h4>
+  <p><code>grep -c 'MessageBox' AjustoSummaryScreen.kt</code> → <strong>0</strong>.
+  <code>SummaryContent</code> rend Header, ScoreGauge, TripGauge, InformationalList. Le champ
+  <code>uiState.messageBox</code> est calculé et jamais lu.</p>
+  <p style="margin-bottom:0"><strong>Effet</strong> : quelle que soit la qualité de la chaîne en amont, rien n'apparaît à l'écran.</p>
+</div>
+
+<div class="vuln">
+  <span class="sev sev-h">HAUTE</span>
+  <h4>V4 · <code>payload.iconKey</code> rempli puis ignoré → 4 icônes sur 7 perdues</h4>
+  <p>Le bridger fait correctement <code>iconKey = messageIcon().toContextualIconKey()</code>.
+  Le <code>toMessageBox()</code> du ViewModel ne le lit pas et retombe sur
+  <code>QuestionMark</code> pour tout ce qui n'est ni badge ni batterie.</p>
+  <p style="margin-bottom:0"><strong>Effet</strong> : marque non compatible, appareil non compatible,
+  classifier et police en vigueur affichent tous un point d'interrogation.</p>
+</div>
+
+<div class="vuln">
+  <span class="sev sev-m">MOYENNE</span>
+  <h4>V5 · <code>buttonExecutable</code> jeté → bouton « marque non compatible » mort</h4>
+  <p>Le message règle 1 est un <code>ExecutableContextualMessage</code> qui porte un
+  <code>buttonExecutable()</code> — un callback vers
+  <code>listener.onModalClick()</code>, lui-même relayé par
+  <code>TripServiceImpl.executableListener</code> vers l'écran via un downcast sur
+  <code>TripService.Listener</code>. Le bridger le range dans la branche <code>else</code> et ne
+  récupère que le libellé.</p>
+  <p style="margin-bottom:0"><strong>Effet</strong> : le bouton s'afficherait sans rien faire.
+  Et même en le portant, il faudrait qu'un <code>setListener()</code> ait été appelé — ce que le
+  Fragment legacy fait et pas le Summary.</p>
+</div>
+
+<div class="vuln">
+  <span class="sev sev-m">MOYENNE</span>
+  <h4>V6 · Textes du badge non substitués</h4>
+  <p>Le Core renvoie <code>title = claimableBadge.getTitle()</code> (le nom du badge, ex. « Freinage
+  doux niveau 3 ») et <code>message = badgeLevelText</code>. Le Fragment legacy les
+  <strong>remplace</strong> par <code>AJUSTO_DASHBOARD_NEW_MEDAL_TITLE</code> et
+  <code>CONTEXTUAL_MESSAGE_CLAIM_BADGE_BUTTON</code> — c'est-à-dire « Félicitations pour votre
+  nouvelle médaille! / Touchez pour la réclamer ». Le bridger prend les valeurs brutes.</p>
+  <p style="margin-bottom:0"><strong>Effet</strong> : le Summary afficherait le nom du badge à la
+  place du message produit. Régression visible par l'utilisateur, invisible en revue de code
+  puisque les deux textes vivent dans des fichiers éloignés.</p>
+</div>
+
+<div class="vuln">
+  <span class="sev sev-m">MOYENNE</span>
+  <h4>V7 · <code>NavigateToClaimedBadgeView</code> tombe dans <code>else -&gt; {}</code></h4>
+  <p>Le ViewModel émet bien l'événement sur <code>OnClaimBadge</code>. Le <code>when</code>
+  d'<code>ObserveAsEvents</code> dans <code>AjustoSummaryRoot</code> gère
+  <code>Dismiss</code>, <code>NavigateToAchievementsView</code>, <code>NavigateToDrivingView</code>,
+  <code>NavigateToTripsView</code>, <code>NavigateToHistoryView</code>,
+  <code>NavigateToScoreView</code> — puis <code>else -&gt; {}</code>.</p>
+  <p style="margin-bottom:0"><strong>Effet</strong> : même si la carte badge était rendue et
+  cliquable, le clic ne mènerait nulle part. Note : <code>Success</code>, <code>Failure</code> et
+  <code>DisplayLocationPermissionDialog</code> tombent aussi dans le <code>else</code>.</p>
+</div>
+
+<div class="vuln">
+  <span class="sev sev-m">MOYENNE</span>
+  <h4>V8 · <code>badgeIdentifier</code> transporté mais jamais utilisé</h4>
+  <p>Le bridger le remplit (<code>badge().identifier</code>), le payload le porte, et personne ne le
+  lit. Le <code>toMessageBox()</code> émet <code>AjustoSummaryAction.OnClaimBadge</code> — une action
+  <strong>sans paramètre</strong>. L'information de <em>quel</em> badge réclamer se perd entre le
+  payload et l'action.</p>
+  <p style="margin-bottom:0"><strong>Effet</strong> : quand la navigation sera branchée, il faudra
+  re-résoudre le badge, probablement via <code>AjustoBadgeControllerBridger.findBadge(identifier)</code>
+  — donc il faudra bien récupérer l'identifiant depuis <code>uiState.contextualMessage</code>, pas
+  depuis l'action.</p>
+</div>
+
+<div class="vuln">
+  <span class="sev sev-m">MOYENNE</span>
+  <h4>V9 · Le <code>StateFlow</code> survit à la déconnexion</h4>
+  <p>Côté Core, <code>registerObservables()</code> appelle
+  <code>contextualMessageObservable.clearLastResult()</code> quand
+  <code>isAuthenticated</code> passe à <code>false</code>. Ça vide le cache <strong>Core</strong>.
+  Le <code>MutableStateFlow</code> du bridger, lui, conserve sa dernière valeur.</p>
+  <p style="margin-bottom:0"><strong>Effet</strong> : après une déconnexion puis reconnexion avec un
+  autre compte, le message du compte précédent reste dans le StateFlow jusqu'à ce que le Core en
+  recalcule un nouveau. Fuite d'information entre sessions.</p>
+</div>
+
+<div class="vuln">
+  <span class="sev sev-l">FAIBLE</span>
+  <h4>V10 · <code>isBatteryLow</code> et <code>hasNetworkAccess</code> lus impérativement</h4>
+  <p>Dans le <code>combine</code> du shim, seuls trois <em>flows</em> déclenchent une réémission.
+  <code>deviceInfo.isBatteryLow()</code> et <code>networkState.hasNetworkAccess()</code> sont des
+  appels de fonction évalués <em>au moment</em> où l'un des trois flows émet. Et la valeur du flow
+  réseau est même ignorée (<code>_</code>).</p>
+  <p style="margin-bottom:0"><strong>Effet</strong> : si la batterie devient faible sans qu'aucun des
+  trois flows n'émette, <code>isBatteryLow</code> reste périmé. En pratique le Core observe
+  <code>getIsBatteryLowObservable()</code> et publiera un message contextuel — donc c'est
+  indirectement rattrapé. Fragile mais pas cassé.</p>
+</div>
+
+<div class="vuln">
+  <span class="sev sev-l">FAIBLE</span>
+  <h4>V11 · <code>shimScope</code> jamais annulé</h4>
+  <p><code>CoroutineScope(SupervisorJob() + Dispatchers.Default)</code> créé dans le constructeur,
+  sans <code>cancel()</code> nulle part. Le shim étant un singleton Koin, il vit toute la durée du
+  processus.</p>
+  <p style="margin-bottom:0"><strong>Effet</strong> : acceptable pour un singleton, mais rend le shim
+  intestable en isolation (impossible de le fermer entre deux tests). Un
+  <code>scope</code> injecté serait préférable.</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s7">7 · Cas d'école : « économie d'énergie »</h2>
+
+<p>
+  C'est le cas que tu as identifié, et il mérite son propre schéma parce qu'il illustre à lui seul
+  trois vulnérabilités enchaînées.
+</p>
+
+<div class="fig">
+  <p class="cap">Figure 6 — Le message « économie d'énergie » perd son identité en 3 étapes</p>
+  <div class="mermaid">
+flowchart TB
+    START["deviceInfo.isPowerSavingModeEnabled() = true<br/>ET isRecording = false<br/>ET isBatteryLow = false (sinon regle 3 gagnait)"]
+
+    START --> CORE["AjustoContextualMessageHelper<br/>powerSavingContextualMessage()"]
+    CORE --> C1["title = CONTEXTUAL_MESSAGE_POWER_SAVING_TITLE"]
+    CORE --> C2["message = CONTEXTUAL_MESSAGE_POWER_SAVING_TEXT"]
+    CORE --> C3["messageIcon = CONTEXTUAL_MESSAGE_BATTERY"]
+    CORE --> C4["messageIconTint = Color.WARNING<br/>SEUL DISCRIMINANT"]
+
+    C1 --> BR["Bridger toPayload — branche else"]
+    C2 --> BR
+    C3 --> BR
+    C4 -.->|"PERTE 1<br/>messageIconTint jamais lu"| X1["information detruite"]
+
+    BR --> P1["isLowBatteryMessage = true<br/>car icon == BATTERY"]
+    BR --> P2["iconKey = AjustoContextualIconKey.BATTERY"]
+
+    P1 --> VM["ViewModel toMessageBox()"]
+    P2 -.->|"PERTE 2<br/>payload.iconKey ignore"| X2["information inutilisee"]
+
+    VM --> M["iconKey = BatteryLow(WARNING)<br/>couleur codee en dur"]
+    M --> UI["uiState.messageBox"]
+    UI -.->|"PERTE 3<br/>aucun composable"| X3["rien ne s affiche"]
+
+    style C4 fill:#8b5a1a,stroke:#d29922,color:#fff
+    style X1 fill:#5a1c1c,stroke:#f85149,color:#fff
+    style X2 fill:#5a1c1c,stroke:#f85149,color:#fff
+    style X3 fill:#5a1c1c,stroke:#f85149,color:#fff
+  </div>
+</div>
+
+<h3>La même situation, dans les trois architectures</h3>
+
+<div class="grid3">
+  <div class="card">
+    <h5>Dashboard legacy</h5>
+    <p><code>getKoreIconKeyFromImageKey(BATTERY, WARNING)</code> → <code>BatteryLow(WARNING)</code>
+    → icône <code>dgag_icn_low_battery</code> teintée
+    <code>dgag_battery_power_saving_color</code>.</p>
+    <p><strong>Visuel : ✅ correct</strong> — orange, distinct du rouge.</p>
+    <p><strong>Analytics : ⚠️ faux positif</strong> — <code>if (messageIcon() == BATTERY)</code>
+    déclenche <code>lowBatteryContent()</code> pour l'économie d'énergie aussi.</p>
+  </div>
+  <div class="card r">
+    <h5>Summary actuel</h5>
+    <p><code>isLowBatteryMessage = true</code> (indistinguable), puis
+    <code>BatteryLow(WARNING)</code> codé en dur dans le ViewModel.</p>
+    <p><strong>Visuel : ❌ rien</strong> — pas de composable.</p>
+    <p><strong>Sémantique : ❌ perdue</strong> — le domaine ne sait pas qu'il s'agit d'économie
+    d'énergie. Ironie : la couleur <code>WARNING</code> tombe juste ici, mais elle est fausse pour
+    « batterie faible » qui devrait être rouge.</p>
+    <p><strong>Analytics : ❌ absente.</strong></p>
+  </div>
+  <div class="card">
+    <h5>Cible feature-structured</h5>
+    <p><code>icon == BATTERY &amp;&amp; tint == RED</code> → <code>LowBattery</code> ;
+    sinon → <code>PowerSaving</code>. Deux <em>types</em> distincts dans le domaine.</p>
+    <p><strong>Visuel : ✅</strong> — l'icône et la couleur se déduisent du type, plus besoin de les
+    transporter.</p>
+    <p><strong>Analytics : ✅</strong> — deux événements distincts, plus de faux positif.</p>
+  </div>
+</div>
+
+<div class="key">
+  <strong>Ce que le faux positif signifie pour tes données.</strong> L'événement
+  <code>lowBatteryContent</code> mélange deux populations : les utilisateurs dont la batterie est
+  réellement critique (risque de perte de collecte de trajets) et ceux qui ont simplement activé le
+  mode éco, batterie éventuellement à 80 %. Le mode éco étant bien plus fréquent, l'erreur va
+  toujours dans le même sens : <strong>surestimation du problème batterie</strong>. Toute décision
+  produit basée sur cette métrique part d'un chiffre gonflé.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s8">8 · Comment un message contextuel est envoyé <em>aujourd'hui</em></h2>
+
+<p>
+  Séquence complète, avec les points de rupture placés où ils surviennent réellement.
+</p>
+
+<div class="fig">
+  <p class="cap">Figure 7 — Séquence de bout en bout, avec les 4 ruptures</p>
+  <div class="mermaid">
+sequenceDiagram
+    autonumber
+    participant DI as DeviceInfo / BadgeProvider / CMTProfile
+    participant TSI as TripServiceImpl
+    participant H as ContextualMessageHelper
+    participant OB as contextualMessageObservable
+    participant BR as AjustoContextualMessageBridger
+    participant SRC as AjustoContextualMessageSource
+    participant SH as AjustoSummaryShimImpl
+    participant VM as AjustoSummaryViewModel
+    participant UI as SummaryContent
+
+    DI->>TSI: un des 6 observables emet
+    TSI->>TSI: combineLatest declenche
+    TSI->>TSI: subscribeOnce(cmtProfileService)
+    TSI->>TSI: new ClassifyInviteChecker + BadgeScoper + TopClaimableBadgeFinder
+    TSI->>H: findContextualMessage(8 parametres)
+    H->>H: cascade 7 regles, priorite stricte
+    H-->>TSI: AjustoContextualMessage ou null
+    TSI->>OB: notifyEventIfChanged(message)
+
+    OB->>BR: onEvent(eventData) sur UiThreadDispatchQueue
+    BR->>BR: toPayload()
+    Note over BR: RUPTURE 1 — messageIconTint() jamais lu<br/>RUPTURE 2 — buttonExecutable jete
+    BR->>SRC: publishContextualMessage(payload)
+    SRC->>SRC: _contextualMessageStateFlow.value = payload
+
+    SRC->>SH: emission sur contextualMessageStateFlow
+    Note over SH: RUPTURE 3 — le shim lit contextualMessagesStateFlow<br/>avec un S : ne compile pas
+    SH->>SH: combine avec location + reseau
+    SH->>VM: AjustoSummaryShimState
+
+    VM->>VM: collectLatest -> toMessageBox()
+    Note over VM: payload.iconKey ignore -> QuestionMark pour 4 types sur 7<br/>aucun analytics
+    VM->>VM: _uiState.update { messageBox = ... }
+
+    VM->>UI: uiState via collectAsStateWithLifecycle
+    Note over UI: RUPTURE 4 — aucun composable MessageBox<br/>le champ est lu par personne
+  </div>
+</div>
+
+<h3>Le même parcours, en texte</h3>
+<pre> 1  DeviceInfo / BadgeProvider / AccountService / CMTProfile … émettent
+ 2  TripServiceImpl.notifyContextualMessage() — combineLatest(6) + subscribeOnce(profil)
+ 3  new ClassifyInviteChecker(keyValueStorage, params, trips)
+    new TopClaimableBadgeFinder(BadgeScoper(badges).scopedBadges())
+ 4  AjustoContextualMessageHelper.findContextualMessage(...)   <span class="c">// cascade 7 règles</span>
+ 5  contextualMessageObservable.notifyEventIfChanged(message)  <span class="c">// dédup native du Core</span>
+    <span class="c">┈┈┈┈┈┈┈┈┈┈┈┈┈┈ frontière Core Java / Android ┈┈┈┈┈┈┈┈┈┈┈┈┈┈</span>
+ 6  AjustoContextualMessageBridger.subscribe(...) — observeOn(UiThreadDispatchQueue)
+ 7  toPayload()                                    <span class="r">// RUPTURE 1 : tint perdu</span>
+                                                   <span class="r">// RUPTURE 2 : buttonExecutable jeté</span>
+ 8  publishContextualMessage(payload)
+    <span class="c">┈┈┈┈┈┈┈┈┈┈┈┈┈┈ frontière androidApp / KMP domain ┈┈┈┈┈┈┈┈┈┈┈┈┈┈</span>
+ 9  _contextualMessageStateFlow.value = payload
+10  AjustoSummaryShimImpl.combine(location, réseau, message)   <span class="r">// RUPTURE 3 : nom faux</span>
+11  AjustoSummaryShimState(hasNetworkAccess, isLocationEnabled, isBatteryLow, contextualMessage)
+    <span class="c">┈┈┈┈┈┈┈┈┈┈┈┈┈┈ frontière shared / feature presentation ┈┈┈┈┈┈┈┈┈┈┈┈┈┈</span>
+12  AjustoSummaryViewModel.init { shim.state.collectLatest { … } }
+13  payload.toMessageBox()                         <span class="y">// iconKey ignoré → QuestionMark ×4</span>
+                                                   <span class="y">// aucun analytics</span>
+14  _uiState.update { it.copy(contextualMessage = …, messageBox = …) }
+    <span class="c">┈┈┈┈┈┈┈┈┈┈┈┈┈┈ frontière KMP / UI Compose ┈┈┈┈┈┈┈┈┈┈┈┈┈┈</span>
+15  AjustoSummaryRoot : uiState.collectAsStateWithLifecycle()
+16  AjustoSummaryScreen(state, onAction) → Scaffold → ContentContainer
+17  SummaryContent : Header, ScoreGauge, TripGauge, InformationalList
+                                                   <span class="r">// RUPTURE 4 : messageBox non lu</span></pre>
+
+<div class="note">
+  <strong>Lecture optimiste, et elle est justifiée.</strong> Sur 17 étapes, 13 fonctionnent
+  correctement. Les 4 ruptures sont : un nom de propriété, deux lignes de traduction manquantes dans
+  le bridger, et un composable absent. Aucune ne remet en cause l'architecture — ce sont des
+  finitions, pas des erreurs de conception. Le câblage Koin, le placement de
+  <code>onStart</code>/<code>onCompletion</code>, le choix de l'<code>abstract class</code> pour
+  porter l'état : tout ça est juste.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s9">9 · Dashboard vs Summary, côte à côte</h2>
+
+<div class="fig">
+  <p class="cap">Figure 8 — Les deux architectures pour le même signal <code>TripService</code></p>
+  <div class="mermaid">
+flowchart TB
+    TS["TripService.contextualMessageObservable<br/>UNE SEULE SOURCE"]
+
+    TS --> D1["AjustoDashboardFragment<br/>initializeBadgeMessageBoxListener()<br/>abonnement DIRECT"]
+    TS --> S1["AjustoContextualMessageBridger<br/>abonnement via AndroidScope"]
+
+    D1 --> D2["when — 2 branches<br/>FABRIQUE badge (substitution)<br/>FABRIQUE generique (pass-through)"]
+    D2 --> D3["getKoreIconKeyFromImageKey(icon, tint)<br/>LIT LE TINT"]
+    D3 --> D4["_dashboardStateFlow<br/>MutableStateFlow"]
+    D4 --> D5["AjustoDashboardRoot -> DashboardParams"]
+    D5 --> D6["Dashboard() routeur 3 branches"]
+    D6 --> D7["MessageBoxSection<br/>AFFICHE avec icone et couleur"]
+
+    S1 --> S2["toPayload() — 2 branches<br/>NE LIT PAS LE TINT"]
+    S2 --> S3["AjustoContextualMessageSource<br/>MutableStateFlow KMP"]
+    S3 --> S4["AjustoSummaryShimImpl<br/>combine 3 flows"]
+    S4 --> S5["AjustoSummaryViewModel<br/>toMessageBox() — iconKey ignore"]
+    S5 --> S6["uiState.messageBox"]
+    S6 --> S7["SummaryContent<br/>AUCUN COMPOSABLE"]
+
+    style D7 fill:#123020,stroke:#3fb950,color:#e6edf3
+    style S7 fill:#5a1c1c,stroke:#f85149,color:#fff
+    style D3 fill:#123020,stroke:#3fb950,color:#e6edf3
+    style S2 fill:#5a4520,stroke:#d29922,color:#fff
+  </div>
+</div>
+
+<table>
+  <tr><th>Critère</th><th>Dashboard (legacy)</th><th>Summary (actuel)</th></tr>
+  <tr><td>Accès à <code>TripService</code></td><td><code>@ItchInject</code> dans le Fragment</td><td><code>AndroidScope.get()</code> dans le bridger</td></tr>
+  <tr><td>Où vit la traduction</td><td>Fragment Android (non testable)</td><td>Bridger Android + ViewModel KMP</td></tr>
+  <tr><td>Lit <code>messageIconTint()</code></td><td>✅ oui, via <code>getKoreIconColorFromColorKey</code></td><td>❌ non</td></tr>
+  <tr><td>Nombre d'icônes correctes</td><td>5 sur 5 + badge</td><td>1 sur 5 + badge</td></tr>
+  <tr><td>Substitution des textes badge</td><td>✅ chaînes produit</td><td>❌ textes bruts du Core</td></tr>
+  <tr><td>Cycle de vie de l'abonnement</td><td>manuel, <code>SCRATCHSubscriptionManager</code> du Fragment</td><td><code>onStart</code>/<code>onCompletion</code> du shim — neutralisé par <code>init{}</code></td></tr>
+  <tr><td>Structure UI</td><td><code>Column</code> + routeur 3 branches</td><td><code>Scaffold</code> topBar/bottomBar/content</td></tr>
+  <tr><td>Rendu du MessageBox</td><td>✅ <code>MessageBoxSection</code>, ligne 288</td><td>❌ absent</td></tr>
+  <tr><td>Clic sur la carte</td><td>✅ badge uniquement</td><td>❌ (et l'événement tomberait dans <code>else</code>)</td></tr>
+  <tr><td>Analytics</td><td>⚠️ 1 type sur 7, avec faux positif</td><td>❌ aucune</td></tr>
+  <tr><td>Partageable avec iOS</td><td>❌ tout est dans le Fragment</td><td>✅ tout sauf le bridger</td></tr>
+  <tr><td>Testable en <code>commonTest</code></td><td>❌</td><td>✅ ViewModel + shim + payload</td></tr>
+</table>
+
+<div class="key">
+  <strong>Le bilan honnête.</strong> Le Summary est <em>architecturalement supérieur</em> — l'état
+  est en KMP, le mapping est testable, iOS l'obtient gratuitement — et
+  <em>fonctionnellement inférieur</em> aujourd'hui, parce qu'il lui manque quatre finitions.
+  Le Dashboard fait moins bien sur la forme et mieux sur le fond. C'est exactement l'état normal
+  d'une migration au milieu du gué : la nouvelle structure est en place, le contenu n'a pas fini de
+  déménager.
+</div>
+
+<h3>Ce qui reste à faire, dans l'ordre de dépendance</h3>
+<pre>V1   ShimImpl : contextualMessagesStateFlow → contextualMessageStateFlow   (×2)   <span class="c">// débloque la compilation</span>
+V2   Bridger  : lire messageIconTint() pour distinguer RED / WARNING
+V4   ViewModel: mapper payload.iconKey → AjustoSummaryIconKey (5 cas au lieu de 1)
+V6   ViewModel: substituer les textes du badge (chaînes produit)
+V3   UI       : ajouter le composable MessageBox dans SummaryContent
+V7   UI       : gérer NavigateToClaimedBadgeView dans le when de AjustoSummaryRoot
+V5   Bridger  : porter buttonExecutable (+ vérifier setListener côté Summary)
+V8   ViewModel: exploiter badgeIdentifier pour la navigation
+—    ViewModel: rebrancher l'analytics, avec des événements distincts par type
+V9   Repository / Bridger : réinitialiser sur déconnexion
+V10  ShimImpl : passer isBatteryLow et hasNetworkAccess en flows
+V11  ShimImpl : injecter le scope plutôt que le créer</pre>
+
+<p style="color:var(--tx2);font-size:14px;margin-top:40px">
+  Sources lues : <code>AjustoSummaryScreen.kt</code> (407 l.),
+  <code>AjustoSummaryViewModel.kt</code>, <code>AjustoSummaryUiState.kt</code> (312 l.),
+  <code>AjustoSummaryEvent.kt</code>, <code>AjustoSummaryAction.kt</code>,
+  <code>AjustoSummaryFragment.kt</code>, <code>AjustoSummaryShimImpl.kt</code>,
+  <code>AjustoContextualMessageSource.kt</code>, <code>AjustoContextualMessageBridger.kt</code>,
+  <code>KoreStartupInputKoinModule.kt</code>, <code>FeatureKoinModules.kt</code>,
+  <code>AjustoSummaryPresentationModule.kt</code>, plus
+  <code>AjustoContextualMessageHelper.java</code> et <code>TripServiceImpl.java</code>
+  (<code>ad-digital-mobile-core-lib</code>).
+</p>
+
+</div>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    fontSize: '17px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+    primaryColor: '#1c2230',
+    primaryTextColor: '#e6edf3',
+    primaryBorderColor: '#58a6ff',
+    lineColor: '#7d8590',
+    secondaryColor: '#161b22',
+    tertiaryColor: '#12293d',
+    background: '#0d1117',
+    mainBkg: '#1c2230',
+    nodeBorder: '#58a6ff',
+    clusterBkg: '#161b22',
+    clusterBorder: '#30363d',
+    edgeLabelBackground: '#0d1117',
+    actorBkg: '#1c2230',
+    actorBorder: '#58a6ff',
+    actorTextColor: '#e6edf3',
+    signalColor: '#e6edf3',
+    signalTextColor: '#e6edf3',
+    noteBkgColor: '#241f10',
+    noteTextColor: '#e6edf3',
+    noteBorderColor: '#d29922',
+    sequenceNumberColor: '#0d1117'
+  },
+  flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 55, rankSpacing: 75, padding: 20 },
+  sequence: { actorMargin: 80, width: 180, height: 58, messageFontSize: 15, noteFontSize: 14, boxTextMargin: 8 },
+  class: { padding: 20 }
+});
+</script>
+</body>
+</html>

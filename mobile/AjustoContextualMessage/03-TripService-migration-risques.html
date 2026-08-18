@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TripService — que prend le bridger, que faut-il migrer d'abord, quels risques</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#30363d;
+    --tx:#e6edf3; --tx2:#9aa7b4; --acc:#58a6ff;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --info:#a371f7;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1500px;margin:0 auto;padding:40px 28px 120px}
+  h1{font-size:34px;line-height:1.2;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--tx2);font-size:15px;margin-bottom:38px}
+  h2{font-size:26px;margin:64px 0 8px;padding-top:26px;border-top:1px solid var(--line);letter-spacing:-.01em}
+  h3{font-size:19px;margin:34px 0 10px;color:var(--acc)}
+  h4{font-size:16px;margin:22px 0 8px;color:var(--tx2);text-transform:uppercase;letter-spacing:.08em}
+  p{margin:12px 0}
+  code{font-family:var(--mono);font-size:.9em;background:#1f2733;padding:2px 6px;border-radius:4px;color:#a5d6ff}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+      padding:18px 20px;overflow-x:auto;font-family:var(--mono);font-size:13.5px;line-height:1.6}
+  pre .c{color:#7d8590} pre .r{color:#ff7b72} pre .g{color:#7ee787} pre .y{color:#e3b341} pre .b{color:#79c0ff}
+  .fig{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+       padding:26px 20px;margin:26px 0;overflow-x:auto}
+  .fig .cap{color:var(--tx2);font-size:13.5px;margin:0 0 18px;text-transform:uppercase;letter-spacing:.09em}
+  .mermaid{min-width:100%;display:flex;justify-content:center}
+  .mermaid svg{max-width:none !important;height:auto !important}
+  table{border-collapse:collapse;width:100%;margin:20px 0;font-size:14px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600;color:var(--tx2);
+     text-transform:uppercase;font-size:12px;letter-spacing:.06em}
+  td code{font-size:12.5px}
+  tr:nth-child(even) td{background:#12171f}
+  .note{border-left:4px solid var(--acc);background:#12202f;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .warn{border-left:4px solid var(--warn);background:#241f10;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .bad{border-left:4px solid var(--bad);background:#2b1414;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .good{border-left:4px solid var(--ok);background:#0f2417;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .key{border-left:4px solid var(--info);background:#1d1630;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;font-family:var(--mono)}
+  .p-cmt{background:#3d1414;color:#ffb3ad} .p-scr{background:#3a2a10;color:#ffd591}
+  .p-itch{background:#2b1a3d;color:#d6b3ff} .p-dgag{background:#12293d;color:#9fd4ff}
+  .p-i18n{background:#123020;color:#8ce8a8}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+  @media(max-width:1050px){.grid2,.grid3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .card h5{margin:0 0 10px;font-size:15px;color:var(--acc)}
+  .card.g{border-color:#1d4a2c} .card.g h5{color:#7ee787}
+  .card.r{border-color:#5a2020} .card.r h5{color:#ff9d94}
+  ul{margin:12px 0;padding-left:22px} li{margin:7px 0}
+  .lineno{color:#6e7681;font-family:var(--mono);font-size:12px}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 26px;margin:30px 0}
+  .toc a{color:var(--acc);text-decoration:none} .toc a:hover{text-decoration:underline}
+  .toc ol{margin:0;padding-left:22px} .toc li{margin:6px 0}
+  .risk{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 22px;margin:20px 0}
+  .risk h4{margin:0 0 4px;font-size:17px;text-transform:none;letter-spacing:0;color:var(--tx)}
+  .risk .tags{float:right;font-size:11.5px;font-family:var(--mono)}
+  .tag{display:inline-block;padding:3px 9px;border-radius:99px;margin-left:6px}
+  .t-crit{background:#5a1c1c;color:#ff9d94} .t-high{background:#5a3a1c;color:#ffc48c}
+  .t-med{background:#5a4520;color:#ffd591} .t-low{background:#1c3a5a;color:#9fd4ff}
+  .stars{font-family:var(--mono);letter-spacing:2px}
+  .s5{color:#f85149} .s4{color:#e3833d} .s3{color:#d29922} .s2{color:#8ab4f8} .s1{color:#3fb950}
+  .bar{display:flex;align-items:center;gap:12px;margin:7px 0;font-family:var(--mono);font-size:13px}
+  .bar .lbl{width:250px;flex-shrink:0;color:var(--tx2)}
+  .bar .track{flex:1;height:16px;background:#21262d;border-radius:4px;overflow:hidden}
+  .bar .fill{height:100%;border-radius:4px}
+  .bar .val{width:70px;text-align:right;flex-shrink:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>TripService — ce que le bridger en prend, ce qu'il faudrait migrer d'abord, et à quels risques</h1>
+<p class="sub">
+  Lecture de <code>TripService.java</code> (94 l., 24 membres), <code>TripServiceImpl.java</code>
+  (775 l., 18 dépendances, 44 imports), <code>AjustoContextualMessageHelper.java</code>,
+  <code>DeviceInfo.java</code>, et des bridgers existants du projet
+  (<code>CmtRepositoryBridger</code>, <code>AccountRepositoryBridger</code>,
+  <code>SCRATCHOperationCoroutine</code>).
+</p>
+
+<div class="toc">
+  <ol>
+    <li><a href="#s1">Ce que le bridger prend réellement : 1 méthode sur 24</a></li>
+    <li><a href="#s2">Anatomie de <code>TripService</code> : les 24 membres</a></li>
+    <li><a href="#s3">Anatomie de <code>TripServiceImpl</code> : 18 dépendances, 44 imports, 5 familles</a></li>
+    <li><a href="#s4">La découverte : il y a <strong>deux sens</strong> de bridger dans ce projet</a></li>
+    <li><a href="#s5">Deux dépendances de <code>TripServiceImpl</code> sont <strong>déjà migrées</strong></a></li>
+    <li><a href="#s6">Ce qu'il faut migrer d'abord : les 10 vagues</a></li>
+    <li><a href="#s7">Les 9 risques, classés</a></li>
+    <li><a href="#s8">Stratégie recommandée et verdict</a></li>
+  </ol>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s1">1 · Ce que le bridger prend réellement de <code>TripService</code></h2>
+
+<p>Commençons par le plus concret. Voici <strong>l'intégralité</strong> de ce que
+<code>AjustoContextualMessageBridger</code> consomme :</p>
+
+<pre>fun subscribe(subscriptionManager: SCRATCHSubscriptionManager, onEvent: (AjustoContextualMessage?) -&gt; Unit) {
+    val tripService = AndroidScope.get()[TripService::class.java] as TripService   <span class="c">// ← résolution</span>
+    tripService.<span class="g">contextualMessageObservable</span>                                   <span class="c">// ← 1 propriété</span>
+        .observeOn(queue = UiThreadDispatchQueue.newInstance())                    <span class="c">// ← 1 opérateur</span>
+        .subscribe(                                                               <span class="c">// ← 1 opérateur</span>
+            object : SCRATCHObservableCallback&lt;AjustoContextualMessage?&gt;(subscriptionManager) {
+                override fun onEvent(eventData: AjustoContextualMessage?) { onEvent(eventData) }
+            }
+        )
+}</pre>
+
+<div class="fig">
+  <p class="cap">Figure 1 — La surface d'attaque du bridger sur TripService</p>
+  <div class="mermaid">
+flowchart LR
+    subgraph TS["&nbsp;TripService — 24 membres&nbsp;"]
+        direction TB
+        U1["getContextualMessageObservable()<br/>UTILISE par le bridger"]
+        U2["getTripsObservable()"]
+        U3["getLatestTripViewDataObservable()"]
+        U4["getLatestTripsObservable()"]
+        U5["getLatestTripsViewDataObservable()"]
+        U6["getLatestTripsSectionsViewDataObservable()"]
+        U7["getTripListEmptyMessageObservable()"]
+        U8["getTripListHeaderViewDataObservable()"]
+        U9["getInitialTripsCountObservable()"]
+        U10["getDetailedTripViewDataOperation()"]
+        U11["getTripRecordStateObservable()"]
+        U12["startTripRecording() / stopTripRecording()"]
+        U13["getMulliganViewDataObservable() / setMulligan()"]
+        U14["setTripLabel()"]
+        U15["getDistractionRemovalViewDataObservable() / removeDistractionTrip()"]
+        U16["getMapAccessibilityObservable() / fetchMapAccessibility()"]
+        U17["getRefreshObservable() / refreshTrips()"]
+        U18["getLocaleUpdatedObservable()"]
+        U19["setListener(Listener)<br/>NON APPELE par le bridger"]
+        U20["cancel()<br/>NON APPELE par le bridger"]
+    end
+
+    U1 --> BR["AjustoContextualMessageBridger<br/>observeOn + subscribe"]
+
+    style U1 fill:#123020,stroke:#3fb950,color:#fff
+    style U19 fill:#5a4520,stroke:#d29922,color:#fff
+    style U20 fill:#5a4520,stroke:#d29922,color:#fff
+    style BR fill:#12293d,stroke:#58a6ff,color:#e6edf3
+  </div>
+</div>
+
+<h3>Surface consommée</h3>
+<div style="margin:18px 0">
+  <div class="bar"><span class="lbl">Membres de TripService utilisés</span><span class="track"><span class="fill" style="width:4.2%;background:#3fb950"></span></span><span class="val">1 / 24</span></div>
+  <div class="bar"><span class="lbl">Opérateurs SCRATCH utilisés</span><span class="track"><span class="fill" style="width:8%;background:#3fb950"></span></span><span class="val">2</span></div>
+  <div class="bar"><span class="lbl">Types Core traversés</span><span class="track"><span class="fill" style="width:12%;background:#d29922"></span></span><span class="val">3</span></div>
+</div>
+
+<table>
+  <tr><th>Élément consommé</th><th>Type</th><th>Nature</th></tr>
+  <tr><td><code>getContextualMessageObservable()</code></td><td><code>SCRATCHObservable&lt;AjustoContextualMessage&gt;</code></td><td>lecture, flux</td></tr>
+  <tr><td><code>.observeOn(UiThreadDispatchQueue)</code></td><td>opérateur SCRATCH</td><td>dispatch thread</td></tr>
+  <tr><td><code>.subscribe(SCRATCHObservableCallback)</code></td><td>opérateur SCRATCH</td><td>abonnement</td></tr>
+  <tr><td><code>AjustoContextualMessage</code></td><td>interface Core</td><td><code>title()</code>, <code>message()</code>, <code>messageButton()</code>, <code>messageIcon()</code>, <code>messageIconTint()</code></td></tr>
+  <tr><td><code>BadgeContextualMessage</code></td><td>sous-type Core</td><td><code>badge()</code></td></tr>
+  <tr><td><code>ExecutableContextualMessage.Icon</code></td><td>enum Core</td><td><code>DEVICE_BRAND_NOT_COMPATIBLE</code></td></tr>
+</table>
+
+<div class="good">
+  <strong>Bonne nouvelle stratégique.</strong> Le bridger a une surface d'attaque
+  <strong>minimale</strong> : un flux en lecture, aucun appel de commande, aucun état partagé avec
+  <code>TripService</code>. Il ne participe pas au cycle de vie du service — c'est le
+  <code>AjustoDashboardFragment</code> qui appelle <code>tripService.cancel()</code> dans
+  <code>onDestroy</code>, pas lui.
+  <br><br>
+  Conséquence : <strong>tu n'as pas besoin de migrer <code>TripService</code>. Tu as besoin de
+  remplacer une seule de ses 24 sorties.</strong> Ce n'est pas la même ambition.
+</div>
+
+<div class="warn">
+  <strong>Mais deux absences comptent.</strong>
+  <ul style="margin-bottom:0">
+    <li><code>setListener(Listener)</code> n'est jamais appelé par le bridger. Or c'est par là que
+      remonte le clic du bouton « marque non compatible » :
+      <code>buttonExecutable → listener.onModalClick() → TripServiceImpl.executableListener →
+      downcast sur AjustoSnapListener → onDeviceNotCompatibleModalClick()</code>.
+      Sans <code>setListener</code>, le bouton reste muet même si on porte l'exécutable.</li>
+    <li><code>cancel()</code> n'est jamais appelé non plus. Le bridger annule son propre
+      <code>SCRATCHSubscriptionManager</code>, pas le service. C'est correct — mais ça veut dire que
+      le service reste vivant tant que le Fragment legacy existe.</li>
+  </ul>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s2">2 · Anatomie de <code>TripService</code> : les 24 membres</h2>
+
+<p>
+  94 lignes d'interface, <code>@ObjectiveCName</code> sur 10 méthodes — donc consommée par iOS via
+  J2ObjC. Regroupée par domaine fonctionnel :
+</p>
+
+<table>
+  <tr><th>Domaine</th><th>#</th><th>Membres</th><th>Type de retour dominant</th><th>Nécessaire au message contextuel ?</th></tr>
+  <tr>
+    <td><strong>Trajets — lecture</strong></td><td>9</td>
+    <td><code>getTripsObservable</code>, <code>getLatestTripViewDataObservable</code>,
+        <code>getLatestTripsObservable</code>, <code>getLatestTripsViewDataObservable</code>,
+        <code>getLatestTripsSectionsViewDataObservable</code>, <code>getInitialTripsCountObservable</code>,
+        <code>getDetailedTripViewDataOperation</code>, <code>refreshTrips</code>, <code>getRefreshObservable</code></td>
+    <td><code>CMTTrip</code>, <code>TripViewData</code></td>
+    <td>⚠️ indirect — <code>getLatestTripsObservable</code> alimente la cascade</td>
+  </tr>
+  <tr>
+    <td><strong>Enregistrement</strong></td><td>3</td>
+    <td><code>getTripRecordStateObservable</code>, <code>startTripRecording</code>, <code>stopTripRecording</code></td>
+    <td><code>Boolean</code> + SDK</td>
+    <td>⚠️ indirect — <code>isRecording</code> sert à la règle 4</td>
+  </tr>
+  <tr>
+    <td><strong>Mulligan</strong></td><td>2</td>
+    <td><code>getMulliganViewDataObservable</code>, <code>setMulligan</code></td>
+    <td><code>AjustoMulliganViewData</code>, <code>Account</code></td><td>❌</td>
+  </tr>
+  <tr>
+    <td><strong>Labels / distraction</strong></td><td>3</td>
+    <td><code>setTripLabel</code>, <code>getDistractionRemovalViewDataObservable</code>, <code>removeDistractionTrip</code></td>
+    <td><code>SCRATCHOperation</code>, <code>CMTProfile</code></td><td>❌</td>
+  </tr>
+  <tr>
+    <td><strong>Carte / accessibilité</strong></td><td>2</td>
+    <td><code>getMapAccessibilityObservable</code>, <code>fetchMapAccessibility</code></td>
+    <td><code>String</code></td><td>❌</td>
+  </tr>
+  <tr>
+    <td><strong>Messages</strong></td><td>3</td>
+    <td><code>getTripListEmptyMessageObservable</code>, <code>getTripListHeaderViewDataObservable</code>,
+        <strong><code>getContextualMessageObservable</code></strong></td>
+    <td><code>AjustoContextualMessage</code></td><td>✅ <strong>la cible</strong></td>
+  </tr>
+  <tr>
+    <td><strong>Cycle de vie</strong></td><td>3</td>
+    <td><code>setListener</code>, <code>cancel</code>, <code>getLocaleUpdatedObservable</code></td>
+    <td>—</td><td>⚠️ <code>setListener</code> pour le bouton exécutable</td>
+  </tr>
+  <tr>
+    <td><strong>Interfaces internes</strong></td><td>3</td>
+    <td><code>Listener</code>, <code>AjustoSnapInProgressListener</code>, <code>AjustoSnapListener</code></td>
+    <td>—</td><td>⚠️ cibles du downcast</td>
+  </tr>
+</table>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s3">3 · Anatomie de <code>TripServiceImpl</code></h2>
+
+<p>775 lignes. 18 dépendances au constructeur. 12 observables internes. 8 champs d'état mutable.
+44 imports non-JDK, répartis en 5 familles.</p>
+
+<div class="fig">
+  <p class="cap">Figure 2 — Les 5 familles de dépendances de <code>TripServiceImpl</code></p>
+  <div class="mermaid">
+flowchart TB
+    TSI["TripServiceImpl<br/>775 lignes"]
+
+    TSI --> F1["FAMILLE 1 — SDK TELEMATIQUE<br/>com.mirego.cmt.wrapper<br/>7 types"]
+    TSI --> F2["FAMILLE 2 — FRAMEWORK SCRATCH<br/>com.mirego.scratch.core<br/>18 types"]
+    TSI --> F3["FAMILLE 3 — DI ITCH<br/>com.mirego.itch.core<br/>2 annotations"]
+    TSI --> F4["FAMILLE 4 — i18n CIRCUMFLEX<br/>com.mirego.circumflex<br/>1 type"]
+    TSI --> F5["FAMILLE 5 — DOMAINE DGAG<br/>ca.dgag.ajusto.core<br/>26 types"]
+
+    F1 --> F1a["CMTTrip, CMTTripManager, CMTTripProvider<br/>CMTEvent, CMTGeolocation<br/>CMTSessionController, CMTSettingsController"]
+    F2 --> F2a["SCRATCHObservable, SCRATCHObservableImpl<br/>SCRATCHObservableCombineLatest<br/>SCRATCHOperation, SCRATCHSequentialOperation<br/>SCRATCHKeyValueStorage, SCRATCHDateProvider<br/>SCRATCHConnectivityService, SCRATCHFilter ..."]
+    F3 --> F3a["ItchComponent, ItchInject"]
+    F4 --> F4a["LocalizedStringSource"]
+    F5 --> F5a["AjustoContextualMessageHelper, DeviceInfo<br/>BadgeProvider, BadgeScoper, TopClaimableBadgeFinder<br/>AccountService, AccountRepository<br/>AjustoDeviceCompatible, AjustoParameters<br/>ClassifyInviteChecker, CMTProfileService<br/>AjustoHttpService, DeviceKeyStorage, DateService ..."]
+
+    style F1 fill:#3d1414,stroke:#f85149,color:#e6edf3
+    style F2 fill:#3a2a10,stroke:#d29922,color:#e6edf3
+    style F3 fill:#2b1a3d,stroke:#a371f7,color:#e6edf3
+    style F4 fill:#123020,stroke:#3fb950,color:#e6edf3
+    style F5 fill:#12293d,stroke:#58a6ff,color:#e6edf3
+  </div>
+</div>
+
+<h3>Les 18 dépendances du constructeur, notées</h3>
+<table>
+  <tr><th>#</th><th>Dépendance</th><th>Famille</th><th>Requis pour le message contextuel</th><th>Portable KMP</th></tr>
+  <tr><td>1</td><td><code>AjustoDeviceCompatible</code></td><td><span class="pill p-dgag">dgag</span></td><td>✅ règle 2</td><td><span class="stars s2">★★☆☆☆</span></td></tr>
+  <tr><td>2</td><td><code>SCRATCHKeyValueStorage</code></td><td><span class="pill p-scr">scratch</span></td><td>✅ règle 5</td><td><span class="stars s2">★★☆☆☆</span></td></tr>
+  <tr><td>3</td><td><code>CMTProfileService</code></td><td><span class="pill p-cmt">cmt</span></td><td>✅ règle 6</td><td><span class="stars s3">★★★☆☆</span> — bridger existe</td></tr>
+  <tr><td>4</td><td><code>CMTTripManager</code></td><td><span class="pill p-cmt">cmt</span></td><td>—</td><td><span class="stars s5">★★★★★</span></td></tr>
+  <tr><td>5</td><td><code>CMTTripProvider</code></td><td><span class="pill p-cmt">cmt</span></td><td>⚠️ via latestTrips</td><td><span class="stars s5">★★★★★</span></td></tr>
+  <tr><td>6</td><td><code>CMTSessionController</code></td><td><span class="pill p-cmt">cmt</span></td><td>✅ clearLastResult</td><td><span class="stars s3">★★★☆☆</span> — bridger existe</td></tr>
+  <tr><td>7</td><td><code>SCRATCHDateProvider</code></td><td><span class="pill p-scr">scratch</span></td><td>—</td><td><span class="stars s1">★☆☆☆☆</span></td></tr>
+  <tr><td>8</td><td><code>LocalizedStringSource</code></td><td><span class="pill p-i18n">circumflex</span></td><td>✅ tous les textes</td><td><span class="stars s2">★★☆☆☆</span></td></tr>
+  <tr><td>9</td><td><code>DeviceInfo</code></td><td><span class="pill p-dgag">dgag</span></td><td>✅ règles 1, 3, 4</td><td><span class="stars s1">★☆☆☆☆</span></td></tr>
+  <tr><td>10</td><td><code>BadgeProvider</code></td><td><span class="pill p-dgag">dgag</span></td><td>✅ règle 7</td><td><span class="stars s2">★★☆☆☆</span></td></tr>
+  <tr><td>11</td><td><code>AccountService</code></td><td><span class="pill p-dgag">dgag</span></td><td>✅ AjustoParameters</td><td><span class="stars s3">★★★☆☆</span></td></tr>
+  <tr><td>12</td><td><code>AccountRepository</code></td><td><span class="pill p-dgag">dgag</span></td><td>—</td><td><span class="stars s1">★☆☆☆☆</span> — <strong>DÉJÀ FAIT</strong></td></tr>
+  <tr><td>13</td><td><code>SCRATCHConnectivityService</code></td><td><span class="pill p-scr">scratch</span></td><td>—</td><td><span class="stars s2">★★☆☆☆</span></td></tr>
+  <tr><td>14</td><td><code>AjustoHttpService</code></td><td><span class="pill p-dgag">dgag</span></td><td>—</td><td><span class="stars s3">★★★☆☆</span></td></tr>
+  <tr><td>15</td><td><code>DeviceKeyStorage</code></td><td><span class="pill p-dgag">dgag</span></td><td>—</td><td><span class="stars s2">★★☆☆☆</span></td></tr>
+  <tr><td>16</td><td><code>DateService</code></td><td><span class="pill p-dgag">dgag</span></td><td>—</td><td><span class="stars s1">★☆☆☆☆</span></td></tr>
+  <tr><td>17</td><td><code>CMTSettingsController</code></td><td><span class="pill p-cmt">cmt</span></td><td>—</td><td><span class="stars s3">★★★☆☆</span> — bridger existe</td></tr>
+  <tr><td>18</td><td><code>AjustoContextualMessageHelper</code></td><td><span class="pill p-dgag">dgag</span></td><td>✅ <strong>la cascade</strong></td><td><span class="stars s1">★☆☆☆☆</span></td></tr>
+</table>
+
+<div class="note">
+  <strong>Le constat contre-intuitif.</strong> La dépendance n° 18 — <code>AjustoContextualMessageHelper</code>,
+  celle qui contient toute la logique métier des 7 règles — est <strong>la plus facile à porter</strong>
+  (★☆☆☆☆). C'est du <code>if / else if</code> pur : 3 dépendances, aucun état, aucune I/O.
+  <br><br>
+  Ce qui coûte, ce ne sont pas les <em>règles</em>, ce sont les <strong>7 signaux d'entrée</strong>
+  qu'il faut leur fournir.
+</div>
+
+<h3>L'état mutable interne — le piège de la réécriture</h3>
+<pre>private AtomicBoolean isRefreshing        = new AtomicBoolean(false);
+private Date policyEffectiveDate          = null;
+private List&lt;CMTTrip&gt; latestTrips         = new ArrayList&lt;&gt;();
+private SCRATCHObservable.Token contextualMessageToken = null;   <span class="y">// réassigné à chaque événement</span>
+private SCRATCHObservable.Token emptyMessageToken     = null;
+private SimpleDateFormat accessibilityTimeFormat;
+private List&lt;String&gt; eventTitles;
+private Listener listener;                                        <span class="y">// cible du downcast</span>
+
+<span class="c">// et 12 SCRATCHObservableImpl instanciés en champs — chacun avec son propre cache interne</span></pre>
+
+<div class="warn">
+  <strong>Le constructeur fait 6 appels de notification.</strong>
+  <pre style="margin:12px 0 0;background:#0d1117">registerObservables();
+notifyTripListEmptyMessage();
+notifyContextualMessage();          <span class="c">// ← notre chemin</span>
+notifyTripListHeaderViewData();
+notifyLatestTripsViewData();
+notifyLatestTripsSectionsViewData();
+notifyMulliganViewData();</pre>
+  <p style="margin-bottom:0">Toute réécriture doit reproduire cet ordre d'initialisation. Un
+  <code>init</code> Kotlin en apparence équivalent peut produire un ordre différent si les
+  dépendances sont lazy.</p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s4">4 · La découverte : deux sens de bridger dans ce projet</h2>
+
+<p>
+  En relisant les bridgers existants, j'ai trouvé un patron que les analyses précédentes n'avaient
+  pas identifié. Il change complètement la stratégie de migration possible.
+</p>
+
+<div class="fig">
+  <p class="cap">Figure 3 — Bridger SORTANT vs bridger ENTRANT</p>
+  <div class="mermaid">
+flowchart TB
+    subgraph OUT["&nbsp;SENS 1 — BRIDGER SORTANT : le KMP consomme le Core&nbsp;"]
+        direction TB
+        O1["AjustoContextualMessageSource<br/>interface KMP — le BESOIN"]
+        O2["AjustoContextualMessageBridger<br/>androidApp — implemente l interface KMP"]
+        O3["TripService<br/>Core Java"]
+        O2 -.->|implements| O1
+        O2 -->|lit| O3
+    end
+
+    subgraph IN["&nbsp;SENS 2 — BRIDGER ENTRANT : le Core consomme le KMP&nbsp;"]
+        direction TB
+        I3["AjustoRepository / AccountRepository<br/>interface CORE JAVA — le CONTRAT"]
+        I2["CmtRepositoryBridger / AccountRepositoryBridger<br/>androidApp — implemente l interface CORE"]
+        I1["CmtRepository / AccountRepository KMP<br/>implementation KMP — la LOGIQUE"]
+        I2 -.->|implements| I3
+        I2 -->|delegue a| I1
+    end
+
+    OUT --> USE1["USAGE : exposer un signal du Core<br/>a la nouvelle couche KMP"]
+    IN --> USE2["USAGE : REMPLACER un morceau du Core<br/>par du KMP, sans casser le Core"]
+
+    style OUT fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style IN fill:#123020,stroke:#3fb950,color:#e6edf3
+    style USE2 fill:#0f2417,stroke:#3fb950,color:#fff
+  </div>
+</div>
+
+<h3>Le bridger entrant, en code réel</h3>
+
+<pre><span class="c">/*
+ * Matching ios implementation: iosapp/app/legacy/bridger/ajusto/AjustoRepositoryBridger
+ *     - CmtRepository: Kore      ← le NOUVEAU, en KMP
+ *     - AjustoRepository: Core   ← l'ANCIEN contrat Java
+ */</span>
+object CmtRepositoryBridger : <span class="b">AjustoRepository</span> {        <span class="c">// ← interface CORE JAVA</span>
+
+    private lateinit var repository: <span class="g">CmtRepository</span>       <span class="c">// ← implémentation KMP</span>
+    private val repositoryScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    fun injectCmtRepository(cmtRepository: CmtRepository) { repository = cmtRepository }
+
+    override fun createAjustoLoginOperation(): SCRATCHOperation&lt;CMTProfile?&gt; =
+        object : <span class="y">SCRATCHOperationCoroutine</span>&lt;CMTProfile?&gt;(coroutineScope = repositoryScope) {
+            override suspend fun suspendedRun() {
+                val koreOutput = repository.createCmtLoginOperation()      <span class="c">// ← appel KMP</span>
+                when (val result = KoreTranslator.handleKoreResponse(koreOutput)) {
+                    is Success -&gt; dispatchSuccess((result.data as CmtProfile).<span class="g">asCore</span>)
+                    is Error   -&gt; dispatchOperationResultWithError(SCRATCHUnknownError())
+                }
+            }
+        }
+}</pre>
+
+<p>L'outil qui rend ça possible — un adaptateur <em>coroutine → SCRATCHOperation</em> :</p>
+
+<pre>abstract class SCRATCHOperationCoroutine&lt;A&gt;(coroutineScope: CoroutineScope) : SCRATCHBaseOperation&lt;A&gt;() {
+    private val operationScope = coroutineScope.plus(SupervisorJob())
+    override fun cancel()      { super.cancel(); operationScope.cancel() }
+    final override fun internalRun() { operationScope.launch { suspendedRun() } }
+    abstract suspend fun suspendedRun()
+}</pre>
+
+<div class="key">
+  <strong>Pourquoi c'est décisif.</strong> Le bridger <em>sortant</em> permet d'<strong>exposer</strong>
+  le Core au KMP — c'est ce que fait <code>AjustoContextualMessageBridger</code>. Le bridger
+  <em>entrant</em> permet de <strong>remplacer</strong> un morceau du Core par du KMP sans que le
+  Core s'en aperçoive.
+  <br><br>
+  <strong>C'est le seul vecteur réaliste de migration de <code>TripService</code></strong> :
+  on ne remplace pas <code>TripServiceImpl</code>, on remplace ses <em>dépendances</em>, une par
+  une, en laissant un bridger entrant pour que le Java continue de fonctionner. Le Core devient
+  progressivement une coquille qui orchestre du KMP.
+</div>
+
+<h3>Inventaire des bridgers du projet, classés</h3>
+<table>
+  <tr><th>Bridger</th><th>Sens</th><th>Interface implémentée</th><th>Ce qu'il relie</th></tr>
+  <tr><td><code>AjustoContextualMessageBridger</code></td><td><span class="pill p-dgag">SORTANT</span></td><td><code>AjustoContextualMessageSource</code> (KMP)</td><td>lit <code>TripService</code></td></tr>
+  <tr><td><code>AjustoBadgeControllerBridger</code></td><td><span class="pill p-dgag">SORTANT</span></td><td><code>AjustoBadgeSource</code> (KMP)</td><td>lit <code>badgeProvider</code>, <code>badgeManager</code></td></tr>
+  <tr><td><code>CmtRepositoryBridger</code></td><td><span class="pill p-i18n">ENTRANT</span></td><td><code>AjustoRepository</code> (Core)</td><td>délègue à <code>CmtRepository</code> KMP</td></tr>
+  <tr><td><code>AccountRepositoryBridger</code></td><td><span class="pill p-i18n">ENTRANT</span></td><td><code>AccountRepository</code> (Core)</td><td>délègue au KMP — 127 lignes</td></tr>
+  <tr><td><code>CmtProfileServiceBridger</code></td><td>?</td><td>—</td><td>stub dans la reconstitution</td></tr>
+  <tr><td><code>CmtSessionControllerBridger</code></td><td>?</td><td>—</td><td>stub</td></tr>
+  <tr><td><code>CmtSettingsControllerBridger</code></td><td>?</td><td>—</td><td>stub</td></tr>
+  <tr><td><code>OperationBridger</code></td><td>utilitaire</td><td>—</td><td><code>SCRATCHOperation</code> → <code>suspend</code></td></tr>
+  <tr><td><code>SCRATCHOperationCoroutine</code></td><td>utilitaire</td><td><code>SCRATCHBaseOperation</code></td><td><code>suspend</code> → <code>SCRATCHOperation</code></td></tr>
+</table>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s5">5 · Deux dépendances de <code>TripServiceImpl</code> sont déjà migrées</h2>
+
+<p>Regarde la ligne 12 du tableau des dépendances : <code>AccountRepository</code>.</p>
+
+<pre><span class="c">// TripServiceImpl.java — dépendance n° 12</span>
+import ca.dgag.ajusto.core.account.data.repository.AccountRepository;
+private final AccountRepository accountRepository;
+
+<span class="c">// androidApp — AccountRepositoryBridger.kt, 127 lignes</span>
+import ca.dgag.ajusto.core.account.data.repository.AccountRepository
+object AccountRepositoryBridger : <span class="b">AccountRepository</span> { … }     <span class="c">// ← bridger ENTRANT</span></pre>
+
+<div class="fig">
+  <p class="cap">Figure 4 — <code>TripServiceImpl</code> consomme déjà du KMP sans le savoir</p>
+  <div class="mermaid">
+flowchart TB
+    TSI["TripServiceImpl<br/>Java, dans le Core"]
+
+    TSI -->|"appelle accountRepository"| AR["AccountRepository<br/>interface Core Java"]
+    AR -.->|"implemente par"| ARB["AccountRepositoryBridger<br/>androidApp, 127 lignes"]
+    ARB -->|"delegue a"| KMP["Repository KMP<br/>+ translators asCore / asKore"]
+
+    TSI2["autres consommateurs Core"] --> AR
+
+    style TSI fill:#3d1414,stroke:#f85149,color:#e6edf3
+    style ARB fill:#123020,stroke:#3fb950,color:#fff
+    style KMP fill:#12293d,stroke:#58a6ff,color:#e6edf3
+  </div>
+</div>
+
+<div class="good">
+  <strong>Ce que ça prouve, et c'est le point le plus important de ce document.</strong>
+  <ul style="margin-bottom:0">
+    <li>La stratégie « remplacer les dépendances du Core par du KMP derrière un bridger entrant »
+      n'est pas une proposition théorique — <strong>elle est déjà appliquée dans ce projet</strong>,
+      au moins deux fois (<code>AccountRepository</code>, <code>AjustoRepository</code>).</li>
+    <li>Les outils existent : <code>SCRATCHOperationCoroutine</code>, <code>KoreTranslator</code>,
+      les extensions <code>asCore</code> / <code>asKore</code> dans
+      <code>bridger/translators/</code>.</li>
+    <li>Le commentaire de <code>CmtRepositoryBridger</code> référence explicitement l'implémentation
+      iOS jumelle — donc le patron est <strong>assumé et documenté à deux plateformes</strong>.</li>
+    <li>Donc <code>TripServiceImpl</code> tourne <strong>déjà</strong>, en production, avec au moins
+      une de ses 18 dépendances réimplémentée en Kotlin Multiplatform. Ce n'est pas un saut dans
+      l'inconnu.</li>
+  </ul>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s6">6 · Ce qu'il faut migrer d'abord : les 10 vagues</h2>
+
+<p>
+  L'ordre n'est pas arbitraire : il suit les <strong>feuilles</strong> de l'arbre de dépendances.
+  On commence par ce qui ne dépend de rien, on finit par ce qui dépend de tout.
+</p>
+
+<div class="fig">
+  <p class="cap">Figure 5 — L'ordre de migration, des feuilles vers la racine</p>
+  <div class="mermaid">
+flowchart TB
+    V0["VAGUE 0 — NE RIEN MIGRER<br/>extraire le message contextuel derriere un port<br/>bridger sortant, deja en place"]
+
+    V0 --> V1["VAGUE 1 — DeviceInfo<br/>4 methodes utilisees par la cascade<br/>expect actual pur systeme<br/>0 dependance"]
+    V0 --> V2["VAGUE 2 — LocalizedStringSource + BrandLogic<br/>i18n deja partiellement en KMP<br/>ad-digital-mobile-i18n-lib"]
+
+    V1 --> V3["VAGUE 3 — Badge BadgeScoper<br/>TopClaimableBadgeFinder<br/>AjustoBadge existe DEJA en KMP"]
+    V1 --> V4["VAGUE 4 — AjustoDeviceCompatible<br/>table statique + DeviceInfo"]
+
+    V2 --> V5["VAGUE 5 — AjustoParameters + Mode<br/>AccountService partiel"]
+    V5 --> V6["VAGUE 6 — CMTProfile policyEffectiveDate<br/>CmtProfileServiceBridger existe deja"]
+    V5 --> V7["VAGUE 7 — ClassifyInviteChecker<br/>keyValueStorage + params + trips"]
+
+    V3 --> V8
+    V4 --> V8
+    V6 --> V8
+    V7 --> V8
+    V8["VAGUE 8 — LA CASCADE<br/>findContextualMessage devient un UseCase KMP<br/>LE PLUS FACILE une fois 1 a 7 faits"]
+
+    V8 --> V9["VAGUE 9 — Domaine trajets<br/>CMTTrip sync cache sections<br/>TRES LOURD"]
+    V9 --> V10["VAGUE 10 — Enregistrement<br/>SDK telematique CMT<br/>JAMAIS du KMP pur — expect actual obligatoire"]
+
+    style V0 fill:#123020,stroke:#3fb950,color:#fff
+    style V1 fill:#0f2417,stroke:#3fb950,color:#e6edf3
+    style V2 fill:#0f2417,stroke:#3fb950,color:#e6edf3
+    style V8 fill:#12293d,stroke:#58a6ff,color:#fff
+    style V9 fill:#3a2a10,stroke:#d29922,color:#e6edf3
+    style V10 fill:#3d1414,stroke:#f85149,color:#fff
+  </div>
+</div>
+
+<h3>Détail des vagues</h3>
+<table>
+  <tr><th>V</th><th>Quoi</th><th>Pourquoi à ce rang</th><th>Difficulté</th><th>Bridger nécessaire</th><th>Débloque</th></tr>
+  <tr>
+    <td><strong>0</strong></td><td>Message contextuel derrière un port KMP</td>
+    <td>0 dépendance Core à toucher — c'est le chantier en cours</td>
+    <td><span class="stars s1">★☆☆☆☆</span></td><td>sortant (existe)</td><td>l'écran Summary</td>
+  </tr>
+  <tr>
+    <td><strong>1</strong></td><td><code>DeviceInfo</code> — <code>isBatteryLow</code>, <code>isBatteryChargeSustained</code>, <code>isPowerSavingModeEnabled</code>, <code>isAjustoDeviceBrandCompatible</code></td>
+    <td>aucune dépendance, pur système, <code>expect/actual</code> trivial des deux côtés</td>
+    <td><span class="stars s1">★☆☆☆☆</span></td><td>entrant</td><td>règles 1, 3, 4</td>
+  </tr>
+  <tr>
+    <td><strong>2</strong></td><td><code>LocalizedStringSource</code> + <code>BrandLogic</code></td>
+    <td>aucune dépendance métier ; tu as déjà <code>ad-digital-mobile-i18n-lib</code></td>
+    <td><span class="stars s2">★★☆☆☆</span></td><td>entrant</td><td>tous les textes</td>
+  </tr>
+  <tr>
+    <td><strong>3</strong></td><td><code>Badge</code>, <code>BadgeScoper</code>, <code>TopClaimableBadgeFinder</code></td>
+    <td>modèle pur + algo de tri ; <code>AjustoBadge</code> existe déjà côté KMP</td>
+    <td><span class="stars s2">★★☆☆☆</span></td><td>entrant</td><td>règle 7</td>
+  </tr>
+  <tr>
+    <td><strong>4</strong></td><td><code>AjustoDeviceCompatible</code></td>
+    <td>table de compatibilité + <code>DeviceInfo</code> (vague 1)</td>
+    <td><span class="stars s2">★★☆☆☆</span></td><td>entrant</td><td>règle 2</td>
+  </tr>
+  <tr>
+    <td><strong>5</strong></td><td><code>AjustoParameters</code> + <code>Mode</code> (via <code>AccountService</code>)</td>
+    <td>modèle + appel HTTP ; <code>AccountRepository</code> est déjà migré</td>
+    <td><span class="stars s3">★★★☆☆</span></td><td>entrant</td><td>règles 5, 7</td>
+  </tr>
+  <tr>
+    <td><strong>6</strong></td><td><code>CMTProfile</code> — <code>policyEffectiveDate</code>, <code>remainingDaysUntilPolicyTakesEffect</code></td>
+    <td><code>CmtProfileServiceBridger</code> + interface KMP <code>CmtProfileService</code> existent</td>
+    <td><span class="stars s3">★★★☆☆</span></td><td>entrant (existe)</td><td>règle 6</td>
+  </tr>
+  <tr>
+    <td><strong>7</strong></td><td><code>ClassifyInviteChecker</code></td>
+    <td>dépend de la vague 5 + <code>keyValueStorage</code> + <code>latestTrips</code> (vague 9)</td>
+    <td><span class="stars s3">★★★☆☆</span></td><td>entrant</td><td>règle 5</td>
+  </tr>
+  <tr>
+    <td><strong>8</strong></td><td><strong>La cascade</strong> <code>findContextualMessage()</code></td>
+    <td>pure logique — devient un UseCase KMP trivial une fois 1 à 7 en place</td>
+    <td><span class="stars s1">★☆☆☆☆</span></td><td>entrant</td><td><strong>le message contextuel en KMP natif</strong></td>
+  </tr>
+  <tr>
+    <td><strong>9</strong></td><td><code>getLatestTripsObservable</code> — domaine trajets</td>
+    <td><code>CMTTrip</code>, sync, cache, sections, <code>TripViewData</code></td>
+    <td><span class="stars s5">★★★★★</span></td><td>entrant</td><td>règle 5 complète</td>
+  </tr>
+  <tr>
+    <td><strong>10</strong></td><td><code>getTripRecordStateObservable</code> — SDK télématique</td>
+    <td>natif par nature ; ne sera jamais du KMP pur</td>
+    <td><span class="stars s5">★★★★★</span></td><td><code>expect/actual</code></td><td>règle 4</td>
+  </tr>
+</table>
+
+<div class="note">
+  <strong>La ligne de partage utile.</strong> Les vagues 1 à 4 sont <strong>indépendantes entre
+  elles</strong> et n'exigent aucune coordination avec le Core au-delà d'un bridger entrant. Elles
+  sont livrables en parallèle, par des personnes différentes, sans blocage mutuel.
+  <br><br>
+  Les vagues 5 à 8 forment une chaîne. Les vagues 9 et 10 sont un chantier de plateforme distinct.
+</div>
+
+<h3>Le raccourci qu'on oublie</h3>
+
+<div class="key">
+  Si l'objectif est <em>uniquement</em> le message contextuel, il existe un chemin plus court que
+  les 10 vagues : porter <strong>la cascade</strong> (vague 8) en KMP, et alimenter ses 7 entrées
+  par des <strong>bridgers sortants</strong> individuels plutôt que par une migration.
+  <pre style="margin:12px 0 0;background:#0d1117">interface AjustoContextualMessageInputs {          <span class="c">// port KMP</span>
+    val isDeviceBrandCompatible: Flow&lt;Boolean&gt;    <span class="c">// ← DeviceInfoBridger</span>
+    val isDeviceCompatible: Flow&lt;Boolean&gt;         <span class="c">// ← DeviceCompatibleBridger</span>
+    val isBatteryLow: Flow&lt;Boolean&gt;               <span class="c">// ← DeviceInfoBridger</span>
+    val isBatteryChargeSustained: Flow&lt;Boolean&gt;   <span class="c">// ← DeviceInfoBridger</span>
+    val isPowerSavingEnabled: Flow&lt;Boolean&gt;       <span class="c">// ← DeviceInfoBridger</span>
+    val isRecording: Flow&lt;Boolean&gt;                <span class="c">// ← TripRecordBridger</span>
+    val showClassifyInvite: Flow&lt;Boolean&gt;         <span class="c">// ← ClassifyInviteBridger</span>
+    val policyEffectiveDays: Flow&lt;Int?&gt;           <span class="c">// ← CmtProfileService (existe déjà)</span>
+    val claimableBadge: Flow&lt;AjustoBadge?&gt;        <span class="c">// ← AjustoBadgeSource (existe déjà)</span>
+}</pre>
+  <p style="margin-bottom:0">
+    <strong>Coût</strong> : 4 nouveaux bridgers sortants (2 existent déjà), tous en lecture seule,
+    tous triviaux. <strong>Gain</strong> : la cascade devient KMP, testable en
+    <code>commonTest</code>, partagée avec iOS, et tu ne touches <em>rien</em> dans le Core.
+    <br>
+    <strong>Coût caché</strong> : la cascade existe alors en double — Java pour le Dashboard, Kotlin
+    pour le Summary. Deux implémentations à garder synchronisées tant que le Dashboard vit.
+    C'est le vrai arbitrage à poser.
+  </p>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s7">7 · Les 9 risques</h2>
+
+<div class="risk">
+  <span class="tags"><span class="tag t-crit">IMPACT CRITIQUE</span><span class="tag t-high">PROBA HAUTE</span></span>
+  <h4>R1 · Casser iOS via J2ObjC</h4>
+  <p><code>TripService.java</code> porte <code>@ObjectiveCName</code> sur 10 de ses 24 méthodes.
+  L'interface est transpilée en Objective-C et consommée par l'app iOS. Toute modification de
+  signature — même un renommage — casse la compilation iOS.</p>
+  <p style="margin-bottom:0"><strong>Mitigation</strong> : ne jamais modifier <code>TripService</code>.
+  Ajouter à côté, ne pas transformer. Le bridger entrant préserve la signature exacte.</p>
+</div>
+
+<div class="risk">
+  <span class="tags"><span class="tag t-high">IMPACT HAUT</span><span class="tag t-high">PROBA HAUTE</span></span>
+  <h4>R2 · Dépôt séparé, cycles de release décalés</h4>
+  <p><code>ad-digital-mobile-core-lib</code> et <code>ad-digital-mobile-aio</code> sont deux dépôts.
+  Le Core est consommé comme artefact Artifactory. Une modification du Core suppose : PR sur l'autre
+  dépôt, release, montée de version chez toi, régression sur tous les consommateurs.</p>
+  <p style="margin-bottom:0"><strong>Mitigation</strong> : le bridger entrant vit dans
+  <strong>ton</strong> dépôt (<code>androidApp/bridger/</code>). Tu changes l'implémentation sans
+  toucher au Core — c'est exactement ce que fait déjà <code>AccountRepositoryBridger</code>.</p>
+</div>
+
+<div class="risk">
+  <span class="tags"><span class="tag t-crit">IMPACT CRITIQUE</span><span class="tag t-med">PROBA MOYENNE</span></span>
+  <h4>R3 · Le SDK télématique n'est pas portable</h4>
+  <p><code>CMTTripManager</code>, <code>CMTTripProvider</code>, <code>CMTSessionController</code>,
+  <code>CMTSettingsController</code>, <code>CMTEvent</code>, <code>CMTGeolocation</code>,
+  <code>CMTTrip</code> — 7 types du wrapper Cambridge Mobile Telematics. C'est du natif par nature
+  (permissions, capteurs, service en arrière-plan).</p>
+  <p style="margin-bottom:0"><strong>Mitigation</strong> : accepter qu'ils resteront derrière un
+  <code>expect/actual</code> ou un bridger, définitivement. Ne pas les mettre dans le périmètre.</p>
+</div>
+
+<div class="risk">
+  <span class="tags"><span class="tag t-high">IMPACT HAUT</span><span class="tag t-high">PROBA HAUTE</span></span>
+  <h4>R4 · SCRATCH ≠ Flow — les sémantiques ne se superposent pas</h4>
+  <p>Quatre comportements SCRATCH n'ont pas d'équivalent direct :</p>
+  <table style="margin:12px 0 0">
+    <tr><th>SCRATCH</th><th>Comportement</th><th>Équivalent Flow</th></tr>
+    <tr><td><code>notifyEventIfChanged(v)</code></td><td>déduplique à l'émission</td><td><code>distinctUntilChanged()</code> — mais côté <em>consommateur</em></td></tr>
+    <tr><td><code>clearLastResult()</code></td><td>vide le cache : les nouveaux abonnés ne reçoivent rien</td><td><strong>aucun</strong> — un <code>StateFlow</code> garde toujours sa valeur</td></tr>
+    <tr><td><code>subscribeOnce()</code></td><td>un seul événement puis désabonnement</td><td><code>first()</code> — mais sémantique de complétion différente</td></tr>
+    <tr><td><code>SCRATCHObservable.Token</code></td><td>handle d'annulation réassignable</td><td><code>Job</code> — mais pas réassignable en place</td></tr>
+  </table>
+  <p style="margin-bottom:0"><strong>Le piège concret</strong> : <code>clearLastResult()</code>. Le
+  Core l'appelle à la déconnexion (<code>isAuthenticated == false</code>). Un <code>StateFlow</code>
+  KMP conservera la dernière valeur — c'est exactement la vulnérabilité V9 identifiée sur le
+  Summary. Toute migration doit modéliser ce reset explicitement.</p>
+</div>
+
+<div class="risk">
+  <span class="tags"><span class="tag t-high">IMPACT HAUT</span><span class="tag t-med">PROBA MOYENNE</span></span>
+  <h4>R5 · État mutable partagé dans <code>TripServiceImpl</code></h4>
+  <p>8 champs mutables + 12 <code>SCRATCHObservableImpl</code> avec cache interne, sans
+  synchronisation explicite hormis un <code>AtomicBoolean</code>. <code>contextualMessageToken</code>
+  est réassigné à chaque événement du <code>combineLatest</code> — donc l'ancien token est perdu sans
+  être annulé.</p>
+  <p style="margin-bottom:0"><strong>Mitigation</strong> : ne pas réécrire ce fichier. Le
+  contourner par les dépendances.</p>
+</div>
+
+<div class="risk">
+  <span class="tags"><span class="tag t-med">IMPACT MOYEN</span><span class="tag t-high">PROBA HAUTE</span></span>
+  <h4>R6 · Ordre d'initialisation du constructeur</h4>
+  <p>Le constructeur appelle <code>registerObservables()</code> puis <strong>6</strong> méthodes
+  <code>notifyXxx()</code> dans un ordre précis. Ces méthodes créent des abonnements croisés entre
+  observables. Un portage qui change l'ordre — ou qui rend une dépendance lazy — produit un état
+  initial différent, souvent visible seulement au premier lancement après installation.</p>
+  <p style="margin-bottom:0"><strong>Mitigation</strong> : tests d'intégration sur le premier
+  lancement, pas seulement sur les relances.</p>
+</div>
+
+<div class="risk">
+  <span class="tags"><span class="tag t-med">IMPACT MOYEN</span><span class="tag t-med">PROBA MOYENNE</span></span>
+  <h4>R7 · Le downcast du listener</h4>
+  <pre style="margin:10px 0">public void onModalClick() {
+    if (listener instanceof TripService.AjustoSnapInProgressListener) {
+        ((AjustoSnapInProgressListener) listener).onLimitedFeedbackModalClick();
+    } else if (listener instanceof TripService.AjustoSnapListener) {
+        ((AjustoSnapListener) listener).onDeviceNotCompatibleModalClick();
+    }
+}</pre>
+  <p>Un <code>instanceof</code> en cascade sur une interface marqueur vide
+  (<code>interface Listener { }</code>). Le comportement du bouton « marque non compatible » dépend
+  du <em>type dynamique</em> de ce qui a été passé à <code>setListener()</code>. Aucun contrat ne
+  dit lequel.</p>
+  <p style="margin-bottom:0"><strong>Mitigation</strong> : identifier qui appelle
+  <code>setListener()</code> aujourd'hui avant de brancher ce bouton sur le Summary. Si personne ne
+  l'appelle depuis le nouvel écran, le bouton restera muet quoi qu'on fasse côté bridger.</p>
+</div>
+
+<div class="risk">
+  <span class="tags"><span class="tag t-high">IMPACT HAUT</span><span class="tag t-med">PROBA MOYENNE</span></span>
+  <h4>R8 · Régression silencieuse de la cascade</h4>
+  <p>La cascade est un <code>if / else if</code> à priorité stricte. Une réimplémentation qui
+  inverse deux branches ne plante pas : elle affiche simplement le mauvais message dans les cas où
+  deux conditions sont vraies simultanément — par exemple batterie faible <em>et</em> badge
+  réclamable. Ce sont les cas les plus rares, donc les moins testés.</p>
+  <p style="margin-bottom:0"><strong>Mitigation</strong> : une table de vérité exhaustive en
+  <code>commonTest</code> — 7 conditions booléennes, tester les combinaisons où plusieurs sont
+  vraies, pas seulement une à la fois.</p>
+</div>
+
+<div class="risk">
+  <span class="tags"><span class="tag t-med">IMPACT MOYEN</span><span class="tag t-high">PROBA HAUTE</span></span>
+  <h4>R9 · Double source de vérité pendant la transition</h4>
+  <p>Tant que <code>AjustoDashboardFragment</code> et <code>AjustoSummaryFragment</code> cohabitent
+  — et ils cohabitent : les deux implémentent <code>AjustoTabViewPagerFragment</code>, donc sont
+  instanciés ensemble dans le ViewPager — il y a <strong>deux abonnements</strong> au même
+  observable, produisant deux rendus. Si la cascade est dupliquée en KMP (voir le raccourci §6), ça
+  devient deux <em>calculs</em> distincts.</p>
+  <p style="margin-bottom:0"><strong>Mitigation</strong> : décider explicitement qui est la source
+  de vérité, et borner dans le temps la période de cohabitation.</p>
+</div>
+
+<h3>Matrice de synthèse</h3>
+<table>
+  <tr><th></th><th>Proba faible</th><th>Proba moyenne</th><th>Proba haute</th></tr>
+  <tr>
+    <td><strong>Impact critique</strong></td><td>—</td>
+    <td>R3 SDK télématique</td><td style="background:#3d1414">R1 casser iOS</td>
+  </tr>
+  <tr>
+    <td><strong>Impact haut</strong></td><td>—</td>
+    <td>R5 état mutable · R8 régression cascade</td>
+    <td style="background:#3a2a10">R2 dépôt séparé · R4 SCRATCH ≠ Flow</td>
+  </tr>
+  <tr>
+    <td><strong>Impact moyen</strong></td><td>—</td>
+    <td>R7 downcast listener</td><td>R6 ordre d'init · R9 double source</td>
+  </tr>
+</table>
+
+<!-- ══════════════════════════════════════════════════════════ -->
+<h2 id="s8">8 · Stratégie recommandée et verdict</h2>
+
+<div class="fig">
+  <p class="cap">Figure 6 — La stratégie : évider le Core par les dépendances, pas par le service</p>
+  <div class="mermaid">
+flowchart TB
+    subgraph A["&nbsp;CE QU IL NE FAUT PAS FAIRE&nbsp;"]
+        direction TB
+        A1["Reecrire TripServiceImpl en Kotlin"]
+        A2["775 lignes, 18 dependances,<br/>12 observables, 8 champs mutables"]
+        A3["casse iOS via J2ObjC<br/>autre depot, autre cycle<br/>SDK telematique non portable"]
+        A1 --> A2 --> A3
+    end
+
+    subgraph B["&nbsp;CE QU IL FAUT FAIRE&nbsp;"]
+        direction TB
+        B1["Laisser TripServiceImpl intact"]
+        B2["Remplacer ses DEPENDANCES une par une<br/>par des impls KMP + bridger ENTRANT"]
+        B3["Le Core devient une coquille<br/>qui orchestre du KMP"]
+        B4["Precedent existant :<br/>AccountRepositoryBridger<br/>CmtRepositoryBridger"]
+        B1 --> B2 --> B3
+        B4 --> B2
+    end
+
+    subgraph C["&nbsp;EN PARALLELE — le chantier en cours&nbsp;"]
+        direction TB
+        C1["Message contextuel derriere un port KMP<br/>bridger SORTANT"]
+        C2["domain + data + presentation<br/>sans toucher au Core"]
+        C1 --> C2
+    end
+
+    style A fill:#3d1414,stroke:#f85149,color:#e6edf3
+    style B fill:#123020,stroke:#3fb950,color:#e6edf3
+    style C fill:#12293d,stroke:#58a6ff,color:#e6edf3
+</div>
+</div>
+
+<div class="grid2">
+  <div class="card r">
+    <h5>Ce qu'il ne faut pas faire</h5>
+    <ul style="margin-bottom:0">
+      <li>Réécrire <code>TripServiceImpl</code> — 775 lignes, 18 dépendances, 7 types SDK</li>
+      <li>Modifier la signature de <code>TripService</code> — <code>@ObjectiveCName</code>, iOS casse</li>
+      <li>Porter la cascade <em>avant</em> ses 7 entrées — elle ne servirait à rien</li>
+      <li>Commencer par les trajets ou l'enregistrement — les deux plus lourds</li>
+    </ul>
+  </div>
+  <div class="card g">
+    <h5>Ce qu'il faut faire</h5>
+    <ul style="margin-bottom:0">
+      <li>Terminer la vague 0 : message contextuel en <code>domain</code> / <code>data</code> / <code>presentation</code></li>
+      <li>Attaquer les vagues 1 à 4, indépendantes et parallélisables</li>
+      <li>Utiliser le <strong>bridger entrant</strong> — le patron est déjà en production ici</li>
+      <li>Garder <code>TripService</code> immuable, définitivement</li>
+    </ul>
+  </div>
+</div>
+
+<h3>Réponses directes à tes trois questions</h3>
+
+<table>
+  <tr><th>Question</th><th>Réponse</th></tr>
+  <tr>
+    <td><strong>Que prend <code>AjustoContextualMessageBridger</code> de <code>TripService</code> ?</strong></td>
+    <td>Une propriété sur 24 : <code>getContextualMessageObservable()</code>, plus deux opérateurs
+    SCRATCH (<code>observeOn</code>, <code>subscribe</code>) et trois types Core
+    (<code>AjustoContextualMessage</code>, <code>BadgeContextualMessage</code>,
+    <code>ExecutableContextualMessage.Icon</code>). Il n'appelle ni <code>cancel()</code> ni
+    <code>setListener()</code>. Surface : <strong>4,2 %</strong>.</td>
+  </tr>
+  <tr>
+    <td><strong>Que faut-il migrer d'abord ?</strong></td>
+    <td>Pas des <em>méthodes de <code>TripService</code></em> — des <strong>dépendances de la
+    cascade</strong>. Dans l'ordre : <code>DeviceInfo</code> (★☆☆☆☆), puis
+    <code>LocalizedStringSource</code>/<code>BrandLogic</code>, <code>Badge</code>+<code>BadgeScoper</code>+<code>TopClaimableBadgeFinder</code>,
+    <code>AjustoDeviceCompatible</code>. Les quatre sont indépendantes entre elles.
+    La cascade elle-même vient en 8ᵉ, et c'est la plus facile.</td>
+  </tr>
+  <tr>
+    <td><strong>Quelles autres dépendances ?</strong></td>
+    <td>44 imports non-JDK en 5 familles : <strong>7</strong> du SDK télématique CMT (non portables),
+    <strong>18</strong> du framework SCRATCH (paradigme entier), <strong>2</strong> du DI Itch,
+    <strong>1</strong> d'i18n Circumflex, <strong>26</strong> du domaine DGAG.
+    Plus <code>ClassifyInviteChecker</code>, <code>BadgeScoper</code>,
+    <code>TopClaimableBadgeFinder</code> instanciés dynamiquement dans
+    <code>notifyContextualMessage()</code> — invisibles dans le constructeur.</td>
+  </tr>
+</table>
+
+<div class="good">
+  <strong>Le verdict, en une phrase.</strong> <code>TripService</code> n'est pas à migrer : il est à
+  <em>évider</em>. On ne touche ni à son interface (iOS en dépend) ni à son implémentation
+  (775 lignes, 18 dépendances, un SDK natif). On remplace ses dépendances une par une par du KMP,
+  derrière des bridgers entrants — <strong>un patron déjà en production dans ce projet avec
+  <code>AccountRepositoryBridger</code> et <code>CmtRepositoryBridger</code></strong>. Le message
+  contextuel, lui, n'a pas besoin d'attendre : il sort par un bridger sortant qui ne coûte que
+  4,2 % de la surface du service.
+</div>
+
+<p style="color:var(--tx2);font-size:14px;margin-top:40px">
+  Sources : <code>TripService.java</code> (94 l.), <code>TripServiceImpl.java</code> (775 l.),
+  <code>AjustoContextualMessageHelper.java</code>, <code>DeviceInfo.java</code>,
+  <code>AjustoContextualMessageBridger.kt</code>, <code>CmtRepositoryBridger.kt</code>,
+  <code>AccountRepositoryBridger.kt</code>, <code>SCRATCHOperationCoroutine.kt</code>,
+  <code>AndroidBootstrapper.kt</code>, <code>KoreStartupInputKoinModule.kt</code>.
+  <br>
+  ⚠️ Réserve : plusieurs fichiers du Core sont des stubs dans la reconstitution
+  (<code>TopClaimableBadgeFinder</code>, <code>CmtProfileServiceBridger</code>,
+  <code>CmtSessionControllerBridger</code>, <code>CmtSettingsControllerBridger</code>,
+  <code>BrandLogic</code>, <code>CMTProfile</code>). Les conclusions qui en dépendent sont signalées
+  comme telles.
+</p>
+
+</div>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    fontSize: '17px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+    primaryColor: '#1c2230', primaryTextColor: '#e6edf3', primaryBorderColor: '#58a6ff',
+    lineColor: '#7d8590', secondaryColor: '#161b22', tertiaryColor: '#12293d',
+    background: '#0d1117', mainBkg: '#1c2230', nodeBorder: '#58a6ff',
+    clusterBkg: '#161b22', clusterBorder: '#30363d', edgeLabelBackground: '#0d1117',
+    actorBkg: '#1c2230', actorBorder: '#58a6ff', actorTextColor: '#e6edf3',
+    signalColor: '#e6edf3', signalTextColor: '#e6edf3',
+    noteBkgColor: '#241f10', noteTextColor: '#e6edf3', noteBorderColor: '#d29922',
+    sequenceNumberColor: '#0d1117'
+  },
+  flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 55, rankSpacing: 75, padding: 20 },
+  sequence: { actorMargin: 80, width: 180, height: 58, messageFontSize: 15, noteFontSize: 14 },
+  class: { padding: 20 }
+});
+</script>
+</body>
+</html>

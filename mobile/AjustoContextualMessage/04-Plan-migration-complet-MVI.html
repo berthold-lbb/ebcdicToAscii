@@ -1,0 +1,1838 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Plan complet — amélioration Bridger/Shim et migration Data · Domain · Presentation (MVI)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#30363d;
+    --tx:#e6edf3; --tx2:#9aa7b4; --acc:#58a6ff;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --info:#a371f7;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1560px;margin:0 auto;padding:40px 28px 140px}
+  h1{font-size:34px;line-height:1.2;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--tx2);font-size:15px;margin-bottom:38px}
+  h2{font-size:28px;margin:70px 0 8px;padding:26px 0 0;border-top:2px solid var(--acc);letter-spacing:-.01em}
+  h3{font-size:21px;margin:40px 0 10px;color:var(--acc)}
+  h4{font-size:17px;margin:26px 0 8px;color:var(--tx);font-weight:600}
+  h5{font-size:14px;margin:20px 0 8px;color:var(--tx2);text-transform:uppercase;letter-spacing:.08em}
+  p{margin:12px 0}
+  code{font-family:var(--mono);font-size:.9em;background:#1f2733;padding:2px 6px;border-radius:4px;color:#a5d6ff}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+      padding:18px 20px;overflow-x:auto;font-family:var(--mono);font-size:13px;line-height:1.62}
+  pre .c{color:#7d8590} pre .r{color:#ff7b72} pre .g{color:#7ee787} pre .y{color:#e3b341}
+  pre .b{color:#79c0ff} pre .m{color:#d2a8ff} pre .s{color:#a5d6ff}
+  .fig{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+       padding:26px 20px;margin:26px 0;overflow-x:auto}
+  .fig .cap{color:var(--tx2);font-size:13.5px;margin:0 0 18px;text-transform:uppercase;letter-spacing:.09em}
+  .mermaid{min-width:100%;display:flex;justify-content:center}
+  .mermaid svg{max-width:none !important;height:auto !important}
+  table{border-collapse:collapse;width:100%;margin:20px 0;font-size:13.5px}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600;color:var(--tx2);
+     text-transform:uppercase;font-size:11.5px;letter-spacing:.06em}
+  td code{font-size:12px}
+  tr:nth-child(even) td{background:#12171f}
+  .note{border-left:4px solid var(--acc);background:#12202f;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .warn{border-left:4px solid var(--warn);background:#241f10;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .bad{border-left:4px solid var(--bad);background:#2b1414;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .good{border-left:4px solid var(--ok);background:#0f2417;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .key{border-left:4px solid var(--info);background:#1d1630;padding:14px 18px;border-radius:0 8px 8px 0;margin:22px 0}
+  .pill{display:inline-block;padding:2px 10px;border-radius:99px;font-size:11.5px;font-weight:600;font-family:var(--mono)}
+  .p-dom{background:#12293d;color:#9fd4ff} .p-dat{background:#123020;color:#8ce8a8}
+  .p-pre{background:#2b1a3d;color:#d6b3ff} .p-and{background:#3a2a10;color:#ffd591}
+  .p-sh{background:#3d1414;color:#ffb3ad} .p-new{background:#1d4a2c;color:#7ee787}
+  .p-del{background:#5a1c1c;color:#ff9d94} .p-mod{background:#5a4520;color:#ffd591}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px}
+  @media(max-width:1100px){.grid2,.grid3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+  .card h5{margin:0 0 10px;font-size:14px;color:var(--acc);text-transform:none;letter-spacing:0}
+  .card.g{border-color:#1d4a2c} .card.g h5{color:#7ee787}
+  .card.r{border-color:#5a2020} .card.r h5{color:#ff9d94}
+  .card.w{border-color:#5a4520} .card.w h5{color:#ffd591}
+  ul{margin:12px 0;padding-left:22px} li{margin:7px 0}
+  ol{margin:12px 0;padding-left:24px} ol li{margin:8px 0}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px 28px;margin:30px 0}
+  .toc a{color:var(--acc);text-decoration:none} .toc a:hover{text-decoration:underline}
+  .toc ol{margin:0;padding-left:22px} .toc li{margin:6px 0}
+  .toc > ol > li{margin:12px 0;font-weight:600}
+  .toc ol ol{padding-left:20px;margin:6px 0} .toc ol ol li{font-weight:400;font-size:14.5px}
+  .imp{background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--ok);
+       border-radius:0 12px 12px 0;padding:20px 24px;margin:26px 0}
+  .imp h4{margin:0 0 4px;color:#7ee787;font-size:19px}
+  .imp .meta{float:right;font-size:11.5px;font-family:var(--mono)}
+  .tag{display:inline-block;padding:3px 9px;border-radius:99px;margin-left:6px}
+  .t-a{background:#1d4a2c;color:#7ee787} .t-b{background:#1c3a5a;color:#9fd4ff}
+  .t-c{background:#5a4520;color:#ffd591} .t-d{background:#5a1c1c;color:#ff9d94}
+  .tree{font-family:var(--mono);font-size:12.8px;line-height:1.75;background:var(--panel);
+        border:1px solid var(--line);border-radius:10px;padding:20px 22px;overflow-x:auto;white-space:pre}
+  .tree .new{color:#7ee787} .tree .mod{color:#e3b341} .tree .del{color:#ff7b72}
+  .tree .kp{color:#7d8590} .tree .dir{color:#79c0ff}
+  .ba{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);border-radius:12px;overflow:hidden;margin:22px 0}
+  .ba > div{padding:18px 20px}
+  .ba .before{background:#1c1416;border-right:1px solid var(--line)}
+  .ba .after{background:#131f18}
+  .ba h6{margin:0 0 10px;font-size:12px;text-transform:uppercase;letter-spacing:.09em;font-family:var(--mono)}
+  .ba .before h6{color:#ff9d94} .ba .after h6{color:#7ee787}
+  .ba pre{background:#0d1117;margin:0;font-size:12.3px}
+  @media(max-width:1100px){.ba{grid-template-columns:1fr} .ba .before{border-right:none;border-bottom:1px solid var(--line)}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Plan complet — améliorer le Bridger et le Shim, puis migrer en Data · Domain · Presentation (MVI)</h1>
+<p class="sub">
+  Construit à partir des trois analyses précédentes (Dashboard, Summary/Bridger, TripService).
+  Intègre le futur type de message « <strong>Bon à savoir</strong> » visible dans les maquettes.
+  Tout le code cité est vérifié sur le dépôt.
+</p>
+
+<div class="toc">
+  <ol>
+    <li><a href="#A">A · Synthèse : les 14 problèmes à résoudre</a></li>
+    <li><a href="#B">B · Plan d'amélioration du <strong>Bridger</strong></a>
+      <ol>
+        <li><a href="#B1">Le problème de fond : trois rôles empilés</a></li>
+        <li><a href="#B2">B1 — <code>object</code> → <code>class</code></a></li>
+        <li><a href="#B3">B2 — état + cycle de vie manuel → <code>callbackFlow</code></a></li>
+        <li><a href="#B4">B3 — 2 formes → 8 variantes typées</a></li>
+        <li><a href="#B5">B4 — lire <code>messageIconTint()</code></a></li>
+        <li><a href="#B6">B5 — porter <code>buttonExecutable</code></a></li>
+        <li><a href="#B7">Bilan des gains</a></li>
+      </ol>
+    </li>
+    <li><a href="#C">C · Plan d'amélioration du <strong>Shim</strong></a></li>
+    <li><a href="#D">D · Le nouveau type « Bon à savoir » — le test de l'architecture</a></li>
+    <li><a href="#E">E · Migration Data · Domain · Presentation en MVI</a>
+      <ol>
+        <li><a href="#E1">Le MVI tel qu'il est pratiqué ici</a></li>
+        <li><a href="#E2">L'arborescence cible, fichier par fichier</a></li>
+        <li><a href="#E3">DOMAIN — 6 fichiers</a></li>
+        <li><a href="#E4">DATA — 3 fichiers</a></li>
+        <li><a href="#E5">PRESENTATION — le MVI complet</a></li>
+        <li><a href="#E6">androidApp — les 2 bridgers</a></li>
+        <li><a href="#E7">Ce qui reste dans <code>shared</code>, ce qui disparaît</a></li>
+        <li><a href="#E8">Le câblage Koin complet</a></li>
+      </ol>
+    </li>
+    <li><a href="#F">F · Séquencement, tests, critères de sortie</a></li>
+  </ol>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<h2 id="A">A · Synthèse : les 14 problèmes à résoudre</h2>
+
+<p>Récapitulatif de tout ce que les trois analyses ont mis au jour, trié par couche.</p>
+
+<table>
+  <tr><th>#</th><th>Problème</th><th>Couche</th><th>Sévérité</th><th>Résolu par</th></tr>
+  <tr><td>P1</td><td><code>ShimImpl</code> lit <code>contextualMessagesStateFlow</code> (avec S) — la source expose <code>contextualMessageStateFlow</code></td><td><span class="pill p-sh">shared</span></td><td>bloquant</td><td>§C — le shim est réécrit</td></tr>
+  <tr><td>P2</td><td><code>init { startObserving() }</code> neutralise le <code>WhileSubscribed</code> et touche <code>AndroidScope</code> avant <code>Koin.start()</code></td><td><span class="pill p-and">androidApp</span></td><td>haute</td><td>§B3 — <code>callbackFlow</code></td></tr>
+  <tr><td>P3</td><td><code>messageIconTint()</code> jamais lu → batterie faible ≡ économie d'énergie</td><td><span class="pill p-and">androidApp</span></td><td>haute</td><td>§B5</td></tr>
+  <tr><td>P4</td><td><code>payload.iconKey</code> rempli puis ignoré → 4 icônes sur 7 deviennent <code>QuestionMark</code></td><td><span class="pill p-pre">presentation</span></td><td>haute</td><td>§B4 + §E5</td></tr>
+  <tr><td>P5</td><td>Aucun composable MessageBox dans <code>SummaryContent</code></td><td><span class="pill p-and">UI</span></td><td>haute</td><td>hors périmètre (lot final)</td></tr>
+  <tr><td>P6</td><td><code>buttonExecutable</code> jeté → bouton « marque non compatible » mort</td><td><span class="pill p-and">androidApp</span></td><td>moyenne</td><td>§B6</td></tr>
+  <tr><td>P7</td><td>Textes du badge non substitués → nom du badge au lieu de « Félicitations… »</td><td><span class="pill p-and">androidApp</span></td><td>moyenne</td><td>§B4 + §E5</td></tr>
+  <tr><td>P8</td><td><code>NavigateToClaimedBadgeView</code> tombe dans <code>else -&gt; {}</code></td><td><span class="pill p-and">UI</span></td><td>moyenne</td><td>hors périmètre (lot final)</td></tr>
+  <tr><td>P9</td><td><code>badgeIdentifier</code> transporté mais jamais utilisé ; <code>OnClaimBadge</code> n'a pas de paramètre</td><td><span class="pill p-pre">presentation</span></td><td>moyenne</td><td>§E5 — Action paramétrée</td></tr>
+  <tr><td>P10</td><td><code>StateFlow</code> survit à la déconnexion (<code>clearLastResult()</code> côté Core sans équivalent)</td><td><span class="pill p-dat">data</span></td><td>moyenne</td><td>§E4 — reset session</td></tr>
+  <tr><td>P11</td><td>Aucune analytics sur le message contextuel ; le legacy a un faux positif batterie/éco</td><td><span class="pill p-pre">presentation</span></td><td>moyenne</td><td>§E5</td></tr>
+  <tr><td>P12</td><td><code>isBatteryLow</code> / <code>hasNetworkAccess</code> lus impérativement dans le <code>combine</code></td><td><span class="pill p-sh">shared</span></td><td>faible</td><td>§C</td></tr>
+  <tr><td>P13</td><td><code>shimScope</code> jamais annulé ; <code>object</code> singleton non mockable</td><td><span class="pill p-sh">shared</span> <span class="pill p-and">androidApp</span></td><td>faible</td><td>§B2 + §C</td></tr>
+  <tr><td>P14</td><td><code>AjustoSummaryShimImpl</code> coincé dans <code>shared/</code> par ses imports Kore</td><td><span class="pill p-sh">shared</span></td><td>structurel</td><td>§C — port <code>DeviceState</code></td></tr>
+</table>
+
+<div class="fig">
+  <p class="cap">Figure 1 — Où vivent les 14 problèmes, et où le plan les résout</p>
+  <div class="mermaid">
+flowchart LR
+    subgraph AV["&nbsp;AUJOURD HUI&nbsp;"]
+        direction TB
+        A1["androidApp / bridger<br/>P2 P3 P6 P7<br/>object + init + 2 formes"]
+        A2["feature domain / shim<br/>abstract class a etat<br/>publishContextualMessage public"]
+        A3["shared / ShimImpl<br/>P1 P12 P13 P14<br/>coince par DeviceInfo NetworkState"]
+        A4["feature presentation<br/>P4 P9 P11<br/>toMessageBox 2 branches"]
+        A5["androidApp / UI<br/>P5 P8<br/>aucun composable"]
+    end
+
+    subgraph AP["&nbsp;CIBLE&nbsp;"]
+        direction TB
+        B1["androidApp / bridger<br/>2 class + callbackFlow<br/>8 variantes typees"]
+        B2["feature domain<br/>model + datasource + repository<br/>+ usecase"]
+        B3["feature data<br/>RepositoryImpl + reset session<br/>+ tests"]
+        B4["feature presentation<br/>MVI complet<br/>mapping exhaustif + analytics"]
+        B5["androidApp / UI<br/>MessageBoxSection<br/>lot final"]
+    end
+
+    A1 --> B1
+    A2 --> B2
+    A3 --> B2
+    A3 --> B3
+    A4 --> B4
+    A5 --> B5
+
+    style AV fill:#2b1414,stroke:#f85149,color:#e6edf3
+    style AP fill:#0f2417,stroke:#3fb950,color:#e6edf3
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<h2 id="B">B · Plan d'amélioration du Bridger</h2>
+
+<h3 id="B1">B.0 · Le problème de fond : trois rôles empilés dans un seul <code>object</code></h3>
+
+<p>Le bridger actuel fait trois choses qui n'ont pas le même cycle de vie ni la même raison de changer :</p>
+
+<div class="fig">
+  <p class="cap">Figure 2 — Les trois rôles empilés, et à qui ils devraient revenir</p>
+  <div class="mermaid">
+flowchart TB
+    OBJ["AjustoContextualMessageBridger<br/>object singleton, 100 lignes"]
+
+    OBJ --> R1["ROLE 1 — PRODUIRE<br/>s abonner au TripService<br/>gerer SCRATCHSubscriptionManager"]
+    OBJ --> R2["ROLE 2 — TRADUIRE<br/>toPayload()<br/>Core vers modele KMP"]
+    OBJ --> R3["ROLE 3 — STOCKER ET PUBLIER<br/>herite du MutableStateFlow<br/>publishContextualMessage public"]
+
+    R1 --> D1["RESTE au bridger<br/>mais via callbackFlow"]
+    R2 --> D2["RESTE au bridger<br/>c est sa raison d etre"]
+    R3 --> D3["PART vers le REPOSITORY<br/>couche data"]
+
+    style R3 fill:#5a1c1c,stroke:#f85149,color:#fff
+    style D3 fill:#1d4a2c,stroke:#3fb950,color:#fff
+  </div>
+</div>
+
+<div class="bad">
+  <strong>Pourquoi le rôle 3 est un problème concret, pas théorique.</strong>
+  <code>publishContextualMessage()</code> est <code>public</code> sur la classe abstraite. Aujourd'hui,
+  <code>AjustoBadgeControllerBridger</code> — un objet <em>sans rapport</em> — écrit dedans :
+  <pre style="margin:12px 0 0;background:#0d1117">if (refreshed) {
+    AjustoContextualMessageBridger.publishContextualMessage(payload = null)   <span class="r">// depuis le bridger BADGE</span>
+}</pre>
+  <p style="margin-bottom:0">
+    Résultat : deux singletons Android couplés en dur, une règle métier (« après un claim, le message
+    disparaît ») écrite dans une couche d'adaptation, et une duplication garantie sur iOS.
+  </p>
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<div class="imp" id="B2">
+  <span class="meta"><span class="tag t-a">TESTABILITÉ</span><span class="tag t-b">DÉMARRAGE</span></span>
+  <h4>B1 · <code>object</code> → <code>class</code> injectée</h4>
+
+  <div class="ba">
+    <div class="before">
+      <h6>Avant</h6>
+<pre>object AjustoContextualMessageBridger
+    : AjustoContextualMessageSource() {
+
+  fun subscribe(sm: SCRATCHSubscriptionManager, onEvent: …) {
+    val tripService =
+      <span class="r">AndroidScope.get()[TripService::class.java]</span>
+        as TripService
+    …
+  }
+}</pre>
+    </div>
+    <div class="after">
+      <h6>Après</h6>
+<pre>class AjustoContextualMessageBridger(
+  <span class="g">private val tripService: () -&gt; TripService</span>
+) : AjustoContextualMessageDataSource {
+
+  override fun observe(): Flow&lt;AjustoContextualMessage?&gt; =
+    callbackFlow {
+      tripService()<span class="c">// résolu à la COLLECTE</span>
+        .contextualMessageObservable…
+    }
+}</pre>
+    </div>
+  </div>
+
+  <h5>Pourquoi c'est mieux — trois raisons vérifiables</h5>
+  <ol>
+    <li><strong>Le service est résolu à la collecte, pas au chargement de classe.</strong>
+      Aujourd'hui <code>AndroidScope.get()</code> s'exécute dans le bloc <code>init</code>, déclenché
+      par <code>val ajustoContextualMessageSource = AjustoContextualMessageBridger</code> dans
+      <code>KoreInitializer</code> — <em>avant</em> <code>AndroidKoin.start()</code>. Avec une lambda,
+      la résolution se fait au premier collecteur, donc largement après le bootstrap.</li>
+    <li><strong>La classe devient mockable.</strong> Un <code>object</code> Kotlin ne peut être ni
+      instancié ni remplacé. Une <code>class</code> avec dépendance injectée se teste :
+      <pre style="margin:10px 0 0">@Test fun `traduit batterie faible en LowBattery`() = runTest {
+    val fakeTripService = FakeTripService()
+    val bridger = AjustoContextualMessageBridger { fakeTripService }
+    fakeTripService.emit(coreMessage(icon = BATTERY, tint = RED))
+    assertIs&lt;AjustoContextualMessage.LowBattery&gt;(bridger.observe().first())
+}</pre></li>
+    <li><strong>Elle devient réinitialisable.</strong> Un <code>object</code> capture ses dépendances
+      pour toute la durée du processus — il ne survit pas à un re-bootstrap du Core. Une instance
+      Koin peut être recréée.</li>
+  </ol>
+
+  <h5>Ce que ça change côté Koin</h5>
+<pre><span class="c">// androidApp — AndroidAppKoinModules ou un module bridger dédié</span>
+single&lt;AjustoContextualMessageDataSource&gt; {
+    AjustoContextualMessageBridger(
+        tripService = { AndroidScope.get()[TripService::class.java] as TripService }
+    )
+}
+
+<span class="c">// et on RETIRE ajustoContextualMessageSource de KoreStartupKoinInputs</span>
+<span class="c">// → une ligne de moins dans un data class qui en compte 26</span></pre>
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<div class="imp" id="B3">
+  <span class="meta"><span class="tag t-a">FUITES</span><span class="tag t-b">CYCLE DE VIE</span><span class="tag t-c">-40 LIGNES</span></span>
+  <h4>B2 · État + cycle de vie manuel → <code>callbackFlow</code></h4>
+
+  <div class="ba">
+    <div class="before">
+      <h6>Avant — 4 mécanismes manuels</h6>
+<pre><span class="r">private var started = false</span>
+<span class="r">private var autoSubscriptionManager =
+    SCRATCHSubscriptionManager()</span>
+
+<span class="r">init { startObserving() }</span>
+
+override fun startObserving() {
+    <span class="r">if (started) return</span>
+    <span class="r">started = true</span>
+    subscribe(autoSubscriptionManager) { e -&gt;
+        publishContextualMessage(e.toPayload())
+    }
+}
+
+override fun stopObserving() {
+    <span class="r">if (!started) return</span>
+    <span class="r">started = false</span>
+    <span class="r">autoSubscriptionManager.cancel()</span>
+    <span class="r">autoSubscriptionManager =
+        SCRATCHSubscriptionManager()</span>
+}</pre>
+    </div>
+    <div class="after">
+      <h6>Après — le langage s'en charge</h6>
+<pre>override fun observe(): Flow&lt;AjustoContextualMessage?&gt; =
+  <span class="g">callbackFlow</span> {
+    val sm = SCRATCHSubscriptionManager()
+    tripService().contextualMessageObservable
+      .observeOn(UiThreadDispatchQueue.newInstance())
+      .subscribe(object :
+        SCRATCHObservableCallback&lt;CoreMessage?&gt;(sm) {
+          override fun onEvent(e: CoreMessage?) {
+            <span class="g">trySend(e.toDomain())</span>
+          }
+        })
+    <span class="g">awaitClose { sm.cancel() }</span>
+  }</pre>
+    </div>
+  </div>
+
+  <h5>Ce qui disparaît, et pourquoi c'est un gain</h5>
+  <table>
+    <tr><th>Mécanisme supprimé</th><th>Ce qu'il gérait</th><th>Remplacé par</th><th>Risque éliminé</th></tr>
+    <tr><td><code>var started</code></td><td>garde anti double-abonnement</td><td><code>callbackFlow</code> — un flow par collecteur</td><td>état booléen désynchronisé</td></tr>
+    <tr><td><code>init { startObserving() }</code></td><td>démarrage « au plus tôt »</td><td>collecte du Flow</td><td><strong>crash au boot</strong> si <code>AndroidScope</code> vide</td></tr>
+    <tr><td><code>startObserving()</code></td><td>abonnement</td><td>corps du <code>callbackFlow</code></td><td>appel oublié</td></tr>
+    <tr><td><code>stopObserving()</code></td><td>désabonnement</td><td><code>awaitClose { }</code></td><td><strong>fuite mémoire</strong> si non appelé</td></tr>
+    <tr><td>réassignation du <code>SubscriptionManager</code></td><td>réutilisation après annulation</td><td>un manager neuf par collecte</td><td>manager annulé réutilisé</td></tr>
+  </table>
+
+  <div class="good">
+    <strong>Le gain le plus important est invisible dans le diff.</strong> Avec l'ancien code, il
+    existe une fenêtre où le cycle de vie a <em>deux propriétaires</em> : le bloc <code>init</code>
+    jusqu'au premier <code>stopObserving()</code>, le shim ensuite. Le comportement diffère selon le
+    moment de la session. Avec <code>callbackFlow</code>, il y a <strong>un seul propriétaire, tout
+    le temps</strong> : le collecteur.
+  </div>
+
+  <h5>Et le <code>WhileSubscribed</code> redevient vrai</h5>
+<pre><span class="c">// dans le Repository (couche data) :</span>
+dataSource.observe()
+    .stateIn(scope, SharingStarted.<span class="g">WhileSubscribed(5_000)</span>, null)
+
+<span class="c">// Aucun collecteur pendant 5 s → le StateFlow s'arrête</span>
+<span class="c">//   → le callbackFlow amont se termine</span>
+<span class="c">//   → awaitClose { sm.cancel() } s'exécute</span>
+<span class="c">//   → le legacy est réellement débranché</span>
+<span class="c">// Un collecteur revient → tout se rebranche automatiquement</span></pre>
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<div class="imp" id="B4">
+  <span class="meta"><span class="tag t-a">EXHAUSTIVITÉ</span><span class="tag t-b">ÉTATS IMPOSSIBLES</span><span class="tag t-c">EXTENSIBILITÉ</span></span>
+  <h4>B3 · 2 formes → 8 variantes typées</h4>
+
+  <p>C'est l'amélioration la plus structurante. Elle règle P3, P4, P6, P7 <strong>et</strong> prépare
+  le « Bon à savoir ».</p>
+
+  <div class="ba">
+    <div class="before">
+      <h6>Avant — un data class plat à 7 champs</h6>
+<pre>data class AjustoContextualMessagePayload(
+    val title: String = "",
+    val message: String = "",
+    val buttonText: String? = null,
+    <span class="r">val isBadgeMessage: Boolean = false,</span>
+    <span class="r">val isLowBatteryMessage: Boolean = false,</span>
+    val iconKey: AjustoContextualIconKey? = null,
+    val badgeIdentifier: String? = null
+)
+
+<span class="c">// états représentables mais absurdes :</span>
+<span class="r">Payload(isBadgeMessage = true,
+        isLowBatteryMessage = true,
+        iconKey = CLASSIFY,
+        badgeIdentifier = null)</span></pre>
+    </div>
+    <div class="after">
+      <h6>Après — une variante par situation réelle</h6>
+<pre>sealed interface AjustoContextualMessage {
+  val title: String
+  val message: String
+
+  data class DeviceBrandNotCompatible(…) : …
+  data class DeviceNotCompatible(…)      : …
+  <span class="g">data class LowBattery(…)</span>               : …
+  <span class="g">data class PowerSaving(…)</span>              : …
+  data class ClassifyInvite(…)           : …
+  data class PolicyEffective(…)          : …
+  data class ClaimableBadge(…)           : …
+  <span class="g">data class GoodToKnow(…)</span>               : …
+}
+
+<span class="c">// les états absurdes ne compilent plus</span></pre>
+    </div>
+  </div>
+
+  <h5>Les trois avantages, avec la preuve par le code</h5>
+
+  <h6 style="color:var(--acc);margin-top:22px">① Le compilateur devient ton filet de sécurité</h6>
+<pre><span class="c">// AVANT — ajouter une 8e règle dans le Core ne casse RIEN.</span>
+<span class="c">// Le nouveau message tombe silencieusement sur QuestionMark en production.</span>
+iconKey = if (payload.isLowBatteryMessage) BatteryLow(WARNING) <span class="r">else QuestionMark</span>
+
+<span class="c">// APRÈS — le when exhaustif refuse de compiler tant que la branche manque.</span>
+private fun AjustoContextualMessage.toMessageBox(): MessageBox = when (this) {
+    is DeviceBrandNotCompatible -&gt; …
+    is DeviceNotCompatible      -&gt; …
+    is LowBattery               -&gt; …
+    is PowerSaving              -&gt; …
+    is ClassifyInvite           -&gt; …
+    is PolicyEffective          -&gt; …
+    is ClaimableBadge           -&gt; …
+    <span class="g">// erreur de compilation : 'when' expression must be exhaustive,
+    // add necessary 'is GoodToKnow' branch</span>
+}</pre>
+
+  <h6 style="color:var(--acc);margin-top:22px">② Chaque variante ne porte que ce qui la concerne</h6>
+  <table>
+    <tr><th>Variante</th><th>Champs propres</th><th>Pourquoi</th></tr>
+    <tr><td><code>DeviceBrandNotCompatible</code></td><td><code>buttonText</code>, <code>onButtonClick</code></td><td>seul message actionnable du Core</td></tr>
+    <tr><td><code>LowBattery</code> / <code>PowerSaving</code></td><td>rien de plus</td><td>le <em>type</em> porte la distinction, plus besoin de couleur</td></tr>
+    <tr><td><code>ClaimableBadge</code></td><td><code>badgeIdentifier</code>, <code>badgeTitle</code>, <code>badgeLevelText</code></td><td><code>badgeIdentifier</code> devient <strong>non-null</strong> là où il a du sens</td></tr>
+    <tr><td><code>GoodToKnow</code></td><td><code>source</code>, <code>externalId</code></td><td>contenu éditorial, traçabilité</td></tr>
+  </table>
+  <p>Aujourd'hui <code>badgeIdentifier: String?</code> est nullable partout, y compris sur un message
+  batterie où il n'aura jamais de valeur. Chaque consommateur doit gérer un <code>null</code> qui ne
+  peut pas arriver.</p>
+
+  <h6 style="color:var(--acc);margin-top:22px">③ Icône et couleur ne sont plus transportées — elles se déduisent</h6>
+<pre><span class="c">// AVANT : le bridger calcule un iconKey, le transporte, et le VM le jette.</span>
+<span class="c">//         La couleur, elle, n'est jamais transportée du tout.</span>
+
+<span class="c">// APRÈS : la presentation décide, à partir du type.</span>
+private fun AjustoContextualMessage.toIconKey(): AjustoSummaryIconKey = when (this) {
+    is DeviceBrandNotCompatible -&gt; WarningSign(AjustoSummaryIconColor.DEFAULT)
+    is DeviceNotCompatible      -&gt; DeviceNotCompatible(AjustoSummaryIconColor.DEFAULT)
+    is LowBattery               -&gt; BatteryLow(<span class="g">AjustoSummaryIconColor.RED</span>)
+    is PowerSaving              -&gt; BatteryLow(<span class="g">AjustoSummaryIconColor.WARNING</span>)
+    is ClassifyInvite           -&gt; EditPen(AjustoSummaryIconColor.BLUE)
+    is PolicyEffective          -&gt; FileWithMedal(AjustoSummaryIconColor.BRAND)
+    is ClaimableBadge           -&gt; FileWithMedal(AjustoSummaryIconColor.GREEN)
+    is GoodToKnow               -&gt; <span class="g">LightBulb</span>  <span class="c">// déjà BLUE par défaut</span>
+}</pre>
+
+  <div class="good">
+    <strong>Conséquence : <code>AjustoContextualIconKey</code> disparaît du domaine.</strong>
+    L'enum n'a plus de raison d'exister — c'était un intermédiaire entre l'<code>ImageKey</code> du
+    Core et l'<code>AjustoSummaryIconKey</code> de la présentation. Le type de message joue ce rôle,
+    en portant en plus le sens métier.
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<div class="imp" id="B5">
+  <span class="meta"><span class="tag t-a">CORRECTION MÉTIER</span><span class="tag t-b">ANALYTICS</span></span>
+  <h4>B4 · Lire <code>messageIconTint()</code> — 2 lignes qui règlent P3</h4>
+
+  <p>Rappel du Core :</p>
+<pre>private AjustoContextualMessage lowBatteryContextualMessage() {
+    …messageIcon(Icon.CONTEXTUAL_MESSAGE_BATTERY)
+     .messageIconTint(<span class="y">Color.RED</span>)…          <span class="c">// règle 3</span>
+}
+private AjustoContextualMessage powerSavingContextualMessage() {
+    …messageIcon(Icon.CONTEXTUAL_MESSAGE_BATTERY)     <span class="c">// MÊME icône</span>
+     .messageIconTint(<span class="y">Color.WARNING</span>)…      <span class="c">// règle 4 — seule différence</span>
+}</pre>
+
+  <div class="ba">
+    <div class="before">
+      <h6>Avant</h6>
+<pre>isLowBatteryMessage =
+  messageIcon() == CONTEXTUAL_MESSAGE_BATTERY
+  <span class="r">// vrai pour les DEUX messages</span></pre>
+    </div>
+    <div class="after">
+      <h6>Après</h6>
+<pre>messageIcon() == CONTEXTUAL_MESSAGE_BATTERY &amp;&amp;
+  messageIconTint() == Color.<span class="g">RED</span>
+    -&gt; LowBattery(title(), message())
+
+messageIcon() == CONTEXTUAL_MESSAGE_BATTERY
+    -&gt; PowerSaving(title(), message())</pre>
+    </div>
+  </div>
+
+  <h5>Ce que ça débloque</h5>
+  <ul>
+    <li><strong>Visuel</strong> — batterie faible en rouge, économie d'énergie en orange. Aujourd'hui
+      le ViewModel code <code>WARNING</code> en dur pour les deux : correct pour l'un, faux pour
+      l'autre.</li>
+    <li><strong>Analytics</strong> — deux événements distincts. Le legacy fait
+      <code>if (messageIcon() == BATTERY) track(lowBatteryContent())</code>, donc l'événement
+      « batterie faible » compte aussi les utilisateurs en mode éco avec 80 % de batterie. L'erreur
+      va toujours dans le même sens : <strong>surestimation du problème batterie</strong>.</li>
+    <li><strong>Produit</strong> — ce sont deux situations différentes. L'une est un incident (la
+      collecte s'arrête), l'autre un choix de l'utilisateur. Les confondre empêche de mesurer l'une
+      ou l'autre.</li>
+  </ul>
+
+  <div class="warn">
+    <strong>À prévoir avec l'équipe data.</strong> Corriger le faux positif fera <em>chuter</em> la
+    métrique <code>lowBatteryContent</code>. Déployer <code>powerSavingContent</code> en même temps
+    pour que la somme des deux reste comparable, et annoter la date de bascule.
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<div class="imp" id="B6">
+  <span class="meta"><span class="tag t-c">DÉPEND DE setListener</span></span>
+  <h4>B5 · Porter <code>buttonExecutable</code></h4>
+
+<pre><span class="c">// Core — le SEUL message actionnable des 7</span>
+return ExecutableContextualMessageImpl.builder()
+    .messageButton(localizedStringSource.get(…_BUTTON))
+    .buttonExecutable(() -&gt; {
+        final var l = listenerWeakReference.get();
+        if (l != null) l.onModalClick();          <span class="c">// → TripServiceImpl.executableListener</span>
+    })                                             <span class="c">// → downcast sur TripService.Listener</span>
+    .build();                                      <span class="c">// → onDeviceNotCompatibleModalClick()</span></pre>
+
+<pre><span class="c">// Bridger — après</span>
+this is ExecutableContextualMessage -&gt; AjustoContextualMessage.DeviceBrandNotCompatible(
+    title = title(), message = message(), buttonText = messageButton(),
+    <span class="g">onButtonClick = { buttonExecutable().execute() }</span>   <span class="c">// ← à confirmer sur l'API réelle</span>
+)</pre>
+
+  <div class="warn">
+    <strong>Attention — ce n'est pas suffisant.</strong> La chaîne complète du clic est :
+    <code>execute() → listener.onModalClick() → TripServiceImpl.executableListener →
+    instanceof AjustoSnapListener → onDeviceNotCompatibleModalClick()</code>.
+    <br><br>
+    Il faut donc qu'un <code>tripService.setListener(…)</code> ait été appelé avec un
+    <code>AjustoSnapListener</code>. Le <code>AjustoDashboardFragment</code> le fait ; le
+    <code>AjustoSummaryFragment</code> non. <strong>Vérifier ce point avant de promettre ce bouton
+    sur le nouvel écran.</strong>
+  </div>
+
+  <div class="note">
+    <strong>Alternative propre</strong> si <code>setListener</code> pose problème : ne pas porter
+    l'exécutable du Core, et modéliser l'action côté domaine
+    (<code>DeviceBrandNotCompatible</code> émet une <code>AjustoSummaryAction.OnBrandNotCompatibleClicked</code>,
+    l'écran ouvre la modale lui-même). Plus de couplage au listener Core — mais il faut reproduire le
+    contenu de la modale côté KMP.
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<h3 id="B7">B.6 · Bilan des améliorations du Bridger</h3>
+
+<table>
+  <tr><th>#</th><th>Amélioration</th><th>Lignes</th><th>Règle</th><th>Gain principal</th></tr>
+  <tr><td>B1</td><td><code>object</code> → <code>class</code> + lambda</td><td>~8</td><td>P2, P13</td><td>testable, mockable, plus de crash au boot</td></tr>
+  <tr><td>B2</td><td><code>callbackFlow</code> + <code>awaitClose</code></td><td>−40</td><td>P2</td><td>un seul propriétaire du cycle de vie</td></tr>
+  <tr><td>B3</td><td>8 variantes <code>sealed</code></td><td>~60</td><td>P3, P4, P7</td><td><code>when</code> exhaustif, états impossibles éliminés</td></tr>
+  <tr><td>B4</td><td>lire <code>messageIconTint()</code></td><td>~4</td><td>P3</td><td>batterie ≠ économie d'énergie</td></tr>
+  <tr><td>B5</td><td>porter <code>buttonExecutable</code></td><td>~3</td><td>P6</td><td>bouton fonctionnel (si <code>setListener</code>)</td></tr>
+</table>
+
+<div class="fig">
+  <p class="cap">Figure 3 — Le bridger avant et après</p>
+  <div class="mermaid">
+flowchart LR
+    subgraph AV["&nbsp;AVANT — object 100 lignes&nbsp;"]
+        direction TB
+        V1["heritage abstract class<br/>PORTE L ETAT"]
+        V2["init startObserving"]
+        V3["var started + subscriptionManager"]
+        V4["startObserving / stopObserving"]
+        V5["toPayload — 2 branches"]
+        V6["publishContextualMessage PUBLIC"]
+    end
+
+    subgraph AP["&nbsp;APRES — class 70 lignes&nbsp;"]
+        direction TB
+        P1["implements fun interface DataSource<br/>AUCUN ETAT"]
+        P2["callbackFlow + awaitClose"]
+        P3["toDomain — 8 branches typees"]
+        P4["tripService injecte par lambda"]
+    end
+
+    V1 --> P1
+    V2 --> P2
+    V3 --> P2
+    V4 --> P2
+    V5 --> P3
+    V6 -.->|"part vers le REPOSITORY"| REPO["AjustoContextualMessageRepository<br/>couche data"]
+
+    style AV fill:#2b1414,stroke:#f85149,color:#e6edf3
+    style AP fill:#0f2417,stroke:#3fb950,color:#e6edf3
+    style REPO fill:#123020,stroke:#3fb950,color:#fff
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<h2 id="C">C · Plan d'amélioration du Shim</h2>
+
+<h3>C.1 · Ce que le shim est censé être, et ce qu'il est devenu</h3>
+
+<p>La documentation dans le code est claire :</p>
+<pre><span class="c">// AjustoSummaryShim.kt</span>
+interface AjustoSummaryShim {
+    <span class="c">// Expose uniquement signaux runtime absents du repository summary.</span>
+    val state: StateFlow&lt;AjustoSummaryShimState&gt;
+}</pre>
+
+<p>« Signaux runtime » = réseau, localisation, batterie. Mais l'état porte un quatrième champ :</p>
+<pre>data class AjustoSummaryShimState(
+    val hasNetworkAccess: Boolean = true,       <span class="g">// signal runtime ✓</span>
+    val isLocationEnabled: Boolean = true,      <span class="g">// signal runtime ✓</span>
+    val isBatteryLow: Boolean = false,          <span class="g">// signal runtime ✓</span>
+    <span class="r">val contextualMessage: AjustoContextualMessagePayload? = null   // ← DONNÉE MÉTIER</span>
+)</pre>
+
+<div class="bad">
+  <strong>Le shim mélange deux responsabilités.</strong> Le message contextuel n'est pas un signal
+  runtime : c'est une donnée métier, calculée par une cascade de 7 règles, avec un cycle de vie, un
+  cache, et un reset à la déconnexion. Il appartient à un <strong>repository</strong>, pas à un shim
+  de signaux device.
+  <br><br>
+  Symptôme visible : c'est le shim qui pilote <code>startObserving()</code>/<code>stopObserving()</code>
+  du bridger. Un objet censé exposer « la batterie est-elle faible » gère l'abonnement à
+  <code>TripService</code>.
+</div>
+
+<h3>C.2 · L'amélioration : scinder en deux</h3>
+
+<div class="fig">
+  <p class="cap">Figure 4 — Le shim scindé : signaux device d'un côté, message contextuel de l'autre</p>
+  <div class="mermaid">
+flowchart TB
+    subgraph AV["&nbsp;AVANT — un shim, deux responsabilites&nbsp;"]
+        direction TB
+        S1["AjustoSummaryShimImpl<br/>dans shared/"]
+        S2["combine 3 flows<br/>location + reseau + MESSAGE"]
+        S3["onStart startObserving<br/>onCompletion stopObserving"]
+        S4["AjustoSummaryShimState<br/>3 booleens + 1 payload metier"]
+        S1 --> S2 --> S3 --> S4
+    end
+
+    subgraph AP["&nbsp;APRES — deux ports distincts&nbsp;"]
+        direction TB
+        subgraph D1["&nbsp;signaux device&nbsp;"]
+            T1["AjustoDeviceStateDataSource<br/>port KMP dans domain"]
+            T2["AjustoDeviceStateBridger<br/>androidApp — DeviceInfo + NetworkState"]
+            T3["AjustoDeviceState<br/>3 booleens, rien d autre"]
+            T1 -.-> T2
+            T1 --> T3
+        end
+        subgraph D2["&nbsp;message contextuel&nbsp;"]
+            U1["AjustoContextualMessageDataSource<br/>port KMP dans domain"]
+            U2["AjustoContextualMessageBridger<br/>androidApp — TripService"]
+            U3["AjustoContextualMessageRepository<br/>data — etat + cache + reset"]
+            U1 -.-> U2
+            U1 --> U3
+        end
+    end
+
+    S4 --> T3
+    S4 --> U3
+
+    style AV fill:#2b1414,stroke:#f85149,color:#e6edf3
+    style AP fill:#0f2417,stroke:#3fb950,color:#e6edf3
+  </div>
+</div>
+
+<h3>C.3 · Pourquoi le <code>ShimImpl</code> est coincé dans <code>shared/</code> — et comment l'en sortir</h3>
+
+<p>Ce n'est pas un oubli de rangement. Regarde ses deux premiers imports :</p>
+<pre>import <span class="r">ca.dgag.ajusto.kore.info.DeviceInfo</span>
+import <span class="r">ca.dgag.ajusto.kore.info.NetworkState</span></pre>
+
+<p>Or <code>modules/feature/ajusto/domain/build.gradle.kts</code> ne déclare que :</p>
+<pre>implementation(projects.modules.transverse.domain)
+implementation(libs.kotlin.stdlib)
+implementation(libs.koin.core)
+implementation(libs.kotlinx.datetime)</pre>
+
+<div class="key">
+  <strong>Le module feature ne peut pas voir les types Kore.</strong> Tant que le shim en dépend, il
+  ne peut pas déménager. La solution n'est pas de le déplacer — c'est de <strong>couper la
+  dépendance</strong> en interposant un port, exactement comme pour le message contextuel.
+</div>
+
+  <div class="ba">
+    <div class="before">
+      <h6>Avant — dépendance directe aux types Kore</h6>
+<pre>class AjustoSummaryShimImpl(
+  private val <span class="r">deviceInfo: DeviceInfo</span>,     <span class="c">// Kore</span>
+  private val <span class="r">networkState: NetworkState</span>, <span class="c">// Kore</span>
+  private val contextualMessageSource: …,
+  dispatcher: CoroutineDispatcher = Dispatchers.Default
+) : AjustoSummaryShim {
+
+  private val shimScope =
+    <span class="r">CoroutineScope(SupervisorJob() + dispatcher)</span>
+
+  override val state = combine(
+    deviceInfo.isLocationEnabledStateFlow,
+    networkState.connectionTypeStateFlow,   <span class="c">// ignoré (_)</span>
+    contextualMessageSource.<span class="r">contextualMessagesStateFlow</span>
+  ) { isLocationEnabled, _, contextualMessage -&gt;
+    AjustoSummaryShimState(
+      hasNetworkAccess  = <span class="r">networkState.hasNetworkAccess()</span>,
+      isLocationEnabled = isLocationEnabled,
+      isBatteryLow      = <span class="r">deviceInfo.isBatteryLow()</span>,
+      contextualMessage = contextualMessage
+    )
+  }.onStart      { …startObserving() }
+   .onCompletion { …stopObserving()  }
+   .stateIn(shimScope, WhileSubscribed(5_000), currentState())
+}</pre>
+    </div>
+    <div class="after">
+      <h6>Après — un port, 3 flows, rien d'autre</h6>
+<pre><span class="c">// domain — aucune dépendance Kore</span>
+fun interface AjustoDeviceStateDataSource {
+    fun observe(): Flow&lt;AjustoDeviceState&gt;
+}
+
+data class AjustoDeviceState(
+    val hasNetworkAccess: Boolean = true,
+    val isLocationEnabled: Boolean = true,
+    val isBatteryLow: Boolean = false
+)
+
+<span class="c">// androidApp — le bridger device</span>
+class AjustoDeviceStateBridger(
+  private val deviceInfo: DeviceInfo,
+  private val networkState: NetworkState
+) : AjustoDeviceStateDataSource {
+  override fun observe(): Flow&lt;AjustoDeviceState&gt; =
+    <span class="g">combine</span>(
+      deviceInfo.isLocationEnabledStateFlow,
+      deviceInfo.<span class="g">isBatteryLowStateFlow</span>,   <span class="c">// vrai flow</span>
+      networkState.<span class="g">hasNetworkAccessStateFlow</span>
+    ) { location, battery, network -&gt;
+      AjustoDeviceState(network, location, battery)
+    }
+}</pre>
+    </div>
+  </div>
+
+<h5>Les quatre gains</h5>
+<table>
+  <tr><th>Problème</th><th>Avant</th><th>Après</th></tr>
+  <tr>
+    <td><strong>P12</strong> — valeurs périmées</td>
+    <td><code>isBatteryLow()</code> et <code>hasNetworkAccess()</code> sont des appels de fonction
+    évalués <em>au moment</em> où l'un des 3 flows émet ; la valeur du flow réseau est même
+    ignorée (<code>_</code>)</td>
+    <td>trois vrais flows dans le <code>combine</code> — chaque changement déclenche une réémission</td>
+  </tr>
+  <tr>
+    <td><strong>P14</strong> — placement</td>
+    <td>coincé dans <code>shared/</code> par 2 imports Kore</td>
+    <td><code>AjustoDeviceState</code> + le port vivent dans <code>feature/ajusto/domain</code> ;
+    seul le bridger reste côté Android</td>
+  </tr>
+  <tr>
+    <td><strong>P13</strong> — scope</td>
+    <td><code>CoroutineScope</code> créé dans le constructeur, jamais annulé, intestable</td>
+    <td>plus de scope du tout — le <code>Flow</code> est froid, le <code>stateIn</code> se fait
+    dans le repository avec un scope injecté</td>
+  </tr>
+  <tr>
+    <td><strong>P1</strong> — nom de propriété</td>
+    <td><code>contextualMessagesStateFlow</code> (avec S) ≠ <code>contextualMessageStateFlow</code></td>
+    <td>le shim ne référence plus le message du tout — le bug disparaît avec la ligne</td>
+  </tr>
+</table>
+
+<div class="good">
+  <strong>Et le <code>AjustoSummaryShim</code> ?</strong> Il disparaît. Ce n'était pas une abstraction
+  métier mais un fourre-tout de transition. À sa place : deux ports nommés d'après ce qu'ils
+  exposent — <code>AjustoDeviceStateDataSource</code> et
+  <code>AjustoContextualMessageRepository</code>. Le ViewModel les combine lui-même, ce qui est
+  précisément son rôle en MVI.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<h2 id="D">D · Le nouveau type « Bon à savoir » — le test de l'architecture</h2>
+
+<h3>D.1 · Ce que montrent les maquettes</h3>
+
+<div class="grid3">
+  <div class="card">
+    <h5>Maquette 1 — Batterie faible</h5>
+    <p>Icône batterie <strong>rouge</strong>, titre « Batterie faible », texte long explicatif.
+    Pas de bouton, pas de clic.</p>
+    <p><code>LowBattery</code> → <code>BatteryLow(RED)</code></p>
+  </div>
+  <div class="card">
+    <h5>Maquette 2 — Nouvelle médaille</h5>
+    <p>Icône médaille <strong>verte</strong>, « Félicitations pour votre nouvelle médaille! /
+    Touchez pour la réclamer ». Carte cliquable.</p>
+    <p><code>ClaimableBadge</code> → <code>FileWithMedal(GREEN)</code></p>
+  </div>
+  <div class="card w">
+    <h5>Maquette 3 — Conseil (nouveau)</h5>
+    <p>Icône <strong>ampoule bleue</strong>, « Conseil pour garder les yeux sur la route », texte
+    éditorial avec source (CAA). Pas de bouton visible.</p>
+    <p><code>GoodToKnow</code> → <code>LightBulb</code> (BLUE)</p>
+  </div>
+</div>
+
+<h3>D.2 · Ce qui existe déjà — et c'est troublant</h3>
+
+<p>Les deux vocabulaires d'icônes contiennent <strong>déjà</strong> l'ampoule et les mains qui
+applaudissent, avec leurs drawables — alors que <em>le Core ne les produit jamais</em> :</p>
+
+<pre><span class="c">// AjustoSummaryUiState.kt — modules/feature/ajusto/presentation</span>
+data object <span class="g">LightBulb</span>     : AjustoSummaryIconKey(AjustoSummaryIconColor.BLUE)
+data object <span class="g">ClappingHands</span> : AjustoSummaryIconKey(AjustoSummaryIconColor.GREY)
+
+<span class="c">// AjustoSummaryScreen.kt — androidApp</span>
+is AjustoSummaryIconKey.<span class="g">LightBulb</span>     -&gt; DsdR.drawable.dsd_ic_ajusto_light_bulb
+is AjustoSummaryIconKey.<span class="g">ClappingHands</span> -&gt; DsdR.drawable.dsd_ic_ajusto_clapping_hands
+
+<span class="c">// AjustoDashboardUiState.kt — shared (même chose côté legacy)</span>
+data object LightBulb     : AjustoDashboardIconKey(AjustoDashboardIconColor.BLUE)
+data object ClappingHands : AjustoDashboardIconKey(AjustoDashboardIconColor.GREY)</pre>
+
+<table>
+  <tr><th>IconKey</th><th>Couleur par défaut</th><th>Drawable</th><th>Produit par la cascade Core ?</th><th>Interprétation</th></tr>
+  <tr><td><code>BatteryLow</code></td><td>paramétrée</td><td><code>dsd_ic_ajusto_low_battery</code></td><td>✅ règles 3 et 4</td><td>—</td></tr>
+  <tr><td><code>EditPen</code></td><td>BLUE</td><td><code>dsd_ic_ajusto_classify_invite</code></td><td>✅ règle 5</td><td>—</td></tr>
+  <tr><td><code>FileWithMedal</code></td><td>BRAND</td><td><code>dsd_ic_policy_effective</code></td><td>✅ règles 6 et 7</td><td>—</td></tr>
+  <tr><td><code>DeviceNotCompatible</code></td><td>BLUE</td><td><code>dsd_ic_device_not_compatible</code></td><td>✅ règle 2</td><td>—</td></tr>
+  <tr><td><code>WarningSign</code></td><td>—</td><td><code>dsd_ic_road_minus_sign</code></td><td>✅ règle 1</td><td>—</td></tr>
+  <tr style="background:#1a2a1a"><td><code>LightBulb</code></td><td><strong>BLUE</strong></td><td><code>dsd_ic_ajusto_light_bulb</code></td><td><strong>❌ jamais</strong></td><td><strong>emplacement réservé — le conseil</strong></td></tr>
+  <tr style="background:#1a2a1a"><td><code>ClappingHands</code></td><td>GREY</td><td><code>dsd_ic_ajusto_clapping_hands</code></td><td><strong>❌ jamais</strong></td><td><strong>emplacement réservé — félicitations ?</strong></td></tr>
+</table>
+
+<div class="key">
+  <strong>Le design a anticipé.</strong> Deux icônes existent, avec drawables et couleurs par défaut,
+  sans aucun producteur. Elles ne sont pas du code mort : ce sont des <em>emplacements réservés</em>
+  pour des messages contextuels dont la source n'est pas le Core. Le « Bon à savoir » de ta maquette
+  correspond exactement à <code>LightBulb</code> + BLUE.
+</div>
+
+<h3>D.3 · D'où viendra la donnée ?</h3>
+
+<p>Le <code>SummaryDto</code> actuel ne contient aucun champ conseil — j'ai vérifié ses 8 propriétés.
+Trois hypothèses, et le plan doit tenir dans les trois :</p>
+
+<table>
+  <tr><th>Hypothèse</th><th>Source</th><th>Impact sur le plan</th></tr>
+  <tr>
+    <td><strong>H1 — nouveau champ dans l'API summary</strong></td>
+    <td><code>SummaryDto.tip</code> → <code>AjustoSummary.tip</code></td>
+    <td>le message vient du <code>AjustoSummaryRepository</code>, pas du contextuel. Il faudra
+    <strong>fusionner deux sources</strong> dans le ViewModel</td>
+  </tr>
+  <tr>
+    <td><strong>H2 — endpoint dédié</strong></td>
+    <td>un <code>KtorAjustoTipDataSource</code> à côté du summary</td>
+    <td>un 3ᵉ <code>DataSource</code> dans le domain, agrégé par le
+    <code>AjustoContextualMessageRepository</code></td>
+  </tr>
+  <tr>
+    <td><strong>H3 — dynamic messages</strong></td>
+    <td><code>DynamicMessageKeys</code> / <code>DynamicMessageFacade</code> —
+    l'infra existe déjà dans <code>shared/</code>, et <code>DynamicMessageError</code> est
+    déjà mappé dans <code>AjustoSummaryRepositoryImpl.toSummaryError()</code></td>
+    <td>un <code>AjustoTipDataSource</code> qui lit une clé dynamique</td>
+  </tr>
+</table>
+
+<div class="good">
+  <strong>Et c'est exactement pour ça que l'architecture proposée est la bonne.</strong> Dans les
+  trois hypothèses, <strong>seul le repository change</strong>. Le modèle domaine
+  (<code>GoodToKnow</code>), le mapping de présentation (<code>LightBulb</code>), le composable et
+  l'analytics sont identiques. C'est le test de validation d'un design en couches : une nouvelle
+  source de données ne doit toucher qu'une couche.
+</div>
+
+<div class="fig">
+  <p class="cap">Figure 5 — Deux producteurs, un seul type domaine, une seule UI</p>
+  <div class="mermaid">
+flowchart TB
+    subgraph SRC["&nbsp;PRODUCTEURS — sources heterogenes&nbsp;"]
+        direction TB
+        S1["TripService Core Java<br/>cascade 7 regles<br/>via bridger SORTANT"]
+        S2["API REST ou DynamicMessage<br/>contenu editorial<br/>via Ktor DataSource"]
+    end
+
+    subgraph DOM["&nbsp;DOMAIN — un seul vocabulaire&nbsp;"]
+        direction TB
+        M["sealed interface AjustoContextualMessage<br/>8 variantes"]
+        M1["7 variantes issues du Core"]
+        M2["GoodToKnow — issue de l API"]
+        M --> M1
+        M --> M2
+    end
+
+    subgraph DATA["&nbsp;DATA — agregation et priorite&nbsp;"]
+        R["AjustoContextualMessageRepository<br/>combine + regle de priorite + reset session"]
+    end
+
+    subgraph PRES["&nbsp;PRESENTATION — un seul mapping&nbsp;"]
+        P["toMessageBox — when exhaustif 8 cas<br/>+ toIconKey + analytics"]
+    end
+
+    UI["MessageBoxSection<br/>un seul composable"]
+
+    S1 --> M1
+    S2 --> M2
+    M --> R --> P --> UI
+
+    style SRC fill:#3a2a10,stroke:#d29922,color:#e6edf3
+    style DOM fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style DATA fill:#123020,stroke:#3fb950,color:#e6edf3
+    style PRES fill:#2b1a3d,stroke:#a371f7,color:#e6edf3
+  </div>
+</div>
+
+<h3>D.4 · La question qui se posera : quelle priorité pour le conseil ?</h3>
+
+<p>La cascade Core décide entre ses 7 règles. Mais elle ne connaît pas le conseil. Il faut donc une
+règle d'arbitrage <strong>dans le repository</strong> :</p>
+
+<pre><span class="c">// data — AjustoContextualMessageRepositoryImpl</span>
+override val contextualMessage: StateFlow&lt;AjustoContextualMessage?&gt; =
+    combine(coreMessages, tipMessages, cleared, isAuthenticated) { core, tip, isCleared, auth -&gt;
+        when {
+            !auth      -&gt; null              <span class="c">// P10 — reset à la déconnexion</span>
+            isCleared  -&gt; null
+            <span class="g">core != null -&gt; core</span>           <span class="c">// le Core est prioritaire : ses messages sont des ALERTES</span>
+            <span class="g">else       -&gt; tip</span>              <span class="c">// le conseil ne s'affiche que s'il n'y a rien d'urgent</span>
+        }
+    }.stateIn(scope, WhileSubscribed(5_000), null)</pre>
+
+<div class="note">
+  <strong>Justification du choix.</strong> Les 7 messages du Core signalent tous un problème ou une
+  action à faire (appareil incompatible, batterie, badge à réclamer). Le conseil est du contenu
+  d'engagement. Afficher « Bon à savoir : ne textez pas au volant » alors que l'appli a arrêté
+  d'enregistrer les trajets faute de batterie serait un contresens produit.
+  <br><br>
+  <strong>À valider avec le produit</strong> — mais c'est la règle par défaut la plus défendable, et
+  elle tient en 4 lignes au bon endroit.
+</div>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<h2 id="E">E · Migration Data · Domain · Presentation en MVI</h2>
+
+<h3 id="E1">E.1 · Le MVI tel qu'il est pratiqué dans ce projet</h3>
+
+<p>Avant de proposer, formalisons la convention observée dans <code>AjustoSummary*</code> :</p>
+
+<div class="fig">
+  <p class="cap">Figure 6 — Le cycle MVI du projet</p>
+  <div class="mermaid">
+flowchart LR
+    UI["UI Compose<br/>AjustoSummaryRoot"]
+    VM["AjustoSummaryViewModel"]
+    ST["AjustoSummaryUiState<br/>data class immutable<br/>+ fonctions de derivation getXxx(language)"]
+    AC["AjustoSummaryAction<br/>sealed interface : Action<br/>INTENTIONS de l utilisateur"]
+    EV["AjustoSummaryEvent<br/>sealed interface<br/>ONE-SHOT via Channel"]
+    RE["Repositories + DataSources"]
+
+    UI -->|"onAction(action)"| AC
+    AC --> VM
+    VM -->|"suspend fun onAction(action)"| RE
+    RE -->|"Flow / suspend"| VM
+    VM -->|"_uiState.update"| ST
+    ST -->|"collectAsStateWithLifecycle"| UI
+    VM -->|"_events.send"| EV
+    EV -->|"ObserveAsEvents"| UI
+
+    style ST fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style AC fill:#2b1a3d,stroke:#a371f7,color:#e6edf3
+    style EV fill:#3a2a10,stroke:#d29922,color:#e6edf3
+  </div>
+</div>
+
+<table>
+  <tr><th>Élément MVI</th><th>Nom dans le projet</th><th>Mécanisme</th><th>Règle observée</th></tr>
+  <tr><td><strong>Model / State</strong></td><td><code>AjustoSummaryUiState</code></td><td><code>StateFlow</code> + <code>collectAsStateWithLifecycle</code></td><td>immutable ; les vues sont <strong>dérivées</strong> par <code>getXxx(language)</code>, pas stockées</td></tr>
+  <tr><td><strong>Intent / Action</strong></td><td><code>AjustoSummaryAction : Action</code></td><td><code>suspend fun onAction(action)</code></td><td><code>data object</code> pour les actions sans paramètre</td></tr>
+  <tr><td><strong>Effect / Event</strong></td><td><code>AjustoSummaryEvent</code></td><td><code>Channel</code> + <code>receiveAsFlow()</code></td><td>one-shot : navigation, dialogues</td></tr>
+  <tr><td><strong>Status</strong></td><td><code>AjustoSummaryUiStateStatus</code></td><td><code>sealed interface</code></td><td><code>Loading</code> / <code>Loaded</code> / <code>ErrorState</code></td></tr>
+</table>
+
+<div class="warn">
+  <strong>Une entorse à corriger.</strong> <code>messageBox</code> est le <strong>seul</strong>
+  élément d'affichage stocké comme champ dans <code>AjustoSummaryUiState</code> ; tous les autres
+  sont dérivés par des fonctions. Et il est calculé dans le ViewModel par un
+  <code>toMessageBox()</code> privé au fichier.
+  <br><br>
+  <strong>Correction MVI</strong> : stocker le <em>modèle domaine</em>
+  (<code>contextualMessage: AjustoContextualMessage?</code>) et dériver la vue par
+  <code>getMessageBox(language): AjustoSummaryUiStateModel.MessageBox?</code>, comme
+  <code>getHeader()</code> ou <code>getTileButtons()</code>. Bénéfice concret : le message
+  <strong>se retraduit tout seul au changement de langue</strong>, ce qui n'est pas le cas
+  aujourd'hui.
+</div>
+
+<h3 id="E2">E.2 · L'arborescence cible, fichier par fichier</h3>
+
+<div class="tree"><span class="dir">modules/feature/ajusto/domain/src/commonMain/kotlin/…/ajusto/domain/</span>
+├── summary/
+│   ├── model/
+│   │   ├── AjustoSummary.kt                            <span class="kp">— inchangé</span>
+│   │   ├── AjustoSummaryError.kt                       <span class="kp">— inchangé</span>
+│   │   └── <span class="new">AjustoContextualMessage.kt                    ← NOUVEAU  sealed, 8 variantes</span>
+│   ├── datasource/
+│   │   ├── AjustoSummaryRemoteDataSource.kt            <span class="kp">— inchangé</span>
+│   │   ├── <span class="new">AjustoContextualMessageDataSource.kt          ← NOUVEAU  fun interface → Flow</span>
+│   │   ├── <span class="new">AjustoDeviceStateDataSource.kt                ← NOUVEAU  fun interface → Flow</span>
+│   │   └── <span class="new">AjustoTipDataSource.kt                        ← NOUVEAU  « Bon à savoir »</span>
+│   ├── repository/
+│   │   ├── AjustoSummaryRepository.kt                  <span class="kp">— inchangé</span>
+│   │   └── <span class="new">AjustoContextualMessageRepository.kt          ← NOUVEAU  StateFlow + clear()</span>
+│   ├── usecase/
+│   │   └── <span class="new">DismissContextualMessageUseCase.kt            ← NOUVEAU  règle « claim → clear »</span>
+│   └── shim/
+│       ├── <span class="del">AjustoContextualMessageSource.kt              ← SUPPRIMÉ (abstract class à état)</span>
+│       ├── <span class="del">AjustoSummaryShim.kt                          ← SUPPRIMÉ (fourre-tout)</span>
+│       └── <span class="new">AjustoDeviceState.kt                          ← NOUVEAU  3 booléens (peut aller en model/)</span>
+└── achievements/                                        <span class="kp">— déjà en place</span>
+    ├── model/AjustoBadge.kt · AjustoBadgeError.kt
+    ├── datasource/AjustoBadgeSource.kt
+    └── repository/AjustoBadgeRepository.kt
+
+<span class="dir">modules/feature/ajusto/data/src/commonMain/kotlin/…/ajusto/data/</span>
+├── summary/
+│   ├── datasource/KtorAjustoSummaryDataSource.kt       <span class="kp">— inchangé</span>
+│   ├── <span class="new">datasource/KtorAjustoTipDataSource.kt             ← NOUVEAU  si H1/H2 (voir §D.3)</span>
+│   ├── dto/SummaryDto.kt                               <span class="kp">— inchangé</span>
+│   ├── <span class="new">dto/TipDto.kt                                     ← NOUVEAU  si H1/H2</span>
+│   └── repository/
+│       ├── AjustoSummaryRepositoryImpl.kt              <span class="kp">— inchangé</span>
+│       └── <span class="new">AjustoContextualMessageRepositoryImpl.kt      ← NOUVEAU  état + priorité + reset</span>
+└── <span class="mod">AjustoDataModule.kt                                  ← MODIFIÉ  +3 single</span>
+
+<span class="dir">modules/feature/ajusto/presentation/src/commonMain/kotlin/…/ajusto/presentation/</span>
+└── summary/
+    ├── <span class="mod">AjustoSummaryViewModel.kt                        ← MODIFIÉ  combine 2 sources + analytics</span>
+    ├── <span class="mod">AjustoSummaryUiState.kt                          ← MODIFIÉ  getMessageBox(language)</span>
+    ├── <span class="mod">AjustoSummaryAction.kt                           ← MODIFIÉ  action paramétrée</span>
+    ├── <span class="mod">AjustoSummaryEvent.kt                            ← MODIFIÉ  +1 event</span>
+    ├── AjustoSummaryUiStateStatus.kt                   <span class="kp">— inchangé</span>
+    ├── <span class="mod">AjustoSummaryPresentationModule.kt               ← MODIFIÉ  +1 dépendance</span>
+    ├── <span class="new">mapper/ContextualMessageMapper.kt                ← NOUVEAU  toMessageBox + toIconKey</span>
+    └── <span class="mod">analytics/AjustoAnalytics.kt                     ← MODIFIÉ  +8 événements</span>
+
+<span class="dir">androidApp/src/main/java/ca/dgag/ajusto/bridger/ajusto/legacy/</span>
+├── <span class="mod">AjustoContextualMessageBridger.kt                    ← RÉÉCRIT  class + callbackFlow + 7 variantes</span>
+├── <span class="new">AjustoDeviceStateBridger.kt                          ← NOUVEAU  DeviceInfo + NetworkState</span>
+└── <span class="mod">AjustoBadgeControllerBridger.kt                      ← MODIFIÉ  retirer l'appel croisé</span>
+
+<span class="dir">shared/src/commonMain/kotlin/ca/dgag/ajusto/</span>
+├── <span class="del">ajusto/domain/summary/shim/AjustoSummaryShimImpl.kt  ← SUPPRIMÉ</span>
+└── <span class="mod">kore/di/koin/modules/FeatureKoinModules.kt           ← MODIFIÉ  retirer ajustoShimModule</span>
+    <span class="mod">kore/di/koin/modules/KoreStartupInputKoinModule.kt   ← MODIFIÉ  −1 champ, −1 single</span>
+</div>
+
+<h5>Récapitulatif</h5>
+<table>
+  <tr><th>Couche</th><th><span class="pill p-new">NOUVEAU</span></th><th><span class="pill p-mod">MODIFIÉ</span></th><th><span class="pill p-del">SUPPRIMÉ</span></th></tr>
+  <tr><td><strong>domain</strong></td><td>6</td><td>0</td><td>2</td></tr>
+  <tr><td><strong>data</strong></td><td>3</td><td>1</td><td>0</td></tr>
+  <tr><td><strong>presentation</strong></td><td>1</td><td>6</td><td>0</td></tr>
+  <tr><td><strong>androidApp</strong></td><td>1</td><td>2</td><td>0</td></tr>
+  <tr><td><strong>shared</strong></td><td>0</td><td>2</td><td>1</td></tr>
+  <tr style="font-weight:600"><td>TOTAL</td><td>11</td><td>11</td><td>3</td></tr>
+</table>
+
+<!-- ─────────────────────────────────────── -->
+<h3 id="E3">E.3 · DOMAIN — les 6 fichiers, en détail</h3>
+
+<h4>① <code>model/AjustoContextualMessage.kt</code></h4>
+<pre>package com.desjardins.assurancedommages.mobile.ajusto.domain.summary.model
+
+/**
+ * Message contextuel affiché sur le sommaire Ajusto.
+ *
+ * Les 7 premières variantes correspondent une à une aux règles de la cascade
+ * `AjustoContextualMessageHelper.findContextualMessage()` du Core natif.
+ * [GoodToKnow] provient d'une source éditoriale distincte.
+ *
+ * Un seul message est affiché à la fois — arbitrage dans le repository.
+ */
+sealed interface AjustoContextualMessage {
+    val title: String
+    val message: String
+
+    <span class="c">/** Règle 1 — appareil de marque non prise en charge. Seul message actionnable du Core. */</span>
+    data class DeviceBrandNotCompatible(
+        override val title: String,
+        override val message: String,
+        val buttonText: String?,
+        val onButtonClick: (() -&gt; Unit)?
+    ) : AjustoContextualMessage
+
+    <span class="c">/** Règle 2 — appareil non compatible. */</span>
+    data class DeviceNotCompatible(override val title: String, override val message: String) : AjustoContextualMessage
+
+    <span class="c">/** Règle 3 — batterie faible ET non en charge. Tint Core : RED. */</span>
+    data class LowBattery(override val title: String, override val message: String) : AjustoContextualMessage
+
+    <span class="c">/** Règle 4 — mode économie d'énergie actif ET pas d'enregistrement. Tint Core : WARNING. */</span>
+    data class PowerSaving(override val title: String, override val message: String) : AjustoContextualMessage
+
+    <span class="c">/** Règle 5 — invitation à classifier des trajets. */</span>
+    data class ClassifyInvite(override val title: String, override val message: String) : AjustoContextualMessage
+
+    <span class="c">/** Règle 6 — police pas encore en vigueur. */</span>
+    data class PolicyEffective(override val title: String, override val message: String) : AjustoContextualMessage
+
+    <span class="c">/**
+     * Règle 7 — badge réclamable.
+     * ⚠️ [title] et [message] portent le NOM du badge et son niveau, pas le texte affiché.
+     * La présentation substitue les chaînes produit — voir ContextualMessageMapper.
+     */</span>
+    data class ClaimableBadge(
+        override val title: String,
+        override val message: String,
+        val badgeIdentifier: String
+    ) : AjustoContextualMessage
+
+    <span class="c">/** Conseil éditorial — n'est PAS produit par le Core. Icône ampoule bleue. */</span>
+    <span class="g">data class GoodToKnow(
+        override val title: String,
+        override val message: String,
+        val source: String? = null,        // ex. « selon la CAA »
+        val externalId: String? = null     // traçabilité analytics
+    ) : AjustoContextualMessage</span>
+}</pre>
+
+<div class="note">
+  <strong>Pourquoi <code>onButtonClick: (() -&gt; Unit)?</code> dans un modèle domaine ?</strong>
+  C'est discutable — une lambda dans un modèle est une entorse à la pureté. La justification :
+  l'exécutable du Core est un <code>WeakReference</code> vers un listener que seul le Core sait
+  résoudre ; le domaine ne peut pas le reconstruire. L'alternative (§B5) est de ne pas le porter et
+  d'émettre une <code>Action</code> à la place — plus pur, mais il faut reproduire la modale côté KMP.
+  <strong>Décision à prendre explicitement.</strong>
+</div>
+
+<h4>② <code>datasource/AjustoContextualMessageDataSource.kt</code></h4>
+<pre>package com.desjardins.assurancedommages.mobile.ajusto.domain.summary.datasource
+
+import com.desjardins.assurancedommages.mobile.ajusto.domain.summary.model.AjustoContextualMessage
+import com.rickclephas.kmp.nativecoroutines.NativeCoroutines
+import kotlinx.coroutines.flow.Flow
+
+<span class="c">/**
+ * Source du message contextuel courant.
+ *
+ * Implémentée côté plateforme (bridger Android/iOS) car le calcul vit dans le Core natif.
+ * Émet `null` quand aucune condition n'est remplie.
+ */</span>
+fun interface AjustoContextualMessageDataSource {
+    @NativeCoroutines
+    fun observe(): Flow&lt;AjustoContextualMessage?&gt;
+}</pre>
+
+<h4>③ <code>datasource/AjustoDeviceStateDataSource.kt</code> + <code>model/AjustoDeviceState.kt</code></h4>
+<pre>data class AjustoDeviceState(
+    val hasNetworkAccess: Boolean = true,
+    val isLocationEnabled: Boolean = true,
+    val isBatteryLow: Boolean = false
+)
+
+fun interface AjustoDeviceStateDataSource {
+    @NativeCoroutines
+    fun observe(): Flow&lt;AjustoDeviceState&gt;
+}</pre>
+
+<h4>④ <code>datasource/AjustoTipDataSource.kt</code></h4>
+<pre>fun interface AjustoTipDataSource {
+    <span class="c">/** Retourne le conseil courant, ou null si aucun n'est disponible. */</span>
+    @NativeCoroutinesRefined
+    suspend fun retrieve(): Result&lt;AjustoContextualMessage.GoodToKnow?, AjustoSummaryError&gt;
+}</pre>
+<p class="sub" style="margin:6px 0 0">
+  Signature <code>suspend</code> + <code>Result</code> pour rester cohérent avec
+  <code>AjustoSummaryRemoteDataSource</code>. À ajuster si la source est un <code>Flow</code>
+  (hypothèse H3, dynamic messages).
+</p>
+
+<h4>⑤ <code>repository/AjustoContextualMessageRepository.kt</code></h4>
+<pre>interface AjustoContextualMessageRepository {
+    <span class="c">/** Message courant, ou null. Arbitre entre le Core et le conseil éditorial. */</span>
+    @NativeCoroutinesState
+    val contextualMessage: StateFlow&lt;AjustoContextualMessage?&gt;
+
+    <span class="c">/** Efface le message courant — après un claim de badge réussi, ou à la déconnexion. */</span>
+    suspend fun clear()
+}</pre>
+
+<h4>⑥ <code>usecase/DismissContextualMessageUseCase.kt</code></h4>
+<pre><span class="c">/**
+ * Réclame un badge puis efface le message contextuel si l'opération réussit.
+ *
+ * Cette règle vivait dans AjustoBadgeControllerBridger (androidApp) :
+ * `AjustoContextualMessageBridger.publishContextualMessage(null)`.
+ * La remonter ici la rend testable et la partage avec iOS.
+ */</span>
+class ClaimBadgeUseCase(
+    private val badgeRepository: AjustoBadgeRepository,
+    private val contextualMessageRepository: AjustoContextualMessageRepository
+) {
+    suspend operator fun invoke(identifier: String): Result&lt;String, AjustoBadgeError&gt; =
+        badgeRepository.claimBadge(identifier).also { result -&gt;
+            if (result is Result.Success) contextualMessageRepository.clear()
+        }
+}</pre>
+
+<div class="good">
+  <strong>Bilan domain.</strong> 6 fichiers créés, 2 supprimés, <strong>aucun fichier existant
+  modifié</strong>. Livrable seul, testable en <code>commonTest</code>, risque de régression nul.
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<h3 id="E4">E.4 · DATA — le repository qui porte l'état</h3>
+
+<pre>package com.desjardins.assurancedommages.mobile.ajusto.data.summary.repository
+
+internal class AjustoContextualMessageRepositoryImpl(
+    coreDataSource: AjustoContextualMessageDataSource,
+    tipDataSource: AjustoTipDataSource,
+    <span class="g">sessionState: Flow&lt;Boolean&gt;,</span>              <span class="c">// isAuthenticated — résout P10</span>
+    private val scope: CoroutineScope
+) : AjustoContextualMessageRepository {
+
+    private val cleared = MutableStateFlow(false)
+
+    private val tips: Flow&lt;AjustoContextualMessage.GoodToKnow?&gt; = flow {
+        emit((tipDataSource.retrieve() as? Result.Success)?.data)
+    }.catch { emit(null) }                        <span class="c">// un conseil indisponible ne casse rien</span>
+
+    override val contextualMessage: StateFlow&lt;AjustoContextualMessage?&gt; =
+        combine(
+            coreDataSource.observe().<span class="g">onEach { cleared.value = false }</span>,  <span class="c">// nouveau message → annule le clear</span>
+            tips,
+            cleared,
+            sessionState
+        ) { core, tip, isCleared, isAuthenticated -&gt;
+            when {
+                <span class="g">!isAuthenticated -&gt; null</span>          <span class="c">// P10 — pas de fuite entre comptes</span>
+                isCleared        -&gt; null
+                <span class="g">core != null     -&gt; core</span>          <span class="c">// alertes prioritaires (voir §D.4)</span>
+                else             -&gt; tip           <span class="c">// conseil en repli</span>
+            }
+        }
+        .distinctUntilChanged()
+        .stateIn(scope, SharingStarted.<span class="g">WhileSubscribed(5_000)</span>, null)
+
+    override suspend fun clear() { cleared.value = true }
+}</pre>
+
+<h5>Ce que ce fichier résout à lui seul</h5>
+<table>
+  <tr><th>Problème</th><th>Mécanisme</th></tr>
+  <tr><td><strong>P10</strong> — fuite entre comptes</td><td><code>sessionState</code> dans le <code>combine</code> : à la déconnexion, le StateFlow repasse à <code>null</code>, ce que <code>clearLastResult()</code> du Core ne peut pas faire côté KMP</td></tr>
+  <tr><td>Règle « claim → clear »</td><td><code>cleared</code> + <code>clear()</code>, appelé par le UseCase, plus par un bridger</td></tr>
+  <tr><td>Cycle de vie du legacy</td><td><code>WhileSubscribed(5_000)</code> → le <code>callbackFlow</code> amont se termine → <code>awaitClose</code> annule le <code>SubscriptionManager</code></td></tr>
+  <tr><td>Arbitrage Core / conseil</td><td>le <code>when</code>, 4 lignes, au seul endroit qui connaît les deux sources</td></tr>
+  <tr><td>Rafales du Core</td><td><code>distinctUntilChanged()</code> — le <code>subscribeOnce</code> imbriqué de <code>TripServiceImpl</code> peut produire des doublons</td></tr>
+</table>
+
+<h5>Le module Koin</h5>
+<pre><span class="c">// AjustoDataModule.kt — ajouts</span>
+single&lt;AjustoContextualMessageRepository&gt; {
+    AjustoContextualMessageRepositoryImpl(
+        coreDataSource = get(),
+        tipDataSource  = get(),
+        sessionState   = get&lt;CmtSessionController&gt;().isAuthenticatedFlow,
+        scope          = get(named(AjustoDataModuleQualifier.APP_SCOPE))
+    )
+}
+single&lt;AjustoTipDataSource&gt; { KtorAjustoTipDataSource(httpService = get()) }</pre>
+
+<h5>Le test qui valide la couche — sans Android, sans Core</h5>
+<pre>class AjustoContextualMessageRepositoryImplTest {
+
+    @Test fun `le message du Core est prioritaire sur le conseil`() = runTest {
+        val repo = repository(core = flowOf(lowBattery()), tip = goodToKnow())
+        repo.contextualMessage.test { assertIs&lt;LowBattery&gt;(awaitItem()) }
+    }
+
+    @Test fun `le conseil s affiche quand le Core n a rien`() = runTest {
+        val repo = repository(core = flowOf(null), tip = goodToKnow())
+        repo.contextualMessage.test { assertIs&lt;GoodToKnow&gt;(awaitItem()) }
+    }
+
+    @Test fun `la deconnexion vide le message`() = runTest {
+        val session = MutableStateFlow(true)
+        val repo = repository(core = flowOf(lowBattery()), session = session)
+        repo.contextualMessage.test {
+            assertIs&lt;LowBattery&gt;(awaitItem())
+            session.value = false
+            <span class="g">assertNull(awaitItem())</span>          <span class="c">// ← P10 verrouillé par un test</span>
+        }
+    }
+
+    @Test fun `clear efface puis un nouveau message reapparait`() = runTest { … }
+}</pre>
+
+<!-- ─────────────────────────────────────── -->
+<h3 id="E5">E.5 · PRESENTATION — le MVI complet</h3>
+
+<h4>① <code>AjustoSummaryUiState</code> — dériver au lieu de stocker</h4>
+
+<div class="ba">
+  <div class="before">
+    <h6>Avant</h6>
+<pre>data class AjustoSummaryUiState(
+  val status: … = Loading,
+  val data: AjustoSummary? = null,
+  val hasNetworkAccess: Boolean = true,
+  val isLocationEnabled: Boolean = true,
+  val isBatteryLow: Boolean = false,
+  <span class="r">val contextualMessage: AjustoContextualMessagePayload? = null,</span>
+  <span class="r">val messageBox: MessageBox? = null</span>   <span class="c">// vue STOCKÉE</span>
+) {
+  fun getHeader(language, timeZone): Header = …
+  fun getScoreGauge(language): ScoreGauge? = …
+  <span class="c">// … mais pas de getMessageBox</span>
+}</pre>
+  </div>
+  <div class="after">
+    <h6>Après</h6>
+<pre>data class AjustoSummaryUiState(
+  val status: … = Loading,
+  val data: AjustoSummary? = null,
+  val deviceState: <span class="g">AjustoDeviceState</span> = AjustoDeviceState(),
+  <span class="g">val contextualMessage: AjustoContextualMessage? = null</span>
+) {
+  fun getHeader(language, timeZone): Header = …
+  fun getScoreGauge(language): ScoreGauge? = …
+  <span class="g">fun getMessageBox(language): MessageBox? =
+      contextualMessage?.toMessageBox(language)</span>
+
+  <span class="c">// accesseurs de compatibilité si besoin :</span>
+  val hasNetworkAccess get() = deviceState.hasNetworkAccess
+  val isLocationEnabled get() = deviceState.isLocationEnabled
+  val isBatteryLow get() = deviceState.isBatteryLow
+}</pre>
+  </div>
+</div>
+
+<div class="good">
+  <strong>Trois gains MVI concrets.</strong>
+  <ol style="margin-bottom:0">
+    <li><strong>Cohérence</strong> — <code>getMessageBox()</code> rejoint <code>getHeader()</code>,
+      <code>getScoreGauge()</code>, <code>getTileButtons()</code>. Une seule règle dans l'écran :
+      les vues se dérivent.</li>
+    <li><strong>Le changement de langue fonctionne.</strong> Aujourd'hui <code>messageBox</code> est
+      figé au moment du calcul. En le dérivant avec <code>language</code>, il se retraduit à la
+      recomposition — comme tout le reste de l'écran.</li>
+    <li><strong>Le State redevient minimal.</strong> Il porte des <em>données</em>
+      (<code>AjustoSummary</code>, <code>AjustoContextualMessage</code>, <code>AjustoDeviceState</code>),
+      pas des <em>vues</em>. C'est la définition du M dans MVI.</li>
+  </ol>
+</div>
+
+<h4>② <code>mapper/ContextualMessageMapper.kt</code> — nouveau fichier</h4>
+<pre>package com.desjardins.assurancedommages.mobile.ajusto.presentation.summary.mapper
+
+<span class="c">/** Traduit un message domaine en modèle d'affichage. `when` exhaustif : le compilateur
+ *  garantit qu'aucune variante ne peut être oubliée. */</span>
+internal fun AjustoContextualMessage.toMessageBox(language: Language): AjustoSummaryUiStateModel.MessageBox =
+    when (this) {
+        is DeviceBrandNotCompatible -&gt; MessageBox(
+            title = title, message = message, buttonText = buttonText,
+            action = AjustoSummaryAction.OnContextualMessageButtonClicked,
+            iconKey = WarningSign(AjustoSummaryIconColor.DEFAULT)
+        )
+        is DeviceNotCompatible -&gt; MessageBox(title, message,
+            iconKey = DeviceNotCompatible(AjustoSummaryIconColor.DEFAULT))
+
+        is LowBattery  -&gt; MessageBox(title, message, iconKey = BatteryLow(<span class="g">RED</span>))
+        is PowerSaving -&gt; MessageBox(title, message, iconKey = BatteryLow(<span class="g">WARNING</span>))
+
+        is ClassifyInvite  -&gt; MessageBox(title, message, iconKey = EditPen(BLUE))
+        is PolicyEffective -&gt; MessageBox(title, message, iconKey = FileWithMedal(BRAND))
+
+        <span class="c">// ⚠️ substitution : le Core renvoie le NOM du badge, pas le texte produit (P7)</span>
+        is ClaimableBadge -&gt; MessageBox(
+            title   = <span class="g">AJUSTO_DASHBOARD_NEW_MEDAL_TITLE.get(language)</span>,
+            message = <span class="g">CONTEXTUAL_MESSAGE_CLAIM_BADGE_BUTTON.get(language)</span>,
+            action  = AjustoSummaryAction.<span class="g">OnClaimBadge(badgeIdentifier)</span>,   <span class="c">// P9</span>
+            iconKey = FileWithMedal(GREEN)
+        )
+
+        is GoodToKnow -&gt; MessageBox(
+            title   = title,
+            message = source?.let { "$message ($it)" } ?: message,
+            action  = null,
+            iconKey = <span class="g">LightBulb</span>
+        )
+    }</pre>
+
+<h4>③ <code>AjustoSummaryAction</code> — paramétrer l'action (P9)</h4>
+<div class="ba">
+  <div class="before">
+    <h6>Avant</h6>
+<pre>sealed interface AjustoSummaryAction : Action {
+  …
+  <span class="r">data object OnClaimBadge : AjustoSummaryAction</span>
+  <span class="c">// quel badge ? l'identifiant est perdu</span>
+}</pre>
+  </div>
+  <div class="after">
+    <h6>Après</h6>
+<pre>sealed interface AjustoSummaryAction : Action {
+  …
+  <span class="g">data class OnClaimBadge(val badgeIdentifier: String)
+      : AjustoSummaryAction</span>
+  <span class="g">data object OnContextualMessageButtonClicked
+      : AjustoSummaryAction</span>
+}</pre>
+  </div>
+</div>
+<p>
+  Aujourd'hui le bridger remplit <code>badgeIdentifier</code>, le payload le transporte,
+  et l'action <code>OnClaimBadge</code> — un <code>data object</code> — ne peut rien en faire.
+  L'information meurt entre le state et l'action. En MVI, une intention qui porte un paramètre est
+  une <code>data class</code>.
+</p>
+
+<h4>④ <code>AjustoSummaryEvent</code> — un événement de plus</h4>
+<pre>sealed interface AjustoSummaryEvent {
+    …
+    <span class="g">data class NavigateToClaimedBadgeView(val badgeIdentifier: String) : AjustoSummaryEvent</span>
+    <span class="g">data object DisplayBrandNotCompatibleModal : AjustoSummaryEvent</span>
+}</pre>
+
+<h4>⑤ <code>AjustoSummaryViewModel</code> — le cœur</h4>
+<pre>class AjustoSummaryViewModel(
+    private val repository: AjustoSummaryRepository,
+    <span class="g">private val contextualMessageRepository: AjustoContextualMessageRepository,</span>
+    <span class="g">private val deviceStateDataSource: AjustoDeviceStateDataSource,</span>
+    <span class="g">private val claimBadgeUseCase: ClaimBadgeUseCase,</span>
+    private val analyticDataSource: AnalyticRemoteDataSource
+) : ViewModel() {
+
+    private val _uiState = MutableStateFlow(AjustoSummaryUiState(status = Loading))
+    @NativeCoroutinesState
+    val uiState: StateFlow&lt;AjustoSummaryUiState&gt; = _uiState.asStateFlow()
+        .onStart { loadData() }
+        .stateIn(viewModelScope, WhileSubscribed(5_000), AjustoSummaryUiState(status = Loading))
+
+    private val _events = Channel&lt;AjustoSummaryEvent&gt;()
+    @NativeCoroutines
+    val events: Flow&lt;AjustoSummaryEvent&gt; = _events.receiveAsFlow()
+
+    init {
+        <span class="c">// deux sources indépendantes, chacune son collecteur — plus de shim fourre-tout</span>
+        viewModelScope.launch {
+            deviceStateDataSource.observe().collectLatest { device -&gt;
+                _uiState.update { it.copy(deviceState = device) }
+            }
+        }
+        viewModelScope.launch {
+            contextualMessageRepository.contextualMessage
+                <span class="g">.distinctUntilChanged()</span>
+                .collectLatest { message -&gt;
+                    <span class="g">trackContextualMessage(message)</span>          <span class="c">// P11 — une seule place</span>
+                    _uiState.update { it.copy(contextualMessage = message) }
+                }
+        }
+    }
+
+    <span class="c">/** P11 — un événement par type. Plus de faux positif batterie/économie d'énergie. */</span>
+    private fun trackContextualMessage(message: AjustoContextualMessage?) {
+        val event = when (message) {
+            null                        -&gt; return
+            is LowBattery               -&gt; AjustoAnalytics.lowBatteryContent()
+            is PowerSaving              -&gt; AjustoAnalytics.powerSavingContent()
+            is DeviceNotCompatible      -&gt; AjustoAnalytics.deviceNotCompatibleContent()
+            is DeviceBrandNotCompatible -&gt; AjustoAnalytics.brandNotCompatibleContent()
+            is ClassifyInvite           -&gt; AjustoAnalytics.classifyInviteContent()
+            is PolicyEffective          -&gt; AjustoAnalytics.policyEffectiveContent()
+            is ClaimableBadge           -&gt; AjustoAnalytics.claimableBadgeContent()
+            is GoodToKnow               -&gt; AjustoAnalytics.goodToKnowContent(message.externalId)
+        }
+        analyticDataSource.track(event)
+    }
+
+    @NativeCoroutines
+    suspend fun onAction(action: AjustoSummaryAction) {
+        when (action) {
+            …
+            is AjustoSummaryAction.OnClaimBadge -&gt; {
+                <span class="g">when (claimBadgeUseCase(action.badgeIdentifier)) {</span>
+                    is Result.Success -&gt; sendEvent(NavigateToClaimedBadgeView(action.badgeIdentifier))
+                    is Result.Failure -&gt; sendEvent(Failure(AjustoSummaryError.NetworkError))
+                }
+            }
+            AjustoSummaryAction.OnContextualMessageButtonClicked -&gt; {
+                (_uiState.value.contextualMessage as? DeviceBrandNotCompatible)
+                    ?.onButtonClick?.invoke()
+                    ?: sendEvent(DisplayBrandNotCompatibleModal)
+            }
+        }
+    }
+}</pre>
+
+<div class="fig">
+  <p class="cap">Figure 7 — Le flux MVI complet, après migration</p>
+  <div class="mermaid">
+flowchart TB
+    subgraph SRC["&nbsp;SOURCES&nbsp;"]
+        direction LR
+        A["AjustoSummaryRepository<br/>donnees du sommaire"]
+        B["AjustoContextualMessageRepository<br/>message contextuel"]
+        C["AjustoDeviceStateDataSource<br/>reseau location batterie"]
+    end
+
+    subgraph VM["&nbsp;VIEWMODEL&nbsp;"]
+        direction TB
+        D["loadData — suspend"]
+        E["collect deviceState"]
+        F["collect contextualMessage<br/>+ trackContextualMessage"]
+        G["_uiState.update"]
+        D --> G
+        E --> G
+        F --> G
+    end
+
+    subgraph ST["&nbsp;STATE — donnees, pas des vues&nbsp;"]
+        H["AjustoSummaryUiState<br/>status + data + deviceState + contextualMessage"]
+        I["getHeader(language)<br/>getScoreGauge(language)<br/>getMessageBox(language)<br/>getTileButtons(language)"]
+        H --> I
+    end
+
+    subgraph UI["&nbsp;UI&nbsp;"]
+        J["AjustoSummaryRoot<br/>collectAsStateWithLifecycle"]
+        K["SummaryContent<br/>+ MessageBoxSection"]
+        J --> K
+    end
+
+    A --> D
+    C --> E
+    B --> F
+    G --> H
+    I --> J
+
+    K -->|"onAction"| L["AjustoSummaryAction<br/>OnClaimBadge(identifier)"]
+    L --> M["onAction — ClaimBadgeUseCase"]
+    M --> N["AjustoSummaryEvent<br/>NavigateToClaimedBadgeView"]
+    N -->|"ObserveAsEvents"| J
+
+    style SRC fill:#123020,stroke:#3fb950,color:#e6edf3
+    style VM fill:#2b1a3d,stroke:#a371f7,color:#e6edf3
+    style ST fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style UI fill:#3a2a10,stroke:#d29922,color:#e6edf3
+  </div>
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<h3 id="E6">E.6 · androidApp — les deux bridgers</h3>
+
+<pre><span class="c">// AjustoContextualMessageBridger.kt — réécrit</span>
+class AjustoContextualMessageBridger(
+    private val tripService: () -&gt; TripService
+) : AjustoContextualMessageDataSource {
+
+    override fun observe(): Flow&lt;AjustoContextualMessage?&gt; = callbackFlow {
+        val sm = SCRATCHSubscriptionManager()
+        tripService().contextualMessageObservable
+            .observeOn(queue = UiThreadDispatchQueue.newInstance())
+            .subscribe(object : SCRATCHObservableCallback&lt;CoreMessage?&gt;(sm) {
+                override fun onEvent(eventData: CoreMessage?) { trySend(eventData.toDomain()) }
+            })
+        awaitClose { sm.cancel() }
+    }
+
+    private fun CoreMessage?.toDomain(): AjustoContextualMessage? = when {
+        this == null -&gt; null
+        this is BadgeContextualMessage -&gt; ClaimableBadge(title(), message(), badge().identifier)
+        this is ExecutableContextualMessage -&gt; DeviceBrandNotCompatible(
+            title(), message(), messageButton(), { buttonExecutable().execute() })
+        messageIcon() == CONTEXTUAL_MESSAGE_DEVICE_NOT_COMPATIBLE -&gt; DeviceNotCompatible(title(), message())
+        <span class="g">messageIcon() == CONTEXTUAL_MESSAGE_BATTERY &amp;&amp;
+            messageIconTint() == Color.RED -&gt; LowBattery(title(), message())
+        messageIcon() == CONTEXTUAL_MESSAGE_BATTERY -&gt; PowerSaving(title(), message())</span>
+        messageIcon() == CONTEXTUAL_MESSAGE_CLASSIFY -&gt; ClassifyInvite(title(), message())
+        messageIcon() == CONTEXTUAL_MESSAGE_POLICY_EFFECTIVE -&gt; PolicyEffective(title(), message())
+        else -&gt; null
+    }
+}
+
+<span class="c">// AjustoDeviceStateBridger.kt — nouveau</span>
+class AjustoDeviceStateBridger(
+    private val deviceInfo: DeviceInfo,
+    private val networkState: NetworkState
+) : AjustoDeviceStateDataSource {
+    override fun observe(): Flow&lt;AjustoDeviceState&gt; = combine(
+        deviceInfo.isLocationEnabledStateFlow,
+        deviceInfo.isBatteryLowStateFlow,
+        networkState.hasNetworkAccessStateFlow
+    ) { location, battery, network -&gt; AjustoDeviceState(network, location, battery) }
+}</pre>
+
+<div class="warn">
+  <strong>À vérifier</strong> : <code>DeviceInfo</code> et <code>NetworkState</code> côté Kore
+  exposent-ils bien <code>isBatteryLowStateFlow</code> et <code>hasNetworkAccessStateFlow</code> ?
+  Le <code>ShimImpl</code> actuel appelle <code>isBatteryLow()</code> et
+  <code>hasNetworkAccess()</code> en fonctions — donc soit les flows existent, soit il faudra les
+  ajouter côté Kore, soit adapter à partir de <code>connectionTypeStateFlow</code>. C'est le seul
+  point du plan qui dépend d'une API que je n'ai pas pu lire.
+</div>
+
+<!-- ─────────────────────────────────────── -->
+<h3 id="E7">E.7 · Ce qui reste dans <code>shared</code>, ce qui disparaît</h3>
+
+<table>
+  <tr><th>Élément</th><th>Sort</th><th>Justification</th></tr>
+  <tr><td><code>AjustoSummaryShimImpl</code></td><td><span class="pill p-del">SUPPRIMÉ</span></td><td>ses deux responsabilités partent : device → bridger, message → repository</td></tr>
+  <tr><td><code>AjustoSummaryShim</code> (interface, domain)</td><td><span class="pill p-del">SUPPRIMÉ</span></td><td>fourre-tout de transition ; remplacé par deux ports nommés</td></tr>
+  <tr><td><code>AjustoContextualMessageSource</code> (abstract class)</td><td><span class="pill p-del">SUPPRIMÉ</span></td><td>l'état part au repository ; le port devient une <code>fun interface</code></td></tr>
+  <tr><td><code>AjustoContextualIconKey</code> (enum)</td><td><span class="pill p-del">SUPPRIMÉ</span></td><td>l'icône se déduit du type de message</td></tr>
+  <tr><td><code>ajustoContextualMessageSource</code> dans <code>KoreStartupKoinInputs</code></td><td><span class="pill p-del">SUPPRIMÉ</span></td><td>le DataSource s'enregistre directement côté Android ; −1 champ sur 26</td></tr>
+  <tr><td><code>ajustoShimModule</code> dans <code>FeatureKoinModules</code></td><td><span class="pill p-del">SUPPRIMÉ</span></td><td>plus de shim à construire</td></tr>
+  <tr><td><code>AjustoDashboardViewModel</code> legacy + <code>AjustoDashboardUiState</code></td><td><span class="pill p-mod">INCHANGÉ</span></td><td>le Dashboard legacy n'est <strong>pas</strong> touché de tout le plan</td></tr>
+  <tr><td><code>DynamicMessageHelper</code></td><td><span class="pill p-mod">INCHANGÉ</span></td><td>éventuellement source du conseil (hypothèse H3)</td></tr>
+</table>
+
+<!-- ─────────────────────────────────────── -->
+<h3 id="E8">E.8 · Le câblage Koin complet</h3>
+
+<pre><span class="c">// ═══ androidApp — nouveau module bridger ═══</span>
+val ajustoBridgerModule = module {
+    single&lt;AjustoContextualMessageDataSource&gt; {
+        AjustoContextualMessageBridger { AndroidScope.get()[TripService::class.java] as TripService }
+    }
+    single&lt;AjustoDeviceStateDataSource&gt; {
+        AjustoDeviceStateBridger(deviceInfo = get(), networkState = get())
+    }
+}
+
+<span class="c">// ═══ feature/ajusto/data — AjustoDataModule ═══</span>
+single&lt;AjustoTipDataSource&gt; { KtorAjustoTipDataSource(httpService = get()) }
+single&lt;AjustoContextualMessageRepository&gt; {
+    AjustoContextualMessageRepositoryImpl(
+        coreDataSource = get(), tipDataSource = get(),
+        sessionState = get&lt;CmtSessionController&gt;().isAuthenticatedFlow,
+        scope = get(named(AjustoDataModuleQualifier.APP_SCOPE))
+    )
+}
+
+<span class="c">// ═══ feature/ajusto/domain — nouveau module usecase ═══</span>
+val ajustoUseCaseModule = module {
+    factory { ClaimBadgeUseCase(badgeRepository = get(), contextualMessageRepository = get()) }
+}
+
+<span class="c">// ═══ feature/ajusto/presentation — AjustoSummaryPresentationModule ═══</span>
+viewModel {
+    AjustoSummaryViewModel(
+        repository = get(),
+        <span class="g">contextualMessageRepository = get(),</span>
+        <span class="g">deviceStateDataSource = get(),</span>
+        <span class="g">claimBadgeUseCase = get(),</span>
+        analyticDataSource = get()
+    )
+}
+
+<span class="c">// ═══ shared — retraits ═══</span>
+<span class="r">// KoreStartupKoinInputs : retirer ajustoContextualMessageSource</span>
+<span class="r">// koreStartupInputsModule : retirer single&lt;AjustoContextualMessageSource&gt;</span>
+<span class="r">// FeatureKoinModules : retirer ajustoShimModule</span></pre>
+
+<!-- ══════════════════════════════════════════════════════════════════ -->
+<h2 id="F">F · Séquencement, tests, critères de sortie</h2>
+
+<div class="fig">
+  <p class="cap">Figure 8 — Les 6 lots, leurs dépendances et leur risque</p>
+  <div class="mermaid">
+flowchart TB
+    L1["LOT 1 — DOMAIN<br/>6 fichiers CREES · 0 modifie<br/>RISQUE NUL · livrable seul"]
+    L2["LOT 2 — DATA<br/>2 crees · 1 modifie (Koin)<br/>+ 4 tests commonTest<br/>RISQUE NUL"]
+    L3["LOT 3 — BRIDGERS<br/>1 reecrit · 1 cree · 2 modules Koin<br/>RISQUE MOYEN — le seul lot delicat"]
+    L4["LOT 4 — PRESENTATION MVI<br/>1 cree · 5 modifies<br/>RISQUE FAIBLE"]
+    L5["LOT 5 — NETTOYAGE<br/>3 suppressions + retraits Koin<br/>RISQUE FAIBLE"]
+    L6["LOT 6 — UI (hors perimetre actuel)<br/>MessageBoxSection + navigation<br/>RISQUE FAIBLE"]
+
+    L1 --> L2 --> L3 --> L4 --> L5 -.-> L6
+    L1 -.->|"peut demarrer en parallele"| LG["LOT G — Bon a savoir<br/>TipDataSource + DTO + variante<br/>des que la source est connue"]
+    LG --> L2
+
+    style L1 fill:#0f2417,stroke:#3fb950,color:#e6edf3
+    style L2 fill:#0f2417,stroke:#3fb950,color:#e6edf3
+    style L3 fill:#241f10,stroke:#d29922,color:#e6edf3
+    style L4 fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style L5 fill:#12293d,stroke:#58a6ff,color:#e6edf3
+    style L6 fill:#21262d,stroke:#30363d,color:#9aa7b4
+    style LG fill:#2b1a3d,stroke:#a371f7,color:#e6edf3
+  </div>
+</div>
+
+<table>
+  <tr><th>Lot</th><th>Contenu</th><th>Fichiers</th><th>Résout</th><th>Critère de sortie</th></tr>
+  <tr>
+    <td><strong>1</strong><br><span class="pill p-dom">domain</span></td>
+    <td>modèle 8 variantes, 3 <code>DataSource</code>, <code>Repository</code>, <code>UseCase</code></td>
+    <td>+6 / ~0</td><td>fondation</td>
+    <td>compile ; aucun comportement modifié ; revue possible sans contexte</td>
+  </tr>
+  <tr>
+    <td><strong>2</strong><br><span class="pill p-dat">data</span></td>
+    <td><code>RepositoryImpl</code> + priorité + reset session + Koin</td>
+    <td>+2 / ~1</td><td>P10</td>
+    <td>4 tests <code>commonTest</code> verts, dont « déconnexion → null »</td>
+  </tr>
+  <tr>
+    <td><strong>3</strong><br><span class="pill p-and">androidApp</span></td>
+    <td><code>class</code> + <code>callbackFlow</code> + tint + exécutable ; bridger device</td>
+    <td>+1 / ~2</td><td>P2, P3, P6, P13</td>
+    <td>Dashboard legacy strictement inchangé à l'écran ; test de traduction des 7 types</td>
+  </tr>
+  <tr>
+    <td><strong>4</strong><br><span class="pill p-pre">presentation</span></td>
+    <td>mapper exhaustif, <code>getMessageBox(language)</code>, action paramétrée, analytics ×8</td>
+    <td>+1 / ~5</td><td>P4, P7, P9, P11</td>
+    <td>test : 8 messages → 8 MessageBox ; 8 messages → 8 événements analytics</td>
+  </tr>
+  <tr>
+    <td><strong>5</strong><br><span class="pill p-sh">shared</span></td>
+    <td>supprimer <code>ShimImpl</code>, <code>Shim</code>, <code>Source</code>, <code>IconKey</code> ; nettoyer Koin</td>
+    <td>−3 / ~2</td><td>P1, P12, P14</td>
+    <td>aucune référence résiduelle (<code>grep</code> à zéro)</td>
+  </tr>
+  <tr>
+    <td><strong>G</strong><br><span class="pill p-dat">data</span></td>
+    <td>« Bon à savoir » : <code>TipDataSource</code>, <code>TipDto</code>, variante <code>GoodToKnow</code></td>
+    <td>+3 / ~1</td><td>nouveau besoin</td>
+    <td>le conseil s'affiche quand le Core n'a rien ; jamais par-dessus une alerte</td>
+  </tr>
+  <tr>
+    <td><strong>6</strong><br><span class="pill p-and">UI</span></td>
+    <td><code>MessageBoxSection</code>, <code>getIconColor</code>, navigation badge</td>
+    <td>+1 / ~2</td><td>P5, P8</td>
+    <td>les 8 types s'affichent correctement ; le clic badge navigue</td>
+  </tr>
+</table>
+
+<h3>La checklist de non-régression</h3>
+<pre>□ Batterie faible          → icône batterie <span class="r">ROUGE</span>, pas orange
+□ Économie d'énergie       → icône batterie <span class="y">ORANGE</span>, message « Économie d'énergie »
+□ Invitation à classifier  → crayon <span class="b">BLEU</span>, plus de point d'interrogation
+□ Police en vigueur        → médaille BRAND
+□ Appareil non compatible  → icône dédiée
+□ Marque non compatible    → icône warning + bouton qui ouvre bien la modale
+□ Badge réclamable         → « Félicitations pour votre nouvelle médaille! »,
+                             <span class="g">PAS</span> le nom du badge ; clic → écran de réclamation
+□ Bon à savoir             → ampoule BLEUE ; <span class="g">jamais</span> affiché par-dessus une alerte Core
+□ Déconnexion/reconnexion  → aucun message du compte précédent
+□ Changement de langue     → le message se retraduit sans rechargement
+□ Analytics batterie       → ne se déclenche <span class="g">PAS</span> sur économie d'énergie
+□ Dashboard legacy         → strictement identique à avant, sur les 7 types
+□ Cohabitation ViewPager   → les deux onglets affichent le même message</pre>
+
+<h3>Le critère de sortie de tout le chantier</h3>
+
+<div class="good">
+  Le jour où <code>TripService</code> passe en KMP, tu dois pouvoir remplacer <strong>une seule
+  ligne</strong> :
+  <pre style="margin:12px 0;background:#0d1117">single&lt;AjustoContextualMessageDataSource&gt; { AjustoContextualMessageBridger { … } }
+<span class="c">// →</span>
+single&lt;AjustoContextualMessageDataSource&gt; { KmpContextualMessageDataSource(get(), get()) }</pre>
+  … supprimer <code>AjustoContextualMessageBridger.kt</code>, et <strong>ne toucher ni au modèle,
+  ni au repository, ni au ViewModel, ni au mapper, ni à l'UI</strong>.
+  <br><br>
+  Même test pour le « Bon à savoir » : changer d'hypothèse (API summary → endpoint dédié →
+  dynamic message) ne doit modifier que <code>KtorAjustoTipDataSource</code>.
+  <br><br>
+  Si une autre couche doit bouger, c'est qu'un concept a fuité. C'est la seule métrique qui compte.
+</div>
+
+<p style="color:var(--tx2);font-size:14px;margin-top:44px">
+  Sources vérifiées : <code>AjustoContextualMessageBridger.kt</code>,
+  <code>AjustoContextualMessageSource.kt</code>, <code>AjustoSummaryShim.kt</code>,
+  <code>AjustoSummaryShimImpl.kt</code>, <code>AjustoSummaryViewModel.kt</code>,
+  <code>AjustoSummaryUiState.kt</code>, <code>AjustoSummaryAction.kt</code>,
+  <code>AjustoSummaryEvent.kt</code>, <code>AjustoSummaryUiStateStatus.kt</code>,
+  <code>AjustoSummaryScreen.kt</code>, <code>AjustoSummary.kt</code>, <code>SummaryDto.kt</code>,
+  <code>AjustoSummaryRepository(Impl).kt</code>, <code>AjustoDataModule.kt</code>,
+  <code>FeatureKoinModules.kt</code>, <code>KoreStartupInputKoinModule.kt</code>,
+  <code>AjustoDashboardUiState.kt</code>, <code>AjustoDashboardScreen.kt</code>,
+  <code>AjustoContextualMessageHelper.java</code>, <code>TripServiceImpl.java</code>,
+  <code>DeviceInfo.java</code>, <code>CmtRepositoryBridger.kt</code>,
+  <code>AccountRepositoryBridger.kt</code>, <code>SCRATCHOperationCoroutine.kt</code>.
+  <br>
+  ⚠️ Points non vérifiables sur le dépôt reconstitué : l'API exacte de
+  <code>ExecutableContextualMessage.buttonExecutable()</code>, les flows
+  <code>isBatteryLowStateFlow</code> / <code>hasNetworkAccessStateFlow</code> côté Kore, et le
+  contenu de <code>AjustoAnalytics.kt</code> (stub).
+</p>
+
+</div>
+
+<script>
+mermaid.initialize({
+  startOnLoad: true,
+  theme: 'dark',
+  themeVariables: {
+    fontSize: '17px',
+    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+    primaryColor: '#1c2230', primaryTextColor: '#e6edf3', primaryBorderColor: '#58a6ff',
+    lineColor: '#7d8590', secondaryColor: '#161b22', tertiaryColor: '#12293d',
+    background: '#0d1117', mainBkg: '#1c2230', nodeBorder: '#58a6ff',
+    clusterBkg: '#161b22', clusterBorder: '#30363d', edgeLabelBackground: '#0d1117',
+    actorBkg: '#1c2230', actorBorder: '#58a6ff', actorTextColor: '#e6edf3',
+    signalColor: '#e6edf3', signalTextColor: '#e6edf3',
+    noteBkgColor: '#241f10', noteTextColor: '#e6edf3', noteBorderColor: '#d29922',
+    sequenceNumberColor: '#0d1117'
+  },
+  flowchart: { htmlLabels: true, curve: 'basis', nodeSpacing: 55, rankSpacing: 78, padding: 20 },
+  sequence: { actorMargin: 80, width: 180, height: 58, messageFontSize: 15, noteFontSize: 14 },
+  class: { padding: 20 }
+});
+</script>
+</body>
+</html>
