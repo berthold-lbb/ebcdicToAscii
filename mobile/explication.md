@@ -423,3 +423,6 @@ Marge de sécurité avec HOLDER_SIZE = 300 :
 │  dépasse toujours la limite.                                │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+
+https://github.com/felipechaux/kmp-compose-multiplatform-skill/releases/tag/v1.0.3
