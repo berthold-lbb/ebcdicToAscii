@@ -1,0 +1,920 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WRU-24763 — Changements finaux, prêts à coder</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#30363d;
+    --tx:#e6edf3; --tx2:#9aa7b4; --acc:#58a6ff;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --info:#a371f7;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1300px;margin:0 auto;padding:40px 28px 130px}
+  h1{font-size:34px;line-height:1.2;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--tx2);font-size:15px;margin-bottom:22px}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--tx2);
+        background:var(--panel);border:1px solid var(--line);border-radius:8px;
+        padding:13px 17px;margin-bottom:36px}
+  h2{font-size:27px;margin:70px 0 8px;padding:26px 0 0;border-top:2px solid var(--acc);letter-spacing:-.01em}
+  h3{font-size:18px;margin:32px 0 10px}
+  p{margin:12px 0}
+  code{font-family:var(--mono);font-size:.9em;background:#1f2733;padding:2px 6px;border-radius:4px;color:#a5d6ff}
+  pre{border-radius:0 0 10px 10px;padding:16px 18px;overflow-x:auto;
+      font-family:var(--mono);font-size:12.7px;line-height:1.65;margin:0}
+  pre.plain{background:var(--panel);border:1px solid var(--line);border-radius:10px}
+  pre .c{color:#7d8590}
+  pre .hl{background:#3d2020;color:#ffb0a8;padding:1px 3px;border-radius:3px}
+  pre .hlg{background:#123021;color:#8ff0a4;padding:1px 3px;border-radius:3px}
+  .box{margin:18px 0;border-radius:10px;overflow:hidden;border:1px solid var(--line)}
+  .box .hd{font-family:var(--mono);font-size:12px;font-weight:700;padding:9px 16px;
+           letter-spacing:.05em;text-transform:uppercase}
+  .before{border-color:#5a2626}
+  .before .hd{background:#3a1a1a;color:#ff9d94;border-bottom:1px solid #5a2626}
+  .before pre{background:#1a1010}
+  .after{border-color:#1d4a2c}
+  .after .hd{background:#123021;color:#7ee787;border-bottom:1px solid #1d4a2c}
+  .after pre{background:#0d1a12}
+  .neutral .hd{background:var(--panel2);color:var(--tx2);border-bottom:1px solid var(--line)}
+  .neutral pre{background:var(--panel)}
+  table{border-collapse:collapse;width:100%;margin:20px 0;font-size:13.3px}
+  .scroller{overflow-x:auto;margin:20px 0} .scroller table{margin:0}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600;color:var(--tx2);
+     text-transform:uppercase;font-size:11.3px;letter-spacing:.06em}
+  td code{font-size:11.8px} tr:nth-child(even) td{background:#12171f}
+  .why{border-left:4px solid var(--acc);background:#12202f;padding:16px 20px;border-radius:0 8px 8px 0;margin:20px 0}
+  .why h4{margin:0 0 8px;font-size:15px;color:var(--acc)}
+  .warn{border-left:4px solid var(--warn);background:#241f10;padding:15px 19px;border-radius:0 8px 8px 0;margin:20px 0}
+  .warn h4{margin:0 0 8px;font-size:15px;color:#ffd591}
+  .bad{border-left:4px solid var(--bad);background:#2b1414;padding:15px 19px;border-radius:0 8px 8px 0;margin:20px 0}
+  .bad h4{margin:0 0 8px;font-size:15px;color:#ff9d94}
+  .good{border-left:4px solid var(--ok);background:#0f2417;padding:15px 19px;border-radius:0 8px 8px 0;margin:20px 0}
+  .good h4{margin:0 0 8px;font-size:15px;color:#7ee787}
+  .key{border-left:4px solid var(--info);background:#1d1630;padding:15px 19px;border-radius:0 8px 8px 0;margin:20px 0}
+  .key h4{margin:0 0 8px;font-size:15px;color:#d2b7ff}
+  .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600;font-family:var(--mono)}
+  .p-ok{background:#1d4a2c;color:#7ee787} .p-no{background:#5a1c1c;color:#ff9d94}
+  .p-mid{background:#5a4520;color:#ffd591} .p-info{background:#12293d;color:#9fd4ff}
+  ul{margin:10px 0;padding-left:22px} li{margin:6px 0}
+  ol{margin:10px 0;padding-left:24px} ol li{margin:8px 0}
+  .path{font-family:var(--mono);font-size:12px;background:#0b1a26;border:1px solid #1f4a6b;
+        border-radius:8px;padding:11px 15px;margin:14px 0;color:#9fd4ff;word-break:break-all}
+  .path b{color:#e6edf3}
+  .modhead{background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--acc);
+           border-radius:0 12px 12px 0;padding:16px 22px;margin:24px 0}
+  .modhead.opt{border-left-color:var(--warn)}
+  .modhead.test{border-left-color:var(--info)}
+  .modhead .t{font-size:19px;font-weight:600;margin-bottom:4px}
+  .modhead .d{color:var(--tx2);font-size:14px}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 26px;margin:30px 0}
+  .toc a{color:var(--acc);text-decoration:none} .toc a:hover{text-decoration:underline}
+  .toc ol{margin:0;padding-left:22px} .toc li{margin:7px 0}
+  .chk{list-style:none;padding-left:0}
+  .chk li{padding-left:30px;position:relative;margin:11px 0}
+  .chk li:before{content:"\2610";position:absolute;left:0;color:var(--acc);font-size:19px;line-height:1.3}
+  .mermaid{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+           padding:26px 20px;margin:26px 0;overflow-x:auto;text-align:center}
+  .mermaid svg{max-width:none !important;height:auto}
+  .figcap{color:var(--tx2);font-size:13px;text-align:center;margin:-14px 0 30px;font-style:italic}
+  .mock{background:#f2f2f2;color:#1a1a1a;border-radius:12px;padding:18px 20px;margin:16px 0;
+        font-family:-apple-system,sans-serif;max-width:420px}
+  .mock .row{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid #d8d8d8;font-size:14px}
+  .mock .row:first-of-type{border-top:none}
+  .mock .ico{width:22px;height:22px;border:1.6px solid #4a4a4a;border-radius:4px;flex:none}
+  .mock .em{color:#b00020;font-weight:600}
+  hr{border:0;border-top:1px solid var(--line);margin:40px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>WRU-24763 — Changements finaux</h1>
+<div class="sub">Document unique et autonome. Décision retenue : la ligne « Fin de la période » reste toujours affichée, avec une valeur vide quand la donnée manque.</div>
+
+<div class="meta">
+Document 04 · Version 1.0.0 · 2026-08-25 · <strong>Remplace les docs 02 et 03</strong> (décision changée sur le cas 2)<br>
+Exigence TI : WRU-24763 · Exigence d'affaires : NUMTRV-23 · Sprint 2026 #8<br>
+Endpoint : <code>GET /api/m/v2/s/ajusto/summary</code> · Champ : <code>projectedEndAt</code><br>
+Racine : <code>/Users/bedel/workspace/project/desjardins/ad-digital-mobile-aio/</code>
+</div>
+
+<div class="toc">
+<strong>Sommaire</strong>
+<ol>
+  <li><a href="#s1">Le problème en une image</a></li>
+  <li><a href="#s2">La décision retenue</a></li>
+  <li><a href="#m1">M1 — <code>AjustoSummary.kt</code></a></li>
+  <li><a href="#m2">M2 — <code>SummaryDto.kt</code></a></li>
+  <li><a href="#m3">M3 — <code>AjustoSummaryUiState.kt</code> <span class="pill p-no">le correctif</span></a></li>
+  <li><a href="#m4">M4 — <code>AjustoSummaryScreen.kt</code></a></li>
+  <li><a href="#m5">M5 — <code>AjustoSummaryMockProvider.kt</code></a></li>
+  <li><a href="#m6">M6 — <code>SummaryDtoTest.kt</code></a></li>
+  <li><a href="#m7">M7 — <code>AjustoSummaryUiStateTest.kt</code></a></li>
+  <li><a href="#s8">Ce qu'il ne faut PAS toucher</a></li>
+  <li><a href="#s9">Commentaire à coller dans le ticket</a></li>
+  <li><a href="#s10">Checklist et points ouverts</a></li>
+</ol>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s1">1. Le problème en une image</h2>
+
+<p>Le backend envoie un <strong>instant universel</strong>. Ce qui change d'un utilisateur à l'autre, c'est la façon de l'écrire en toutes lettres — et cette traduction dépend d'un fuseau horaire. Aujourd'hui, c'est celui de l'appareil qui est utilisé.</p>
+
+<div class="scroller">
+<table>
+<tr><th>Fuseau utilisé pour formater</th><th>Texte affiché pour <code>2026-06-22T23:59:00Z</code></th><th>Jour</th><th>Verdict</th></tr>
+<tr><td><code>TimeZone.UTC</code></td><td><strong>22 juin 2026 à 23 h 59</strong></td><td>22 juin</td><td><span class="pill p-ok">CONFORME</span></td></tr>
+<tr><td><code>America/Montreal</code> (−4 h)</td><td>22 juin 2026 à 19 h 59</td><td>22 juin</td><td><span class="pill p-no">heure fausse</span></td></tr>
+<tr><td><code>America/Vancouver</code> (−7 h)</td><td>22 juin 2026 à 16 h 59</td><td>22 juin</td><td><span class="pill p-no">heure fausse</span></td></tr>
+<tr><td><code>Europe/Paris</code> (+2 h)</td><td>23 juin 2026 à 01 h 59</td><td><strong>23 juin</strong></td><td><span class="pill p-no">JOUR faux</span></td></tr>
+<tr><td><code>Asia/Tokyo</code> (+9 h)</td><td>23 juin 2026 à 08 h 59</td><td><strong>23 juin</strong></td><td><span class="pill p-no">JOUR faux</span></td></tr>
+</table>
+</div>
+
+<div class="bad">
+<h4>Le danger n'est pas l'heure, c'est la bascule de jour</h4>
+<p>Un utilisateur en voyage en Europe lit « fin de période le <strong>23 juin</strong> » alors que le backend a arrêté de compter ses trajets le <strong>22 juin</strong>. Il croit avoir une journée de conduite de plus pour améliorer son score. Il ne l'a pas. C'est exactement le malentendu que l'exigence veut supprimer : « assurer la cohérence avec le score affiché ».</p>
+</div>
+
+<div class="good">
+<h4>Le bug est déjà visible dans ta Compose Preview — sans backend</h4>
+<p><code>AjustoSummaryMockProvider.kt:28</code> contient <code>projectedEndAt = Instant.parse("2024-06-30T<strong>12:00</strong>:00Z")</code>.<br>
+La preview affiche <strong>« Fin de la période : 30 juin 2024 à 8 h 00 »</strong> → décalage de <strong>−4 h</strong>, soit exactement <code>America/Montreal</code> en heure avancée.</p>
+<p>Elle prouve aussi deux choses rassurantes : <strong>le format produit est déjà le bon</strong> (« 30 juin 2024 à 8 h 00 » = gabarit de l'exigence), et <strong>la clé Lokalise accepte déjà date + heure</strong>. Aucune demande de traduction n'est nécessaire.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s2">2. La décision retenue</h2>
+
+<div class="key">
+<h4>Comportement attendu quand <code>projectedEndAt</code> est absent, null ou mal formaté</h4>
+<p>La ligne « Fin de la période » <strong>reste affichée</strong>, avec son icône calendrier, et <strong>la valeur est vide</strong>. Elle ne disparaît jamais de la liste.</p>
+</div>
+
+<div class="grid" style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+<div>
+<p style="color:var(--tx2);font-size:13px;margin-bottom:6px"><strong>Cas nominal</strong></p>
+<div class="mock">
+  <div class="row"><span class="ico"></span> Ajustement de prime anticipé (%) : Disponible après 1 000 km</div>
+  <div class="row"><span class="ico"></span> 600 km parcourus</div>
+  <div class="row"><span class="ico"></span> Fin de la période : <strong>22 juin 2026 à 23 h 59</strong></div>
+  <div class="row"><span class="ico"></span> Vous pouvez supprimer 1 trajet</div>
+</div>
+</div>
+<div>
+<p style="color:var(--tx2);font-size:13px;margin-bottom:6px"><strong>Cas 2 et 3 — donnée absente ou illisible</strong></p>
+<div class="mock">
+  <div class="row"><span class="ico"></span> Ajustement de prime anticipé (%) : Disponible après 1 000 km</div>
+  <div class="row"><span class="ico"></span> 600 km parcourus</div>
+  <div class="row"><span class="ico"></span> Fin de la période : <span class="em">&nbsp;</span></div>
+  <div class="row"><span class="ico"></span> Vous pouvez supprimer 1 trajet</div>
+</div>
+</div>
+</div>
+
+<p><strong>Les quatre lignes restent</strong>, le score et les jauges s'affichent normalement, aucune modale d'erreur, aucun écran vide. C'est conforme au Cas 2 de l'exigence : « la date/heure n'est pas affichée <em>ou</em> un message alternatif est affiché (selon UX) ».</p>
+
+<div class="warn">
+<h4>Une réserve, à trancher avec l'UX — puis oublier</h4>
+<p>Le dashboard <strong>legacy</strong> faisait déjà ce choix, mais avec un libellé de repli plutôt qu'un vide :</p>
+<pre class="plain"><span class="c">// shared/.../legacy/provider/viewstate/AjustoDashboardUiStatesProvider.kt:285</span>
+periodEndDate?.toLocaleDate(isFrench) <span class="hl">?: GLOBAL_UNAVAILABLE.get()</span></pre>
+<p>Un vide produit « Fin de la période : » avec rien après — ce qui peut se lire comme un défaut d'affichage plutôt que comme une absence assumée. <code>GLOBAL_UNAVAILABLE</code> (« Non disponible ») lève l'ambiguïté et assure la continuité avec ce que tes utilisateurs voyaient déjà.</p>
+<p><strong>Basculer d'un comportement à l'autre coûte un seul mot</strong> dans M3 : remplacer <code>.orEmpty()</code> par <code>?: GLOBAL_UNAVAILABLE.get(language)</code>. La constante est déjà importée ligne 42 du fichier. Le reste du document reste valable dans les deux cas.</p>
+</div>
+
+<h3>Rayon d'impact — liste fermée</h3>
+
+<p>J'ai énuméré <strong>tous</strong> les appelants de <code>getListItems</code>, toutes les constructions de <code>AjustoSummary</code> et de <code>SummaryDto</code>, et toutes les occurrences de <code>projectedEndAt</code>. Rien d'autre n'est concerné.</p>
+
+<div class="scroller">
+<table>
+<tr><th>#</th><th>Fichier</th><th>Module</th><th>Lignes</th><th>Statut</th></tr>
+<tr><td>M1</td><td><code>summary/model/AjustoSummary.kt</code></td><td>feature/ajusto/<strong>domain</strong></td><td>28-29</td><td><span class="pill p-no">OBLIGATOIRE</span></td></tr>
+<tr><td>M2</td><td><code>summary/dto/SummaryDto.kt</code></td><td>feature/ajusto/<strong>data</strong></td><td>25 · 49-52 · 70 · fin de fichier</td><td><span class="pill p-no">OBLIGATOIRE</span></td></tr>
+<tr><td>M3</td><td><code>summary/AjustoSummaryUiState.kt</code></td><td>feature/ajusto/<strong>presentation</strong></td><td>161 · 205-213</td><td><span class="pill p-no">OBLIGATOIRE</span></td></tr>
+<tr><td>M4</td><td><code>summary/view/AjustoSummaryScreen.kt</code></td><td><strong>androidApp</strong></td><td>178-183</td><td><span class="pill p-no">OBLIGATOIRE</span></td></tr>
+<tr><td>M5</td><td><code>summary/preview/AjustoSummaryMockProvider.kt</code></td><td><strong>androidApp</strong></td><td>28 · 44 · après 50</td><td><span class="pill p-mid">RECOMMANDÉ</span></td></tr>
+<tr><td>M6</td><td><code>summary/dto/SummaryDtoTest.kt</code></td><td>feature/ajusto/data · <strong>commonTest</strong></td><td>fichier entier</td><td><span class="pill p-no">OBLIGATOIRE</span></td></tr>
+<tr><td>M7</td><td><code>summary/AjustoSummaryUiStateTest.kt</code></td><td>feature/ajusto/presentation · <strong>commonTest</strong></td><td>ajouts</td><td><span class="pill p-no">OBLIGATOIRE</span></td></tr>
+</table>
+</div>
+
+<div class="mermaid">
+flowchart TD
+  A["Backend<br/>GET /api/m/v2/s/ajusto/summary"] --> B
+
+  B["M2 · SummaryDto<br/>projectedEndAt : String?<br/>recoit le texte brut, ne juge pas"] --> C
+  C["M2 · toDomain()<br/>toInstantOrNull()<br/>convertit, assume l echec"] --> D
+  D["M1 · AjustoSummary<br/>projectedEndAt : Instant?<br/>ne contient que du propre"] --> E
+  E["AjustoSummaryViewModel<br/>aucun changement"] --> F
+  F["M3 · AjustoSummaryUiState<br/>getListItems(language)<br/>TimeZone.UTC fige<br/>.orEmpty() si absent"] --> G
+  G["M4 · AjustoSummaryScreen<br/>plus de TimeZone passe"] --> H
+  H["Fin de la periode : 22 juin 2026 a 23 h 59<br/>OU<br/>Fin de la periode :"]
+
+  style B fill:#241f10,stroke:#d29922,color:#ffd591
+  style C fill:#241f10,stroke:#d29922,color:#ffd591
+  style D fill:#0f2417,stroke:#3fb950,color:#7ee787
+  style F fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  style H fill:#0f2417,stroke:#3fb950,color:#7ee787
+</div>
+<div class="figcap">Figure 1 — Le trajet corrigé, module par module</div>
+
+<!-- ============================================================ -->
+<h2 id="m1">M1 — <code>AjustoSummary.kt</code></h2>
+
+<div class="modhead">
+  <div class="t">Rendre <code>projectedEndAt</code> nullable dans le modèle de domaine</div>
+  <div class="d">Sans ça, les cas 2 et 3 sont structurellement impossibles</div>
+</div>
+
+<div class="path">
+<b>modules/feature/ajusto/domain/</b>src/commonMain/kotlin/com/desjardins/assurancedommages/mobile/ajusto/domain/summary/model/<b>AjustoSummary.kt</b> — lignes <b>28-29</b>
+</div>
+
+<div class="box before">
+  <div class="hd">AVANT</div>
+<pre>    /** Nombre de kilomètres parcourus durant la période d'évaluation. */
+    val traveledKilometers: Int,
+    <span class="hl">/** Date projetée de fin de la période d'évaluation (format ISO-8601 date seule). */</span>
+    <span class="hl">val projectedEndAt: Instant,</span>
+    /** Nombre de trajets restants pouvant être utilisés pour remplacer un trajet à faible score. */
+    val remainingMulligans: Int,</pre>
+</div>
+
+<div class="box after">
+  <div class="hd">APRÈS</div>
+<pre>    /** Nombre de kilomètres parcourus durant la période d'évaluation. */
+    val traveledKilometers: Int,
+    <span class="hlg">/**</span>
+    <span class="hlg"> * Instant de fin de la période d'évaluation fourni par le backend (ISO-8601, UTC).</span>
+    <span class="hlg"> *</span>
+    <span class="hlg"> * C'est la référence officielle utilisée par le backend pour arrêter le comptage des</span>
+    <span class="hlg"> * trajets du score : elle est affichée telle quelle, en UTC, sans conversion (WRU-24763).</span>
+    <span class="hlg"> * Vaut `null` lorsque le backend ne fournit pas la valeur ou en fournit une illisible ;</span>
+    <span class="hlg"> * la ligne « Fin de la période » reste alors affichée, avec une valeur vide.</span>
+    <span class="hlg"> */</span>
+    <span class="hlg">val projectedEndAt: Instant? = null,</span>
+    /** Nombre de trajets restants pouvant être utilisés pour remplacer un trajet à faible score. */
+    val remainingMulligans: Int,</pre>
+</div>
+
+<div class="why">
+<h4>Pourquoi</h4>
+<p>Un <code>Instant</code> non-nullable <strong>oblige la valeur à exister</strong>. Quand le backend ne l'envoie pas, la désérialisation lève <code>MissingFieldException</code> et <strong>toute la réponse échoue</strong> : le score disparaît avec la date, alors que l'exigence demande l'inverse.</p>
+<p>Le KDoc change aussi parce qu'il est <strong>faux</strong> : il annonce « ISO-8601 <em>date seule</em> » alors que le type est un instant horodaté et que l'écran affiche une heure. C'est très probablement ce commentaire qui a laissé croire qu'un rendu en heure locale était sans conséquence.</p>
+</div>
+
+<div class="good">
+<h4>Aucun risque de rupture</h4>
+<p>Un paramètre à valeur par défaut suivi de paramètres sans défaut est <strong>déjà le motif en place</strong> dans cette classe (<code>score: Int? = null</code>, <code>estimatedRebate: Int? = null</code>). Les seuls constructeurs de <code>AjustoSummary</code> du dépôt sont <code>SummaryDto.kt:63</code>, <code>AjustoSummaryMockProvider.kt:21</code> et <code>:37</code> — tous en arguments nommés.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="m2">M2 — <code>SummaryDto.kt</code></h2>
+
+<div class="modhead">
+  <div class="t">Accepter une valeur absente ou illisible sans faire tomber la réponse</div>
+  <div class="d">Quatre zones : le KDoc, le champ, la conversion, et une fonction à ajouter</div>
+</div>
+
+<div class="path">
+<b>modules/feature/ajusto/data/</b>src/commonMain/kotlin/com/desjardins/assurancedommages/mobile/ajusto/data/summary/dto/<b>SummaryDto.kt</b>
+</div>
+
+<h3>Zone 1 — KDoc de la classe, ligne 25</h3>
+<div class="box before"><div class="hd">AVANT</div>
+<pre> * @property traveledKilometers nombre total de kilomètres parcourus.
+ <span class="hl">* @property projectedEndAt date de fin projetée du programme Ajusto.</span>
+ * @property remainingMulligans nombre de mulligans restants.</pre>
+</div>
+<div class="box after"><div class="hd">APRÈS</div>
+<pre> * @property traveledKilometers nombre total de kilomètres parcourus.
+ <span class="hlg">* @property projectedEndAt instant de fin de période au format ISO-8601 brut, tel que reçu.</span>
+ <span class="hlg">*   Conservé en `String?` pour qu'une absence ou un format invalide n'invalide pas</span>
+ <span class="hlg">*   la désérialisation de toute la réponse (WRU-24763, cas 2 et 3).</span>
+ * @property remainingMulligans nombre de mulligans restants.</pre>
+</div>
+
+<h3>Zone 2 — le champ, lignes 49-52</h3>
+<div class="box before"><div class="hd">AVANT</div>
+<pre>    /** Nombre total de kilomètres parcourus. */
+    @Serializable(with = DoubleToIntSerializer::class)
+    @SerialName("traveledKilometers")
+    val traveledKilometers: Int,
+    <span class="hl">/** Date de fin projetée du programme Ajusto. */</span>
+    <span class="hl">@SerialName("projectedEndAt")</span>
+    <span class="hl">@Serializable(with = InstantSerializer::class)</span>
+    <span class="hl">val projectedEndAt: Instant,</span>
+    /** Nombre de mulligans restants. */
+    @SerialName("remainingMulligans")
+    val remainingMulligans: Int</pre>
+</div>
+<div class="box after"><div class="hd">APRÈS — noter la disparition de la ligne @Serializable</div>
+<pre>    /** Nombre total de kilomètres parcourus. */
+    @Serializable(with = DoubleToIntSerializer::class)
+    @SerialName("traveledKilometers")
+    val traveledKilometers: Int,
+    <span class="hlg">/** Instant de fin de période, ISO-8601 brut. Absent ou illisible = `null`, jamais une exception. */</span>
+    <span class="hlg">@SerialName("projectedEndAt")</span>
+    <span class="hlg">val projectedEndAt: String? = null,</span>
+    /** Nombre de mulligans restants. */
+    @SerialName("remainingMulligans")
+    val remainingMulligans: Int</pre>
+</div>
+
+<h3>Zone 3 — la conversion dans <code>toDomain()</code>, ligne 70</h3>
+<div class="box before"><div class="hd">AVANT</div>
+<pre>fun SummaryDto.toDomain(): AjustoSummary = AjustoSummary(
+    updatedAt = updatedAt,
+    minimumScoringTrips = minimumScoringTrips,
+    trips = trips,
+    score = score,
+    estimatedRebate = estimatedRebate,
+    traveledKilometers = traveledKilometers,
+    <span class="hl">projectedEndAt = projectedEndAt,</span>
+    remainingMulligans = remainingMulligans
+)</pre>
+</div>
+<div class="box after"><div class="hd">APRÈS</div>
+<pre>fun SummaryDto.toDomain(): AjustoSummary = AjustoSummary(
+    updatedAt = updatedAt,
+    minimumScoringTrips = minimumScoringTrips,
+    trips = trips,
+    score = score,
+    estimatedRebate = estimatedRebate,
+    traveledKilometers = traveledKilometers,
+    <span class="hlg">projectedEndAt = projectedEndAt.toInstantOrNull(),</span>
+    remainingMulligans = remainingMulligans
+)</pre>
+</div>
+
+<h3>Zone 4 — nouvelle fonction, en bas du fichier</h3>
+<div class="box after"><div class="hd">AJOUT — à côté de DoubleToIntSerializer</div>
+<pre><span class="hlg">/**</span>
+<span class="hlg"> * Convertit une date ISO-8601 brute en [Instant], ou `null` si la chaîne est</span>
+<span class="hlg"> * absente ou illisible.</span>
+<span class="hlg"> *</span>
+<span class="hlg"> * WRU-24763 cas 3 : une valeur mal formée ne doit faire perdre que ce champ,</span>
+<span class="hlg"> * jamais la réponse entière — le score doit continuer de s'afficher.</span>
+<span class="hlg"> */</span>
+<span class="hlg">private fun String?.toInstantOrNull(): Instant? =</span>
+<span class="hlg">    this?.let { runCatching { Instant.parse(it) }.getOrNull() }</span></pre>
+</div>
+
+<div class="box neutral"><div class="hd">Imports — aucun changement</div>
+<pre><span class="c">// kotlinx.datetime.Instant : toujours utilisé (updatedAt + Instant.parse)</span>
+<span class="c">// InstantSerializer       : toujours utilisé (updatedAt)</span></pre>
+</div>
+
+<div class="why">
+<h4>Pourquoi <code>String?</code> et pas simplement <code>Instant?</code></h4>
+<p><strong>kotlinx.serialization n'a aucun mécanisme de repli champ par champ.</strong> Il n'existe pas de « essaie de lire ce champ, sinon mets null ». Si un seul sérialiseur lève, c'est l'objet entier qui échoue.</p>
+<div class="scroller">
+<table>
+<tr><th>Ce que le backend envoie</th><th><code>Instant</code> (aujourd'hui)</th><th><code>Instant? = null</code></th><th><code>String? = null</code></th></tr>
+<tr><td><code>"2026-06-22T23:59:00Z"</code></td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td><td><span class="pill p-ok">ok</span></td></tr>
+<tr><td>champ <strong>absent</strong> — cas 2</td><td><span class="pill p-no">tout casse</span></td><td><span class="pill p-ok">null</span></td><td><span class="pill p-ok">null</span></td></tr>
+<tr><td><code>"2026-13-45"</code> — cas 3</td><td><span class="pill p-no">tout casse</span></td><td><span class="pill p-no">lève quand même</span></td><td><span class="pill p-ok">null</span></td></tr>
+</table>
+</div>
+<p>La ligne décisive est la troisième : <strong>le <code>?</code> autorise l'absence, pas l'illisible</strong>. Dès qu'une valeur est présente, kotlinx appelle <code>InstantSerializer</code> dessus ; s'il lève, tout tombe. Un <code>String</code> peut contenir n'importe quoi — rien ne peut lever pendant la désérialisation. On repousse le risque dans <code>toDomain()</code>, où on le contrôle.</p>
+<pre class="plain"><span class="c">JSON ──► SummaryDto (String?)  ──► toDomain() ──► AjustoSummary (Instant?)</span>
+<span class="c">        « je reçois tel quel,      « je convertis,     « je ne contiens</span>
+<span class="c">          je ne juge pas »           j'assume l'échec »  que du propre »</span></pre>
+</div>
+
+<div class="good">
+<h4>Pourquoi cette forme de fonction précisément</h4>
+<p><code>runCatching</code> est <strong>déjà la convention du dépôt</strong> pour ce cas d'usage — <code>FileSystemHttpResponseCacheStore.kt:39</code> lit une valeur temporelle qui peut manquer exactement de cette façon. La sortir dans une fonction nommée apporte le reste : un nom qui dit l'intention, et un KDoc « WRU-24763 » qui vit là où la règle s'applique plutôt que noyé dans un constructeur à neuf arguments.</p>
+</div>
+
+<div class="warn">
+<h4>À vérifier avant de figer ce choix</h4>
+<p><code>InstantSerializer.kt</code> est un <strong>placeholder de 88 octets</strong> dans la copie de travail.</p>
+<ul>
+  <li>S'il <strong>renvoie déjà <code>null</code></strong> sur format invalide → garde <code>Instant?</code> avec l'annotation, plus propre, aucun parsing à écrire.</li>
+  <li>S'il gère un <strong>format non standard</strong> (offset sans deux-points, millisecondes exotiques) → <code>Instant.parse</code> pourrait échouer là où lui réussissait ; réutilise alors sa logique dans <code>toInstantOrNull()</code>.</li>
+</ul>
+<p>Par ailleurs la version de <code>kotlinx-datetime</code> n'apparaît <strong>ni dans <code>gradle/libs.versions.toml</code> ni dans aucun <code>build.gradle.kts</code></strong> — elle arrive en transitif.</p>
+</div>
+
+<div class="bad">
+<h4>Ne rends jamais <code>InstantSerializer</code> tolérant globalement</h4>
+<p>Il sert aussi à <code>updatedAt</code> et à d'autres DTO du projet. Le rendre silencieux transformerait des ruptures de contrat en pannes invisibles à l'échelle de l'application.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="m3">M3 — <code>AjustoSummaryUiState.kt</code> <span class="pill p-no">LE CORRECTIF</span></h2>
+
+<div class="modhead">
+  <div class="t">Forcer UTC, supprimer le paramètre de fuseau, garder la ligne quand la valeur manque</div>
+  <div class="d">C'est ici que le bug se corrige</div>
+</div>
+
+<div class="path">
+<b>modules/feature/ajusto/presentation/</b>src/commonMain/kotlin/com/desjardins/assurancedommages/mobile/ajusto/presentation/summary/<b>AjustoSummaryUiState.kt</b>
+</div>
+
+<h3>Zone 1 — la signature, ligne 161</h3>
+<div class="box before"><div class="hd">AVANT</div>
+<pre>    fun getListItems(language: Language<span class="hl">, timeZone: TimeZone</span>): AjustoSummaryUiStateModel.InformationalList {
+        if (data == null) {
+            return AjustoSummaryUiStateModel.InformationalList(emptyList())
+        }</pre>
+</div>
+<div class="box after"><div class="hd">APRÈS</div>
+<pre>    fun getListItems(language: Language): AjustoSummaryUiStateModel.InformationalList {
+        if (data == null) {
+            return AjustoSummaryUiStateModel.InformationalList(emptyList())
+        }</pre>
+</div>
+
+<h3>Zone 2 — l'item « Fin de la période », lignes 205-213</h3>
+<div class="box before"><div class="hd">AVANT — ce qui est dans ton fichier</div>
+<pre>            add(
+                AjustoSummaryUiStateModel.InformationalListItem(
+                    title = AJUSTO_DASHBOARD_PERIOD_ENDS_MESSAGE.format(
+                        language,
+                        <span class="hl">data.projectedEndAt.toLongDateTimeString(language = language, timeZone = timeZone)</span>
+                    ),
+                    icon = AjustoSummaryIconKey.Calendar
+                )
+            )</pre>
+</div>
+<div class="box after"><div class="hd">APRÈS — copier-coller tel quel</div>
+<pre>            add(
+                AjustoSummaryUiStateModel.InformationalListItem(
+                    title = AJUSTO_DASHBOARD_PERIOD_ENDS_MESSAGE.format(
+                        language,
+                        <span class="hlg">// WRU-24763 — règles 4 et 5 : la fin de période est la référence officielle</span>
+                        <span class="hlg">// du calcul du score, identique pour tous les utilisateurs. Elle est rendue</span>
+                        <span class="hlg">// en UTC ; le fuseau de l'appareil est délibérément ignoré.</span>
+                        <span class="hlg">// Cas 2 et 3 : sans valeur exploitable, la ligne reste affichée avec une</span>
+                        <span class="hlg">// valeur vide — elle ne disparaît jamais de la liste.</span>
+                        <span class="hlg">data.projectedEndAt</span>
+                        <span class="hlg">    ?.toLongDateTimeString(language = language, timeZone = TimeZone.UTC)</span>
+                        <span class="hlg">    .orEmpty()</span>
+                    ),
+                    icon = AjustoSummaryIconKey.Calendar
+                )
+            )</pre>
+</div>
+
+<div class="key">
+<h4>Trois choses ont changé, et seulement trois</h4>
+<ol>
+  <li><code>timeZone</code> → <strong><code>TimeZone.UTC</code></strong> — le correctif du bug proprement dit.</li>
+  <li><code>data.projectedEndAt.</code> → <strong><code>data.projectedEndAt?.</code></strong> — un appel sûr, puisque le champ est désormais nullable.</li>
+  <li><strong><code>.orEmpty()</code></strong> ajouté — si la valeur manque, la chaîne interpolée est vide et la ligne reste affichée.</li>
+</ol>
+<p>Le <code>add(...)</code> n'est <strong>pas</strong> enveloppé : c'est ce qui garantit que les quatre lignes de la liste sont toujours présentes.</p>
+</div>
+
+<div class="box neutral"><div class="hd">Imports — aucun changement, ligne 52</div>
+<pre>import kotlinx.datetime.TimeZone
+
+<span class="c">// Toujours nécessaire : il sert à TimeZone.UTC ici,</span>
+<span class="c">// ET au paramètre timeZone de getHeader() ligne 94, qui ne bouge pas.</span></pre>
+</div>
+
+<div class="why">
+<h4>Pourquoi supprimer le paramètre au lieu de juste changer sa valeur d'appel</h4>
+<p>Vérifié : dans <code>getListItems</code>, <code>timeZone</code> n'était utilisé <strong>qu'à la ligne 209</strong>, pour ce seul champ. Les trois autres items — rabais, kilomètres, mulligans — ne s'en servent pas.</p>
+<p>Le garder laisserait une porte ouverte : n'importe quelle plateforme d'UI pourrait y réinjecter un fuseau local et recréer le bug. En le supprimant, la règle métier devient <strong>inatteignable depuis l'extérieur</strong> — et testable en <code>commonTest</code>, ce qu'elle n'est pas aujourd'hui.</p>
+</div>
+
+<div class="bad">
+<h4>Ne touche PAS à <code>getHeader()</code>, ligne 94</h4>
+<p>Il garde son paramètre <code>timeZone</code>. <code>updatedAt</code> répond à « il y a combien de temps ? », une information relative au vécu de l'utilisateur : l'heure locale y est le bon comportement. L'exigence ne parle que de la fin de période.</p>
+</div>
+
+<div class="warn">
+<h4>Impact sur l'API partagée KMP</h4>
+<p><code>getListItems</code> est exportée vers iOS ; retirer un paramètre est un changement <em>breaking</em> de signature. Aucun appelant Swift trouvé dans <code>iosApp/</code> — les seuls appelants du dépôt sont la déclaration elle-même et <code>AjustoSummaryScreen.kt:179</code>. À faire confirmer par l'équipe iOS avant le merge.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="m4">M4 — <code>AjustoSummaryScreen.kt</code></h2>
+
+<div class="modhead">
+  <div class="t">Retirer l'argument devenu inutile</div>
+  <div class="d">C'est ici que le fuseau de l'appareil entrait dans la chaîne</div>
+</div>
+
+<div class="path">
+<b>androidApp/</b>src/main/kotlin/com/desjardins/assurancedommages/mobile/feature/ajusto/presentation/summary/view/<b>AjustoSummaryScreen.kt</b> — lignes <b>178-183</b>
+</div>
+
+<div class="box before"><div class="hd">AVANT</div>
+<pre>        InformationalList(
+            <span class="hl">items = state.getListItems(</span>
+                <span class="hl">language = currentLanguage(),</span>
+                <span class="hl">timeZone = TimeZone.currentSystemDefault()</span>
+            <span class="hl">),</span>
+            isTooltipClicked = isTooltipClicked,
+            onTooltipClicked = { isTooltipClicked = true },
+            onDismissRequest = { isTooltipClicked = false },
+            onAction = onAction
+        )</pre>
+</div>
+<div class="box after"><div class="hd">APRÈS</div>
+<pre>        InformationalList(
+            <span class="hlg">items = state.getListItems(language = currentLanguage()),</span>
+            isTooltipClicked = isTooltipClicked,
+            onTooltipClicked = { isTooltipClicked = true },
+            onDismissRequest = { isTooltipClicked = false },
+            onAction = onAction
+        )</pre>
+</div>
+
+<div class="bad">
+<h4>Le piège est juste au-dessus</h4>
+<p>Aux lignes <strong>163-168</strong> du même fichier, un appel lui ressemble beaucoup :</p>
+<pre class="plain">        Header(
+            header = state.getHeader(
+                language = currentLanguage(),
+                timeZone = TimeZone.currentSystemDefault()   <span class="c">// ← NE PAS TOUCHER</span>
+            )
+        )</pre>
+<p><strong>Celui-là ne change pas.</strong> C'est <code>updatedAt</code>, qui doit rester en heure locale. C'est la confusion entre ces deux appels quasi identiques qui a produit le bug.</p>
+</div>
+
+<div class="box neutral"><div class="hd">Imports — aucun changement</div>
+<pre>import kotlinx.datetime.TimeZone
+
+<span class="c">// Toujours utilisé ligne 166 par getHeader(). Ne pas le supprimer.</span></pre>
+</div>
+
+<div class="good">
+<h4>L'écran supporte déjà un nombre variable d'items</h4>
+<p>Vérifié dans <code>InformationalList</code> (l. 207-229) : <code>items.items.forEachIndexed { index, item -> InformationalListItem(item, isFirst = index == 0) }</code>. Aucun index codé en dur, les séparateurs sont gérés par <code>isFirst</code>. Rien à modifier ici.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="m5">M5 — <code>AjustoSummaryMockProvider.kt</code> <span class="pill p-mid">RECOMMANDÉ</span></h2>
+
+<div class="modhead opt">
+  <div class="t">Transformer la Compose Preview en banc de test</div>
+  <div class="d">Ne corrige aucune erreur, mais rend M1-M4 vérifiables sans backend ni appareil</div>
+</div>
+
+<div class="path">
+<b>androidApp/</b>src/main/kotlin/com/desjardins/assurancedommages/mobile/feature/ajusto/presentation/summary/preview/<b>AjustoSummaryMockProvider.kt</b> — lignes <b>28</b> et <b>44</b>
+</div>
+
+<div class="box before"><div class="hd">AVANT — aux deux endroits</div>
+<pre>                    traveledKilometers = 1766,
+                    <span class="hl">projectedEndAt = Instant.parse("2024-06-30T12:00:00Z"),</span>
+                    remainingMulligans = 5,</pre>
+</div>
+<div class="box after"><div class="hd">APRÈS — aux deux endroits</div>
+<pre>                    traveledKilometers = 1766,
+                    <span class="hlg">// 23:59 UTC : valeur réaliste. Avec le fuseau de l'appareil, le JOUR affiché</span>
+                    <span class="hlg">// basculerait — c'est ce que WRU-24763 corrige.</span>
+                    <span class="hlg">// Doit rendre « Fin de la période : 22 juin 2026 à 23 h 59 ».</span>
+                    <span class="hlg">projectedEndAt = Instant.parse("2026-06-22T23:59:00Z"),</span>
+                    remainingMulligans = 5,</pre>
+</div>
+
+<div class="why">
+<h4>Pourquoi changer une donnée de test</h4>
+<ul>
+  <li><strong>Cohérence</strong> — le mock place la fin de période en <strong>2024</strong> alors que <code>updatedAt</code> est en <strong>2026</strong> : la période se termine deux ans avant sa dernière mise à jour.</li>
+  <li><strong>Pouvoir de détection</strong> — <code>12:00:00Z</code> est une heure trop ronde : le décalage de −4 h donne « 8 h 00 », qui reste plausible et n'alerte personne. Avec <code>23:59:00Z</code>, un rendu fautif ferait <strong>basculer le jour</strong>, et l'erreur saute aux yeux.</li>
+</ul>
+</div>
+
+<h3>Ajout — un 5<sup>e</sup> état pour prévisualiser les cas 2 et 3</h3>
+<div class="box after"><div class="hd">AJOUT — après le 4e état, à la fin de la sequenceOf</div>
+<pre>            <span class="hlg">// WRU-24763 cas 2 et 3 : projectedEndAt absent ou illisible.</span>
+            <span class="hlg">// La ligne « Fin de la période » doit RESTER, avec une valeur vide.</span>
+            <span class="hlg">AjustoSummaryUiState(</span>
+            <span class="hlg">    hasNetworkAccess = true,</span>
+            <span class="hlg">    isLocationEnabled = true,</span>
+            <span class="hlg">    status = AjustoSummaryUiStateStatus.Loaded,</span>
+            <span class="hlg">    data = AjustoSummary(</span>
+            <span class="hlg">        updatedAt = Instant.parse("2026-07-14T12:09:40.795Z"),</span>
+            <span class="hlg">        minimumScoringTrips = 5,</span>
+            <span class="hlg">        trips = 6,</span>
+            <span class="hlg">        score = 78,</span>
+            <span class="hlg">        estimatedRebate = -15,</span>
+            <span class="hlg">        traveledKilometers = 1766,</span>
+            <span class="hlg">        projectedEndAt = null,</span>
+            <span class="hlg">        remainingMulligans = 5,</span>
+            <span class="hlg">        brand = "DGAG"</span>
+            <span class="hlg">    )</span>
+            <span class="hlg">)</span></pre>
+</div>
+
+<div class="good">
+<h4>Critère de recette visuel, sans backend</h4>
+<p>Après M1 à M4, ouvre <code>AjustoSummaryDgagPreview</code>. Tu dois voir :</p>
+<ul>
+  <li>« Fin de la période : <strong>22 juin 2026 à 23 h 59</strong> » — la valeur UTC, quelle que soit ta machine ;</li>
+  <li>« Dernière mise à jour : 14 juillet 2026 à <strong>8 h 09</strong> » — inchangé, en heure locale ;</li>
+  <li>sur le 5<sup>e</sup> état : le score 78, <strong>les quatre lignes</strong>, dont « Fin de la période : » sans valeur.</li>
+</ul>
+<p>Si les deux premières lignes affichent le même décalage horaire, M3 ou M4 n'a pas été appliqué.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="m6">M6 — <code>SummaryDtoTest.kt</code></h2>
+
+<div class="modhead test">
+  <div class="t">Verrouiller les cas 2 et 3 au niveau du contrat JSON</div>
+  <div class="d">Le fichier existe mais fait 231 octets et porte « Contenu non fourni par capture d'écran »</div>
+</div>
+
+<div class="path">
+<b>modules/feature/ajusto/data/</b>src/<b>commonTest</b>/kotlin/com/desjardins/assurancedommages/mobile/ajusto/data/summary/dto/<b>SummaryDtoTest.kt</b>
+</div>
+
+<div class="box after"><div class="hd">APRÈS — le fichier entier</div>
+<pre>package com.desjardins.assurancedommages.mobile.ajusto.data.summary.dto
+
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlinx.datetime.Instant
+import kotlinx.serialization.json.Json
+
+class SummaryDtoTest {
+
+    private val json = Json { ignoreUnknownKeys = true; isLenient = true }
+
+    <span class="c">/** Réponse valide, dont seule la portion projectedEndAt varie. */</span>
+    private fun payload(projectedEndAtFragment: String?): String = buildString {
+        append("""{"updatedAt":"2026-07-14T12:09:40.795Z","minimumScoringTrips":5,""")
+        append(""""trips":6,"score":78,"estimatedRebate":-15,"traveledKilometers":1766.0,""")
+        if (projectedEndAtFragment != null) append(""""projectedEndAt":$projectedEndAtFragment,""")
+        append(""""remainingMulligans":5}""")
+    }
+
+    @Test
+    fun `projectedEndAt valide est converti en Instant`() {
+        val summary = json.decodeFromString&lt;SummaryDto&gt;(payload("\"2026-06-22T23:59:00Z\"")).toDomain()
+        assertEquals(Instant.parse("2026-06-22T23:59:00Z"), summary.projectedEndAt)
+    }
+
+    <span class="c">/** WRU-24763 cas 2 — champ absent : la réponse reste exploitable, le score arrive. */</span>
+    @Test
+    fun `projectedEndAt absent ne fait pas echouer la deserialisation`() {
+        val summary = json.decodeFromString&lt;SummaryDto&gt;(payload(null)).toDomain()
+        assertNull(summary.projectedEndAt)
+        assertEquals(78, summary.score)
+        assertEquals(1766, summary.traveledKilometers)
+    }
+
+    <span class="c">/** WRU-24763 cas 2 — null explicite. */</span>
+    @Test
+    fun `projectedEndAt null explicite est tolere`() {
+        val summary = json.decodeFromString&lt;SummaryDto&gt;(payload("null")).toDomain()
+        assertNull(summary.projectedEndAt)
+        assertEquals(78, summary.score)
+    }
+
+    <span class="c">/** WRU-24763 cas 3 — format invalide : seul ce champ est perdu, rien ne bloque. */</span>
+    @Test
+    fun `projectedEndAt invalide est ignore sans casser le reste`() {
+        val summary = json.decodeFromString&lt;SummaryDto&gt;(payload("\"2026-13-45\"")).toDomain()
+        assertNull(summary.projectedEndAt)
+        assertEquals(78, summary.score)
+    }
+}</pre>
+</div>
+
+<div class="warn">
+<h4>Dépendance</h4>
+<p>Ces tests désérialisent aussi <code>updatedAt</code>, qui passe par <code>InstantSerializer</code> — un placeholder aujourd'hui. Ils ne compileront qu'une fois ce fichier restauré.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="m7">M7 — <code>AjustoSummaryUiStateTest.kt</code></h2>
+
+<div class="modhead test">
+  <div class="t">Verrouiller le rendu UTC et la persistance de la ligne</div>
+  <div class="d">C'est le test qui aurait attrapé le bug — le fichier ne contient aucune occurrence de <code>timeZone</code></div>
+</div>
+
+<div class="path">
+<b>modules/feature/ajusto/presentation/</b>src/<b>commonTest</b>/kotlin/com/desjardins/assurancedommages/mobile/ajusto/presentation/summary/<b>AjustoSummaryUiStateTest.kt</b>
+</div>
+
+<div class="box after"><div class="hd">AJOUT — un helper et deux tests, dans la classe existante</div>
+<pre>    private fun summary(projectedEndAt: Instant?) = AjustoSummary(
+        updatedAt = Instant.parse("2026-07-14T12:09:40.795Z"),
+        minimumScoringTrips = 5,
+        trips = 6,
+        score = 78,
+        estimatedRebate = -15,
+        traveledKilometers = 1766,
+        projectedEndAt = projectedEndAt,
+        remainingMulligans = 5,
+        brand = "DGAG"
+    )
+
+    <span class="c">/**</span>
+    <span class="c"> * WRU-24763 règles 4 et 5 — la fin de période est rendue en UTC.</span>
+    <span class="c"> *</span>
+    <span class="c"> * Ce test est indépendant du fuseau de la machine d'exécution PAR CONSTRUCTION :</span>
+    <span class="c"> * depuis M3, aucun TimeZone n'entre dans getListItems, donc aucun fuseau ambiant</span>
+    <span class="c"> * ne peut influencer le résultat. Si quelqu'un réintroduit un paramètre de fuseau,</span>
+    <span class="c"> * ce test cesse de compiler — ce qui est exactement l'effet recherché.</span>
+    <span class="c"> */</span>
+    @Test
+    fun `la fin de periode est rendue en UTC`() {
+        val state = AjustoSummaryUiState(
+            status = AjustoSummaryUiStateStatus.Loaded,
+            data = summary(projectedEndAt = Instant.parse("2026-06-22T23:59:00Z"))
+        )
+
+        val title = state.getListItems(language = Language.FR)
+            .items.first { it.icon == AjustoSummaryIconKey.Calendar }.title
+
+        assertTrue(title.contains("22 juin 2026"), "jour UTC attendu, obtenu : $title")
+        assertTrue(title.contains("23 h 59"), "heure UTC attendue, obtenue : $title")
+    }
+
+    <span class="c">/**</span>
+    <span class="c"> * WRU-24763 cas 2 et 3 — sans valeur, la ligne RESTE affichée, avec une valeur vide.</span>
+    <span class="c"> * Les quatre items de la liste doivent être présents.</span>
+    <span class="c"> */</span>
+    @Test
+    fun `la ligne de fin de periode reste affichee quand projectedEndAt est null`() {
+        val items = AjustoSummaryUiState(
+            status = AjustoSummaryUiStateStatus.Loaded,
+            data = summary(projectedEndAt = null)
+        ).getListItems(language = Language.FR).items
+
+        assertEquals(4, items.size)
+
+        val calendarItem = items.first { it.icon == AjustoSummaryIconKey.Calendar }
+        assertTrue(calendarItem.title.isNotBlank(), "le libellé doit subsister")
+        <span class="c">// Aucun chiffre : ni date ni heure ne doit apparaître.</span>
+        assertFalse(calendarItem.title.any { it.isDigit() }, "aucune date attendue : ${calendarItem.title}")
+    }</pre>
+</div>
+
+<div class="box neutral"><div class="hd">Imports à ajouter dans le fichier de test</div>
+<pre>import kotlin.test.assertFalse
+import kotlin.test.assertTrue
+import kotlinx.datetime.Instant</pre>
+</div>
+
+<div class="key">
+<h4>C'est ce test qui justifie d'avoir déplacé la règle dans le <code>UiState</code></h4>
+<p>Si le fuseau restait injecté depuis <code>AjustoSummaryScreen.kt</code>, le premier test serait <strong>impossible à écrire en <code>commonTest</code></strong> : on ne pilote pas <code>TimeZone.currentSystemDefault()</code> depuis un test KMP partagé. En le déplaçant, la règle devient testable — et le test devient un verrou de compilation contre la régression.</p>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s8">8. Ce qu'il ne faut PAS toucher</h2>
+
+<div class="scroller">
+<table>
+<tr><th>Fichier / élément</th><th>Pourquoi il ne bouge pas</th></tr>
+<tr><td><code>AjustoSummaryViewModel.kt</code></td><td>Ne touche jamais à <code>projectedEndAt</code>. <code>onStart</code> + <code>WhileSubscribed(5_000)</code> couvrent déjà le cas 4.</td></tr>
+<tr><td><code>AjustoSummaryRepositoryImpl.kt</code></td><td>N'ajoute que <code>brand</code> par <code>.copy()</code>. La nullabilité traverse sans modification.</td></tr>
+<tr><td><code>KtorAjustoSummaryDataSource.kt</code></td><td>Appelle <code>toDomain()</code> sans connaître les champs.</td></tr>
+<tr><td><code>SummaryHttpServiceImpl.kt</code></td><td>Ne change que si la décision sur le cache est prise — hors périmètre du correctif de fuseau.</td></tr>
+<tr><td><code>AjustoDataModule.kt</code>, <code>AjustoSummaryPresentationModule.kt</code></td><td>Aucune signature de constructeur ne change.</td></tr>
+<tr><td><code>AjustoSummaryAction / Event / UiStateStatus</code></td><td>Hors du chemin de la donnée.</td></tr>
+<tr><td><code>AjustoSummaryShim</code> et son implémentation</td><td>Ne transportent aucune donnée de fin de période.</td></tr>
+<tr><td><code>getHeader()</code> et son paramètre <code>timeZone</code></td><td><code>updatedAt</code> doit rester en heure locale. Le modifier serait une régression non demandée.</td></tr>
+<tr><td>Le composable <code>InformationalList</code></td><td>Déjà piloté par les données, sans index codé en dur.</td></tr>
+<tr><td><code>InstantSerializer.kt</code></td><td>Partagé par d'autres DTO. Le rendre tolérant masquerait des ruptures de contrat ailleurs.</td></tr>
+<tr><td><code>AjustoSummaryTripGaugeMockProvider</code>, <code>AjustoSummaryScoreGaugeMockProvider</code></td><td>Vérifié : ne construisent aucun <code>AjustoSummary</code>.</td></tr>
+</table>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s9">9. Commentaire à coller dans le ticket</h2>
+
+<div class="box neutral">
+  <div class="hd">À copier tel quel en commentaire de WRU-24763</div>
+<pre>COMPORTEMENT ATTENDU — projectedEndAt absent, null ou mal formaté
+
+Le champ projectedEndAt de GET /api/m/v2/s/ajusto/summary est traité comme
+facultatif côté mobile. Trois situations produisent le même résultat :
+
+  1. le champ est absent de la réponse JSON ;
+  2. le champ vaut null ;
+  3. le champ contient une valeur illisible (ex. "2026-13-45").
+
+Dans ces trois cas, le comportement attendu est :
+
+  • la ligne « Fin de la période » RESTE affichée dans la liste, avec son
+    icône calendrier ;
+  • la date et l'heure sont simplement vides — la ligne se lit
+    « Fin de la période : » sans valeur ;
+  • le score, les jauges et les trois autres lignes de la liste
+    (ajustement de prime, km parcourus, mulligans) s'affichent normalement ;
+  • aucune modale d'erreur, aucun écran vide, aucun comportement bloquant.
+
+Ce n'est PAS une régression ni un bug d'affichage : c'est le comportement
+défini par les cas d'acceptation 2 et 3 de WRU-24763.
+
+Note technique — pourquoi la réponse ne tombe pas en erreur : le champ est
+désérialisé en String? puis converti en Instant? dans SummaryDto.toDomain().
+Une valeur illisible ne fait perdre que ce champ, jamais la réponse entière.
+Auparavant, le champ était typé Instant non-nullable : son absence ou son
+invalidité faisait échouer la désérialisation complète, et le score
+disparaissait avec la date.
+
+RAPPEL — affichage en UTC : la date et l'heure de fin de période sont
+toujours rendues en UTC, quel que soit le fuseau horaire de l'appareil
+(règles 4 et 5 de l'exigence). Un backend renvoyant 2026-06-22T23:59:00Z
+doit produire « Fin de la période : 22 juin 2026 à 23 h 59 » pour tous les
+utilisateurs, à Montréal comme à Tokyo. À ne pas confondre avec la ligne
+« Dernière mise à jour » de l'en-tête, qui reste volontairement en heure
+locale de l'appareil.</pre>
+</div>
+
+<!-- ============================================================ -->
+<h2 id="s10">10. Checklist et points ouverts</h2>
+
+<h3>Ordre d'exécution</h3>
+<ul class="chk">
+  <li>Restaurer <code>InstantSerializer.kt</code> et lire son comportement sur format invalide → confirme le choix <code>String?</code> ou <code>Instant?</code> en M2</li>
+  <li><strong>M1</strong> — <code>AjustoSummary.kt</code> l. 28-29 : <code>Instant? = null</code> + KDoc corrigé</li>
+  <li><strong>M2</strong> — <code>SummaryDto.kt</code> l. 25, 49-52, 70 + fonction <code>toInstantOrNull()</code> en bas de fichier</li>
+  <li><strong>M3</strong> — <code>AjustoSummaryUiState.kt</code> l. 161 et 205-213 : signature sans <code>timeZone</code>, <code>TimeZone.UTC</code>, <code>?.</code> et <code>.orEmpty()</code></li>
+  <li><strong>M4</strong> — <code>AjustoSummaryScreen.kt</code> l. 178-183 : argument retiré (<strong>ne pas toucher l. 163-168</strong>)</li>
+  <li>Compiler le module <code>presentation</code> — aucune autre erreur d'appel attendue, la liste des appelants est fermée</li>
+  <li><strong>M5</strong> — mocks : <code>2026-06-22T23:59:00Z</code> + 5<sup>e</sup> état à <code>projectedEndAt = null</code></li>
+  <li>Ouvrir <code>AjustoSummaryDgagPreview</code> : « 22 juin 2026 à <strong>23 h 59</strong> » et « … à <strong>8 h 09</strong> » côte à côte ; 4 lignes sur le 5<sup>e</sup> état</li>
+  <li><strong>M6</strong> — <code>SummaryDtoTest.kt</code> : 4 tests</li>
+  <li><strong>M7</strong> — <code>AjustoSummaryUiStateTest.kt</code> : 2 tests</li>
+  <li>Vérifier le rendu <strong>EN</strong> de <code>AJUSTO_DASHBOARD_PERIOD_ENDS_MESSAGE</code></li>
+  <li>Confirmer auprès de l'équipe iOS qu'aucun appelant Swift n'utilise <code>getListItems(language:timeZone:)</code></li>
+  <li>Coller le commentaire de la section 9 dans le ticket</li>
+</ul>
+
+<h3>Points ouverts, hors périmètre du correctif</h3>
+
+<div class="scroller">
+<table>
+<tr><th>#</th><th>Question</th><th>Impact si non traité</th></tr>
+<tr><td>D1</td><td>Le dashboard <strong>legacy</strong> est-il encore servi en production ? <code>AjustoDashboardUiStatesProvider.kt:285</code> affiche une date sans heure, depuis une autre source.</td><td>L'exigence ne serait pas couverte pour les utilisateurs servis par ce chemin.</td></tr>
+<tr><td>D2</td><td>Valeur vide ou <code>GLOBAL_UNAVAILABLE</code> pour les cas 2 et 3 ? (voir section 2)</td><td>Un mot à changer dans M3.</td></tr>
+<tr><td>D3</td><td>Le backend envoie-t-il bien un instant suffixé <code>Z</code> ? Le KDoc de <code>AjustoSummary.kt:28</code> disait « date seule ».</td><td>Toute l'exigence serait à requalifier — « à 23 h 59 » n'aurait pas de source.</td></tr>
+<tr><td>D4</td><td><strong>E3</strong> — <code>status</code>, <code>messageBox</code> et <code>getBannerMessage()</code> ne sont lus nulle part dans <code>AjustoSummaryScreen.kt</code> (6 usages de <code>state.</code> sur 407 lignes). En cas d'échec réseau : écran vide et silencieux.</td><td><strong>Ticket séparé.</strong> Ne pas mélanger avec WRU-24763.</td></tr>
+<tr><td>D5</td><td><strong>E4</strong> — <code>CachedHttpCallOption.ENABLED</code> peut resservir un <code>projectedEndAt</code> périmé alors que le cas 4 exige « un nouvel appel backend ».</td><td>Décider : accepter, ou passer cet appel en désactivé.</td></tr>
+</table>
+</div>
+
+<hr>
+<p style="color:var(--tx2);font-size:13px">
+Tous les blocs « AVANT » ont été relus dans les fichiers réels du dépôt monté, ligne par ligne. Les blocs « APRÈS » se
+copient-collent tels quels, indentation comprise. Le rayon d'impact a été établi par énumération exhaustive
+(<code>getListItems</code>, constructions de <code>AjustoSummary</code> et <code>SummaryDto</code>, occurrences de
+<code>projectedEndAt</code>), pas par estimation. Les points marqués « à vérifier » le sont parce que le fichier concerné
+est un placeholder dans cette copie de travail — ce ne sont pas des suppositions déguisées.
+</p>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<script>
+  (function () {
+    if (typeof mermaid === 'undefined') {
+      document.querySelectorAll('.mermaid').forEach(function (el) {
+        el.style.whiteSpace = 'pre';
+        el.style.textAlign = 'left';
+        el.style.fontFamily = 'ui-monospace,monospace';
+        el.style.fontSize = '12px';
+      });
+      return;
+    }
+    mermaid.initialize({
+      startOnLoad: true,
+      securityLevel: 'loose',
+      theme: 'base',
+      flowchart: { useMaxWidth: false, htmlLabels: true, nodeSpacing: 55, rankSpacing: 65, padding: 16 },
+      themeVariables: {
+        darkMode: true,
+        background: '#161b22',
+        primaryColor: '#1c2230',
+        primaryTextColor: '#e6edf3',
+        primaryBorderColor: '#30363d',
+        lineColor: '#58a6ff',
+        secondaryColor: '#12202f',
+        tertiaryColor: '#1d1630',
+        fontSize: '15px',
+        fontFamily: '-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif',
+        clusterBkg: '#12171f',
+        clusterBorder: '#30363d',
+        nodeBorder: '#30363d',
+        edgeLabelBackground: '#161b22'
+      }
+    });
+  })();
+</script>
+</body>
+</html>
