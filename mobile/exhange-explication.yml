@@ -1,0 +1,63 @@
+Le problème en 3 lignes
+
+L'équipe QA automatise GIA avec Appium. Appium ne peut pas atteindre les éléments HTML d'une WebView tant que WebView.setWebContentsDebuggingEnabled(true) n'a pas été appelé : c'est ce flag qui ouvre le socket DevTools (@webview_devtools_remote_<pid>) auquel ChromeDriver s'attache pour offrir le contexte WEBVIEW_ca.dgag.ajusto…. Sur Ajusto, ce flag est appelé uniquement dans la WebView V1 (SaviBrowserActivity). Toutes les WebViews V2 (Compose) sont donc invisibles pour Appium.
+
+Le point qui change tout
+
+setWebContentsDebuggingEnabled est une méthode statique du process, pas une propriété d'instance. Un seul appel active le débogage pour toutes les WebViews de l'app. Le ticket dit « on a juste à mettre sur les webview v2 aussi » — c'est faisable mais ce serait de la duplication inutile et fragile (chaque nouvelle WebView future serait oubliée).
+
+Correctif recommandé : 1 appel centralisé, 2 fichiers touchés.
+
+Fichiers impactés
+Fichier	Action	Statut dans ta copie
+ca/dgag/ajusto/AjustoApplication.kt	Ajouter l'appel unique gardé dans onCreate()	✅ lisible
+ca/dgag/ajusto/savi/SaviBrowserActivity.kt	Retirer l'appel local (l. 446-448) + aligner le gate de onConsoleMessage (l. 534)	✅ lisible
+ca/dgag/ajusto/webview/WebviewComposable.kt	Ajouter le testTag + testTagsAsResourceId (pour qu'Appium localise le conteneur) — pas le flag de debug	⛔ placeholder
+ca/dgag/ajusto/extension/… (déf. de dev()/qa())	Vérifier la sémantique (voir risque plus bas)	⛔ absent du dépôt
+
+Fichiers non modifiés mais couverts automatiquement par l'appel centralisé : WebviewProgressActivity.kt, FaqWebViewActivity.kt, webview/legacy/WebViewActivity.kt, LoginActivity.kt (qui héberge WebViewComposable).
+
+Ce que tu dois faire
+
+1. AjustoApplication.onCreate() — ajouter juste après instance = this :
+
+kotlin
+// WRU-26437 : expose le socket DevTools pour Appium/Chrome DevTools.
+// Réglage statique process-wide : couvre toutes les WebViews (V1, V2, FAQ, login, legacy).
+// Jamais en production — kotlin:S4507
+if (BuildConfig.DEBUG || qa() || dev()) {
+    WebView.setWebContentsDebuggingEnabled(true) //NOSONAR
+}
+
+Imports à ajouter : android.webkit.WebView, ca.dgag.ajusto.extension.dev, ca.dgag.ajusto.extension.qa.
+
+2. SaviBrowserActivity.kt — supprimer le bloc devenu redondant :
+
+kotlin
+if (BuildConfig.DEBUG || qa() || dev()) {
+    setWebContentsDebuggingEnabled(true) //NOSONAR
+}
+
+et passer onConsoleMessage au même gate (aujourd'hui les logs console sont muets en qa/dev alors que DevTools y est actif) :
+
+kotlin
+if (BuildConfig.DEBUG || qa() || dev()) {
+    Timber.e(consoleMessage?.message() ?: "No console message")
+}
+
+3. WebviewComposable.kt — le flag ne suffit pas à Appium : il faut aussi pouvoir localiser le conteneur natif avant de basculer en contexte WEBVIEW.
+
+kotlin
+modifier = Modifier
+    .testTag("webViewContainer")
+    .semantics { testTagsAsResourceId = true }
+
+testTagsAsResourceId se propage dans l'arbre : le poser une fois haut dans la hiérarchie de l'écran, pas sur chaque nœud.
+
+4. Vérification (build dgagQaDebug) :
+
+adb devices                    # device visible
+chrome://inspect/#devices      # la WebView V2 doit apparaître
+driver.contexts                # Appium doit lister WEBVIEW_ca.dgag.ajusto.qa
+
+Puis vérifier qu'un build release/prod n'apparaît pas dans chrome://inspect.
