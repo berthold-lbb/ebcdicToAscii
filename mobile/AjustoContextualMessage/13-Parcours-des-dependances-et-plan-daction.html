@@ -1,0 +1,552 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>notifyContextualMessage — le parcours complet de chaque dépendance + plan d'action (doc 13)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#30363d;
+    --tx:#e6edf3; --tx2:#9aa7b4; --acc:#58a6ff;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --info:#a371f7;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1400px;margin:0 auto;padding:40px 28px 130px}
+  h1{font-size:33px;line-height:1.2;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--tx2);font-size:15px;margin-bottom:20px}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--tx2);
+        background:var(--panel);border:1px solid var(--line);border-radius:8px;
+        padding:12px 16px;margin-bottom:36px}
+  h2{font-size:26px;margin:62px 0 8px;padding:24px 0 0;border-top:2px solid var(--acc);letter-spacing:-.01em}
+  h3{font-size:19px;margin:34px 0 10px;color:var(--acc)}
+  h4{font-size:16px;margin:24px 0 8px;color:var(--tx);font-weight:600}
+  p{margin:12px 0}
+  code{font-family:var(--mono);font-size:.9em;background:#1f2733;padding:2px 6px;border-radius:4px;color:#a5d6ff}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+      padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:12.7px;line-height:1.6}
+  pre .c{color:#7d8590} pre .r{color:#ff7b72} pre .g{color:#7ee787} pre .y{color:#e3b341} pre .b{color:#79c0ff}
+  table{border-collapse:collapse;width:100%;margin:20px 0;font-size:13.3px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600;color:var(--tx2);
+     text-transform:uppercase;font-size:11.3px;letter-spacing:.06em}
+  td code{font-size:11.8px}
+  tr:nth-child(even) td{background:#12171f}
+  .note{border-left:4px solid var(--acc);background:#12202f;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .warn{border-left:4px solid var(--warn);background:#241f10;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .bad{border-left:4px solid var(--bad);background:#2b1414;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .good{border-left:4px solid var(--ok);background:#0f2417;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .key{border-left:4px solid var(--info);background:#1d1630;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600;font-family:var(--mono)}
+  .p-ok{background:#1d4a2c;color:#7ee787} .p-no{background:#5a1c1c;color:#ff9d94}
+  .p-mid{background:#5a4520;color:#ffd591} .p-info{background:#12293d;color:#9fd4ff}
+  .p-dead{background:#3d3d3d;color:#b0b0b0}
+  ul{margin:10px 0;padding-left:22px} li{margin:6px 0}
+  ol{margin:10px 0;padding-left:24px} ol li{margin:8px 0}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 26px;margin:30px 0}
+  .toc a{color:var(--acc);text-decoration:none} .toc a:hover{text-decoration:underline}
+  .toc ol{margin:0;padding-left:22px} .toc li{margin:6px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:20px 0}
+  @media(max-width:1000px){.grid2,.grid3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card h5{margin:0 0 8px;font-size:14px;color:var(--acc)}
+  .card.g{border-color:#1d4a2c} .card.g h5{color:#7ee787}
+  .card.r{border-color:#5a2020} .card.r h5{color:#ff9d94}
+  .card.w{border-color:#5a4520} .card.w h5{color:#ffd591}
+  .mermaid{min-width:100%;display:flex;justify-content:center;margin:26px 0}
+  .mermaid svg{max-width:none !important;height:auto !important}
+  .blk{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+       padding:18px 22px;margin:26px 0}
+  .blk h3{margin-top:0}
+  .blk .hd{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .blk .num{font-family:var(--mono);font-size:12px;color:var(--tx2);
+            border:1px solid var(--line);border-radius:6px;padding:2px 8px}
+  .qa{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--warn);
+      border-radius:0 10px 10px 0;padding:16px 20px;margin:18px 0}
+  .qa .q{font-weight:600;color:#ffd591;margin:0 0 6px}
+  .dep{background:#12171f;border:1px solid var(--line);border-radius:12px;padding:14px 20px 8px;margin:28px 0}
+  .dep h3{margin-top:6px}
+  .dep .mermaid{margin:12px 0 4px}
+  .verd{font-size:13.5px;margin:8px 0 10px}
+  pre.parc{background:#0b0f15;border-color:#243040;font-size:12.4px;line-height:1.75}
+  pre.cible{background:#0f2417;border-color:#1d4a2c}
+  .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx2);margin:16px 0 6px}
+  .big{font-size:34px;font-weight:700;font-family:var(--mono);line-height:1.1}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+<h1>notifyContextualMessage — le parcours complet de chaque dépendance</h1>
+<p class="sub">
+  Pour les 13 entrées : le trajet réel, de la source physique jusqu'à l'écran, avec les noms de
+  fichiers. Puis le verdict — port nécessaire ou pas — et le plan d'action.
+</p>
+
+<div class="meta">
+  Version présentation. Le détail écrit et les justifications sont dans le document 11.<br>
+  <b>Légende des étages :</b>
+  🌐 serveur &nbsp;·&nbsp; 🛰️ SDK CMT natif &nbsp;·&nbsp; 📲 système du téléphone &nbsp;·&nbsp;
+  📱 androidApp (Kotlin/Java) &nbsp;·&nbsp; ☕ Core Java &nbsp;·&nbsp; 🟢 KMP<br>
+  <b>Couleurs :</b> <span class="pill p-no">Core Java</span>
+  <span class="pill p-info">source physique</span>
+  <span class="pill p-ok">déjà en Kotlin</span>
+  <span class="pill p-mid">à modifier</span><br>
+  Réserve : dépôt reconstitué — chaque point non vérifiable est marqué
+  <span class="pill p-mid">À VÉRIFIER</span>.
+</div>
+
+<div class="toc">
+  <ol>
+    <li><a href="#s1">Le chemin actuel et la cascade</a></li>
+    <li><a href="#s2">Le parcours des 13 dépendances, une par une</a></li>
+    <li><a href="#s3">Le bilan — ports, bridgers, classes</a></li>
+    <li><a href="#s4">Le plan d'action — la checklist d'exécution</a></li>
+  </ol>
+</div>
+
+<h2 id="s1">1 · Le chemin actuel et la cascade</h2>
+
+<p>
+  <code>notifyContextualMessage()</code> ne calcule rien : elle assemble six flux et, à chaque
+  battement, appelle une cascade qui vit ailleurs. Le message ressort <b>déjà décidé et déjà
+  traduit</b>, puis traverse cinq couches avant l'écran.
+</p>
+
+<div class="mermaid">
+flowchart TD
+  subgraph CORE["CORE JAVA"]
+    A["TripServiceImpl<br>notifyContextualMessage()<br>combineLatest de 6 flux"]
+    B["AjustoContextualMessageHelper<br>cascade de 7 regles<br>TEXTE DEJA TRADUIT"]
+    C(["contextualMessageObservable"])
+    A --> B --> C
+  end
+  subgraph AND["ANDROID"]
+    D["AjustoContextualMessageBridger<br>convertit en payload plat<br>3 pertes"]
+  end
+  subgraph KMP["DOMAINE KMP"]
+    E["AjustoContextualMessageSource<br>classe abstraite A ETAT"]
+  end
+  subgraph SH["SHARED"]
+    F["AjustoSummaryShimImpl<br>message + reseau + localisation"]
+  end
+  subgraph PR["PRESENTATION"]
+    G["AjustoSummaryViewModel<br>2 booleens -> 1 icone"]
+    H["AjustoSummaryScreen<br>aucun composable MessageBox"]
+    G --> H
+  end
+  C --> D --> E --> F --> G
+  style D fill:#5a3a1c,stroke:#e3833d,color:#fff
+  style B fill:#12293d,stroke:#58a6ff,color:#fff
+  style H fill:#2b1414,stroke:#f85149,color:#ff9d94
+</div>
+
+<div class="note">
+  <b>Le point de bascule.</b> Tant que <code>title()</code> franchit la frontière déjà traduit,
+  le Kotlin ne peut ni trier, ni dédupliquer, ni tracer. Demain le pont ne transportera plus que
+  des <code>Boolean</code> et des <code>Int</code>, et la décision se prendra en Kotlin commun.
+</div>
+
+<div class="mermaid">
+flowchart TD
+  S([le flux bat]) --> R1{"1 · marque<br>non compatible ?"}
+  R1 -->|oui| M1["Marque<br>non compatible"]
+  R1 -->|non| R2{"2 · appareil<br>non compatible ?"}
+  R2 -->|oui| M2["Appareil<br>non compatible"]
+  R2 -->|non| R3{"3 · batterie faible<br>ET pas en charge ?"}
+  R3 -->|oui| M3["Batterie faible<br>ROUGE"]
+  R3 -->|non| R4{"4 · mode eco<br>ET pas en trajet ?"}
+  R4 -->|oui| M4["Economie d energie<br>ORANGE"]
+  R4 -->|non| R5{"5 · inviter a<br>etiqueter ?"}
+  R5 -->|oui| M5["Invitation<br>a classifier"]
+  R5 -->|non| R6{"6 · police pas<br>en vigueur ?"}
+  R6 -->|oui| M6["Jours avant<br>la police"]
+  R6 -->|non| R7{"7 · medaille<br>a reclamer ?"}
+  R7 -->|oui| M7["Nouvelle<br>medaille"]
+  R7 -->|non| R8{"8 · conseil ?<br>NOUVEAU"}
+  R8 -->|oui| M8["Bon a savoir<br>BLEU"]
+  R8 -->|non| N(["aucun message"])
+  style M3 fill:#2b1414,stroke:#f85149,color:#ff9d94
+  style M4 fill:#241f10,stroke:#d29922,color:#ffd591
+  style M8 fill:#1d1630,stroke:#a371f7,color:#d2b8ff
+</div>
+
+<p>
+  Aujourd'hui le premier « oui » gagne et les six autres sont perdus. Demain les huit règles sont
+  évaluées <b>indépendamment</b>, dans le même ordre, et les <b>trois premières</b> s'affichent.
+  Comme l'ordre ne change pas, <code>resolve(s).first()</code> reste toujours égal au résultat de
+  la cascade Java : le legacy devient un préfixe strict du nouveau, et un test le prouve à chaque
+  build.
+</p>
+
+<h2 id="s2">2 · Le parcours des 13 dépendances</h2>
+
+<div class="dep">
+<h3>① <code>latestTrips</code> — les trajets récents <span class="pill p-mid">règle 5</span></h3>
+<div class="mermaid">
+flowchart TD
+  A["SDK CMT<br>AppModel · MapDataReader · TripList"]:::s
+  A --> B["CMTTripLoader.getTripList()<br>androidApp"]:::a
+  B --> C["CMTTripProviderImpl<br>androidApp<br>tripListObservable"]:::a
+  C --> D["CMTTripProvider<br>interface j2objc"]:::c
+  D --> E["TripServiceImpl.notifyLatestTrips()<br>filtre 90 j / police / Mulligan"]:::c
+  E --> F["REGLE 5"]:::r
+  F --> V["ADAPTER NECESSAIRE"]:::n
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef a fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef n fill:#1d1630,stroke:#a371f7,color:#d2b8ff
+</div>
+<p class="lbl">Le parcours actuel, de la source jusqu'à l'écran</p>
+<pre class="parc">①  🛰️  <span class="b">SDK CMT</span> — base locale des trajets
+              com.cmtelematics.sdk.AppModel · MapDataReader · types.TripList
+       ↑ lus par…
+②  📱  <span class="y">CMTTripLoader.java</span>            androidApp/com/mirego/cmt/wrapper/trips
+              .getTripList() → SCRATCHOperation
+       ↓
+③  📱  <span class="y">CMTTripProviderImpl.java</span>      androidApp — Java
+              • s abonne quand CMTSessionController.isAuthenticated
+              • recharge quand l app repasse en FOREGROUND
+              • vide tout a la deconnexion (clearLastResult)
+              • publie tripListObservable : SCRATCHObservable&lt;List&lt;CMTTrip&gt;&gt;
+       ↓
+④  ☕  <span class="r">CMTTripProvider.java</span>          Core — interface, transpilee j2objc pour iOS
+       ↓
+⑤  ☕  <span class="r">TripServiceImpl.notifyLatestTrips()</span>   Core Java
+              filtre : apres policyEffectiveDate · moins de 90 jours · hors Mulligan
+              → latestTripsObservable
+       ↓
+⑥  ☕  <span class="r">notifyContextualMessage()</span> → ClassifyInviteChecker → <span class="y">regle 5</span>
+              n en retient que DEUX chiffres : .size() et .any { userLabeled() }
+       ↓
+⑦  📱  bridger → 🟢 KMP</pre>
+<p class="lbl">La cible</p>
+<pre class="cible">🟢  <span class="g">CmtTripSignalsDataSource.recentTrips</span> : StateFlow&lt;List&lt;AjustoRecentTrip&gt;&gt;
+       ↑ branche sur ③/④ — <span class="y">CMTTripProvider, PAS TripService</span>
+🟢  <span class="g">RecentTripsFilter</span>  — l etape ⑤ portee en Kotlin (~12 l.) + test de parite
+🟢  <span class="g">AjustoRecentTrip</span>   — startDate · isUserLabeled · isMulligan
+                          aucun type CMT ne traverse la frontiere</pre>
+<p class="verd">
+  <b>Au bout du fil :</b> le SDK télématique — un vrai irréductible.<br>
+  <b>Le choix qui compte :</b> se brancher à l'étape ③/④ et non à l'étape ⑤. Sinon
+  <code>TripServiceImpl</code> reste indéboulonnable et le filtre 90 jours reste en Java, non testé.
+</p>
+</div>
+
+<div class="dep">
+<h3>② <code>isRecording</code> — un trajet est en cours <span class="pill p-mid">règle 4</span></h3>
+<div class="mermaid">
+flowchart TD
+  A["SDK CMT<br>CmtService.isInDrive()"]:::s
+  A --> B["CMTTripManagerImpl.kt<br>androidApp — Kotlin<br>ExternalTripCallback + timer"]:::a
+  B --> C["CMTTripManager<br>interface j2objc"]:::c
+  C --> D["TripServiceImpl<br>getTripRecordStateObservable()"]:::c
+  D --> E["REGLE 4"]:::r
+  E --> V["MEME ADAPTER<br>que l entree 1"]:::n
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef a fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef n fill:#1d1630,stroke:#a371f7,color:#d2b8ff
+</div>
+<p class="lbl">Le parcours actuel</p>
+<pre class="parc">①  🛰️  <span class="b">SDK CMT</span> — <span class="b">CmtService.isInDrive()</span>
+              le detecteur de conduite du SDK
+       ↑ interroge par…
+②  📱  <span class="y">CMTTripManagerImpl.kt</span>         androidApp — Kotlin
+              DEUX reveils :
+                • ExternalTripCallback (SDK) — debut / fin de trajet
+                • SCRATCHRecurringTimer — sondage periodique,
+                  actif seulement si FOREGROUND ET authentifie
+              → tripRecordStateObservable.notifyEventIfChanged(...)
+       ↓
+③  ☕  <span class="r">CMTTripManager.java</span>           Core — interface j2objc
+              getTripRecordStateObservable() : SCRATCHObservable&lt;Boolean&gt;
+       ↓
+④  ☕  <span class="r">TripServiceImpl</span> → combineLatest → <span class="y">regle 4</span>
+              isPowerSavingModeEnabled &amp;&amp; !isRecording
+       ↓
+⑤  📱  bridger → 🟢 KMP</pre>
+<p class="lbl">La cible</p>
+<pre class="cible">🟢  <span class="g">CmtTripSignalsDataSource.isRecording</span> : StateFlow&lt;Boolean&gt;
+       ↑ branche sur ②/③ — le meme adapter que l entree 1, deuxieme et dernier membre</pre>
+<p class="verd">
+  <b>Au bout du fil :</b> le même SDK.<br>
+  <b>À retenir :</b> ces deux entrées sont les <b>seules</b> des treize à exiger un adapter.
+  Deux booléens, aucune décision, aucun texte — ce n'est pas de la dette, c'est la couche
+  plateforme que toute application multiplateforme possède.
+</p>
+</div>
+
+<div class="dep">
+<h3>③ <code>badges</code> — la liste des médailles <span class="pill p-mid">règle 7</span></h3>
+<div class="mermaid">
+flowchart TD
+  A["Serveur<br>/mobile/v3/get_badges"]:::s
+  A --> B["createPassThruRequester<br>requete SIGNEE PAR LE SDK CMT"]:::s
+  B --> C["BadgeHttpService.kt<br>androidApp — Kotlin / RxJava"]:::a
+  C --> D["BadgesResponseParser<br>+ BadgeMapper"]:::a
+  D --> E["BadgeRepository.kt<br>cache BadgeStorage"]:::a
+  E --> F["BadgeProviderImpl.kt<br>filtre level &lt;= 6"]:::a
+  F --> G["BadgeProvider<br>TripServiceImpl -> regle 7"]:::c
+  G --> V["LE PONT VERS LE KMP<br>N EXISTE PLUS<br>bridger supprime"]:::x
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef a fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+<p class="lbl">Le parcours actuel</p>
+<pre class="parc">①  🌐  <span class="b">Serveur</span> — route <span class="b">/mobile/v3/get_badges</span>
+              constante API_BADGES_PATH, dans com.mirego.cmt.wrapper.Constants
+       ↑ l appel est fabrique et <span class="y">signe</span> par…
+②  🛰️  <span class="b">createPassThruRequester(appModel.context)</span>   ← <span class="y">LE SDK CMT</span>
+              appModel = com.cmtelematics.sdk.AppModel
+              (PassThruRequesterHelper.headers)
+       ↑ appele par…
+③  📱  <span class="y">BadgeHttpService.kt</span>           androidApp — Kotlin, RxJava
+              .get(path, headers) → une String JSON
+       ↓
+④  📱  <span class="y">BadgesResponseParser</span> + <span class="y">BadgeMapper</span>       androidApp
+              String → BadgesResponse { badges: [ BadgeResponse ] } → Badge (Core)
+       ↓
+⑤  📱  <span class="y">BadgeRepository.kt</span>            androidApp — Kotlin
+              • sauve dans BadgeStorage (cache disque, Core)
+              • publie dans badgesObservable
+              • vide tout si !isAuthenticated  ← CMTSessionController
+              • recharge quand l app repasse en FOREGROUND
+       ↓
+⑥  📱  <span class="y">BadgeProviderImpl.kt</span>          androidApp — Kotlin
+              • ne garde que isSupportedBadge (level &lt;= 6)
+              • expose getBadges() : SCRATCHObservable&lt;List&lt;Badge&gt;&gt;
+       ↓
+⑦  ☕  <span class="r">TripServiceImpl.notifyContextualMessage()</span>     Core Java
+              BadgeScoper → TopClaimableBadgeFinder → <span class="y">regle 7</span>
+       ↓
+⑧  <span class="r">✖ AjustoBadgeControllerBridger — SUPPRIME</span>
+              le port <span class="g">AjustoBadgeSource</span> n a donc plus d implementation :
+              aujourd hui <span class="r">aucun badge n arrive au KMP</span>
+              (KoreInitializer l. 82-83 y fait encore reference dans la reconstitution
+               — <span class="y">a confirmer sur le vrai depot</span>)</pre>
+<p class="lbl">La cible</p>
+<pre class="cible">🟢  <span class="g">AjustoBadgeSource</span> — le port existe deja dans le domaine, on lui ajoute getAllBadges()
+🟢  <span class="g">KtorAjustoBadgeDataSource</span> — nouvelle implementation, dans feature/ajusto/data
+       <span class="y">⚠ la requete est signee par le SDK (etape ②) : un client Ktor nu ne suffit pas.</span>
+       <span class="y">  Deux options a trancher : passer par le requester CMT depuis androidApp,</span>
+       <span class="y">  ou obtenir une route authentifiee autrement. A VERIFIER avec le backend.</span>
+🟢  Les etapes ③ a ⑥ sont <span class="g">deja en Kotlin</span> — elles se transposent presque telles quelles
+       (seuls les modeles Badge / BadgesResponse / BadgeStorage sont encore du Core)</pre>
+<p class="verd">
+  <b>Ce qui a changé depuis les analyses précédentes :</b> le bridger des badges a été supprimé.
+  La trajectoire « T1 : étendre le port, implémenté par le bridger » <b>n'existe plus</b> —
+  il faut aller directement à une implémentation Kotlin du port.<br>
+  <b>La bonne nouvelle :</b> tout l'étage HTTP est <b>déjà en Kotlin dans androidApp</b>
+  (étapes ③ à ⑥). Il ne descend pas du Core : il y remonte. Le portage consiste à le déplacer
+  dans <code>feature/ajusto/data</code>, pas à le réécrire.<br>
+  <b>Le point dur :</b> l'authentification de la requête passe par le SDK CMT.
+</p>
+</div>
+
+<div class="dep">
+<h3>④ <code>isDeviceCompatible</code> — appareil compatible <span class="pill p-mid">règle 2</span></h3>
+<div class="mermaid">
+flowchart TD
+  A["Serveur<br>AuthenticationHttpService<br>.isDeviceCompatible(payload)"]:::s
+  B["Systeme du telephone<br>deviceInfo.isHardwareCompatible()"]:::s
+  A --> C["AjustoDeviceCompatibleImpl<br>Core Java — 116 l.<br>cache getInt / putInt"]:::c
+  B --> C
+  C --> D["isDeviceCompatibleObservable<br>= whiteListed ET hardwareCompatible"]:::c
+  D --> E["REGLE 2"]:::r
+  C --> W["D-A : le cache n est lu<br>QUE s il est absent<br>et publie alors false"]:::x
+  E --> V["AUCUN PORT VERS LE CORE<br>HTTP + un booleen"]:::k
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+<p class="lbl">Le parcours actuel</p>
+<pre class="parc">①  🌐  <span class="b">Serveur</span> — <span class="y">AuthenticationHttpService.isDeviceCompatible(payload)</span>
+              <span class="y">⚠ route exacte non retrouvee dans la reconstitution — A VERIFIER</span>
+              payload = partnerKey  ← NetworkConfiguration.getApiKey()
+                      + deviceModel ← DeviceService.getDeviceModel()
+                      + deviceName  ← NetworkConfiguration.getDeviceName()
+       ↑ construit par…
+②  ☕  <span class="r">AjustoDeviceCompatibleImpl.java</span>     Core — 116 lignes
+              cache : keyValueStorage.<span class="y">getInt</span>/<span class="y">putInt</span>("IS_DEVICE_COMPATIBLE_KEY")
+              <span class="r">⚠ D-A : if (savedValue.equals(DEFAULT)) update(savedValue == 1)</span>
+              <span class="r">        le cache n est lu QUE lorsqu il est ABSENT, et publie alors false</span>
+              rafraichi au retour en AVANT-PLAN
+       ↓
+③  ☕  sortie = <span class="y">isDeviceWhiteListed &amp;&amp; deviceInfo.isHardwareCompatible()</span>
+              → isDeviceCompatibleObservable
+       ↓
+④  ☕  <span class="r">notifyContextualMessage()</span> → <span class="y">regle 2</span>
+              le texte interpole drivingProgramName() ← BrandLogic</pre>
+<p class="lbl">La cible</p>
+<pre class="cible">🟢  <span class="g">DeviceCompatibilityDataSource</span>  — Ktor, dans feature/ajusto/data
+       modele a suivre : KtorAjustoSummaryDataSource
+🟢  cache : <span class="g">Storage</span> (deja en Kotlin)  <span class="y">⚠ Storage n a ni getInt ni putInt : encoder en String</span>
+🟢  booleen materiel : <span class="g">DeviceStateDataSource</span> (voir entrees ⑦-⑩)
+       <span class="y">DECISION D-A : corriger l inversion (recommande) ou porter a l identique</span></pre>
+<p class="verd">
+  <b>Au bout du fil :</b> un appel HTTP et un booléen matériel. Zéro SDK, zéro métier Core.<br>
+  <b>Verdict :</b> une source de données Ktor. Ce lot <b>retire</b> du code au Core au lieu d'en
+  pontier.<br>
+  <b>Le piège D-A :</b> le message « appareil non compatible » est peut-être affiché une fraction
+  de seconde à chaque démarrage, avant la réponse serveur.
+</p>
+</div>
+
+<div class="dep">
+<h3>⑤ et ⑥ <code>mode</code> et <code>numberOfTrips</code> <span class="pill p-mid">règle 5</span></h3>
+<div class="mermaid">
+flowchart TD
+  A["Serveur compte Desjardins"]:::s
+  A --> B["KtorAccountDataSource<br>transverse/data — KOTLIN"]:::k
+  B --> C["AccountRemoteDataSource.retrieve()<br>suspend one-shot"]:::k
+  C --> D["AccountAjustoParameters<br>mode · numberOfTrips"]:::k
+  D --> E["AccountRepositoryBridger<br>SENS INVERSE<br>le Core consomme le KMP"]:::a
+  E --> F["AccountService<br>AjustoParameters.mode()"]:::c
+  F --> G["REGLE 5"]:::r
+  D -.->|"raccourci"| V["RIEN A FAIRE<br>la donnee est deja la"]:::k
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef a fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+</div>
+<p class="lbl">Le parcours actuel — attention, il fait un aller-retour</p>
+<pre class="parc">①  🌐  <span class="b">Serveur</span> — compte Desjardins
+       ↓
+②  🟢  <span class="g">KtorAccountDataSource</span>         modules/transverse/data — <span class="g">KOTLIN</span>
+       ↓
+③  🟢  <span class="g">AccountRemoteDataSource.retrieve()</span>   transverse/domain
+              suspend one-shot → <span class="y">un fetch par session, pas un par recomposition</span>
+       ↓
+④  🟢  <span class="g">Account.ajustoParameters</span> → <span class="g">AccountAjustoParameters</span> (38 champs)
+              mode : String?      numberOfTrips : Int?
+       ↓  <span class="r">⚠ ICI LA DONNEE REDESCEND VERS LE JAVA</span>
+⑤  📱  <span class="y">AccountRepositoryBridger.kt</span>   androidApp — <span class="y">bridger ENTRANT</span>
+              traduit Account (KMP) → ca.dgag.ajusto.core.account.Account   (.asCore)
+       ↓
+⑥  ☕  <span class="r">AccountService.getAjustoParametersObservable()</span>
+              → AjustoParameters.mode() : enum { NONE("none"), CONTINUOUS_V4("continuous4") }
+              → AjustoParameters.numberOfTrips()
+       ↓
+⑦  ☕  <span class="r">notifyContextualMessage()</span> → ClassifyInviteChecker → <span class="y">regle 5</span>
+              <span class="y">mode n est utilise QUE par la regle 5 (D-I) — parametre mort ailleurs</span></pre>
+<p class="lbl">La cible</p>
+<pre class="cible">🟢  Le use case lit <span class="g">AccountAjustoParameters</span> a l etape ④.
+       Les etapes ⑤ ⑥ ⑦ disparaissent du chemin : <span class="g">zero ligne d infrastructure a ecrire</span>.
+       <span class="y">⚠ D-H : mode == "continuous4" — comparaison EXACTE, sensible a la casse,</span>
+       <span class="y">        tout le reste (null inclus) = NONE. Une comparaison tolerante changerait la regle 5.</span></pre>
+<p class="verd">
+  <b>La découverte :</b> la donnée est <b>déjà en Kotlin</b> et fait un aller-retour inutile —
+  elle redescend vers le Java par un bridger <em>entrant</em> (<code>AccountRepositoryBridger</code>),
+  juste pour que la cascade Java puisse la relire.<br>
+  <b>Verdict :</b> il n'y a rien à construire, seulement à cesser de la faire redescendre.
+  Les deux signaux sortent du même objet : un seul appel réseau les alimente tous les deux.
+</p>
+</div>
+
+<div class="dep">
+<h3>⑦ ⑧ ⑨ Batterie, charge et mode éco <span class="pill p-mid">règles 3 et 4</span></h3>
+<div class="mermaid">
+flowchart TD
+  A["Systeme du telephone<br>BatteryManager · PowerManager<br>equivalents iOS"]:::s
+  A --> B["DeviceInfoImpl.kt<br>androidApp — VIDE dans la reconstitution"]:::x
+  B --> C["DeviceInfo — Core, 17 membres<br>3 fonctions, 1 seul observable"]:::c
+  C --> D["notifyContextualMessage<br>l observable sert de REVEIL<br>la valeur n est pas lue"]:::c
+  D --> E["Helper relit les 3 EN DIRECT<br>REGLES 3 et 4"]:::r
+  C --> F["DeviceInfoKore<br>androidApp — BRIDGER"]:::a
+  F --> G["kore/info/DeviceInfo.kt<br>shared"]:::a
+  E --> V["AUCUN PORT VERS LE CORE<br>le Core ne fait que relayer"]:::k
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef a fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+<p class="lbl">Le parcours actuel</p>
+<pre class="parc">①  📲  <span class="b">Systeme du telephone</span>
+              Android : BatteryManager (niveau, BATTERY_STATUS_CHARGING)
+                        PowerManager.isPowerSaveMode
+              iOS     : UIDevice.batteryState · ProcessInfo.isLowPowerModeEnabled
+       ↑ lus par…
+②  📱  <span class="r">DeviceInfoImpl.kt</span>   androidApp/core/impl/legacy
+              <span class="r">⚠ FICHIER VIDE dans la reconstitution — les API exactes sont a confirmer</span>
+       ↓
+③  ☕  <span class="r">DeviceInfo.java</span>  Core — 17 membres, dont :
+              isBatteryLow()               ← <span class="y">a un observable de reveil</span>
+              isBatteryChargeSustained()   ← <span class="r">AUCUN reveil</span>
+              isPowerSavingModeEnabled()   ← <span class="r">AUCUN reveil</span>
+              getIsBatteryLowObservable()  ← le seul des trois
+       ↓
+④  ☕  <span class="r">notifyContextualMessage()</span>
+              getIsBatteryLowObservable() est ajoute au combineLatest <span class="y">SANS TypedValue</span> :
+              <span class="y">sa valeur n est jamais lue — il ne sert QU A faire battre le flux</span>
+       ↓
+⑤  ☕  <span class="r">AjustoContextualMessageHelper</span> relit les TROIS en direct → <span class="y">regles 3 et 4</span>
+              <span class="r">⚠ BUG : passer en mode eco ou brancher le chargeur ne rafraichit RIEN</span>
+              <span class="r">        tant qu un autre signal ne bouge pas</span>
+       ↘ en parallele, pour l ecran Summary
+⑥  📱  <span class="y">DeviceInfoKore.kt</span> (androidApp) — <span class="r">lui-meme un bridger : delegue au Core</span>
+       → 🟢 shared/kore/info/DeviceInfo.kt + BaseDeviceInfo.kt
+       → AjustoSummaryShimImpl → AjustoSummaryViewModel</pre>
+<p class="lbl">La cible</p>
+<pre class="cible">🟢  <span class="g">DeviceStateDataSource</span>  — modules/transverse/domain
+       isBatteryLow · isBatteryChargeSustained · isPowerSavingModeEnabled : <span class="g">3 StateFlow</span>
+🟢  implementations en <span class="g">androidMain / iosMain</span> — les etapes ② et ③ disparaissent
+       receivers Android : ACTION_BATTERY_CHANGED · ACTION_POWER_SAVE_MODE_CHANGED
+       patron deja present dans BaseDeviceInfo pour la localisation (6 lignes a dupliquer)
+       <span class="y">CRITERE DE SORTIE : un test INSTRUMENTE — un vrai changement de batterie fait emettre</span></pre>
+<p class="verd">
+  <b>Au bout du fil :</b> l'API du téléphone. Rien d'autre.<br>
+  <b>Verdict :</b> réécrire en natif ne crée pas un pont, ça en <b>supprime</b> un —
+  <code>DeviceInfoKore</code> délègue neuf méthodes au Core pour lire un niveau de batterie.<br>
+  <b>Rupture de parité assumée :</b> la migration corrige le bug de fraîcheur au lieu de le porter.
+</p>
+</div>
+
+<div class="dep">
+<h3>⑩ <code>isAjustoDeviceBrandCompatible</code> — la marque du téléphone <span class="pill p-mid">règle 1</span></h3>
+<div class="mermaid">
+flowchart TD
+  A["Systeme du telephone<br>Build.BRAND — valeur FIXE"]:::s
+  A --> B["DeviceInfoImpl.kt<br>androidApp"]:::a
+  B --> C["DeviceInfo<br>isAjustoDeviceBrandCompatible()"]:::c
+  C --> D["REGLE 1<br>premiere de la cascade"]:::r
+  D --> V["AUCUN PORT VERS LE CORE<br>une VALEUR, pas un flux"]:::k
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef a fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+</div>
+<p class="lbl">Le parcours actuel</p>
+<pre class="parc">①  📲  <span class="b">Build.BRAND</span> (Android) / equivalent iOS — <span class="y">ne change jamais</span>
+       ↓
+②  📱  <span class="y">DeviceInfoImpl.kt</span>   androidApp — compare la marque a une liste
+       ↓
+③  ☕  <span class="r">DeviceInfo.isAjustoDeviceBrandCompatible()</span>   Core
+       ↓
+④  ☕  <span class="r">Helper</span> → <span class="y">regle 1</span> — la PREMIERE de la cascade, donc la plus prioritaire
+              c est aussi le seul message qui porte un bouton
+              <span class="y">(bouton mort aujourd hui : l action n est jamais transportee — decision D2)</span></pre>
+<p class="lbl">La cible</p>
+<pre class="cible">🟢  <span class="g">DeviceStateDataSource.isDeviceBrandCompatible</span> : Boolean
+       une simple valeur — <span class="y">inutile de la reveiller</span>
+       avec les entrees ⑦-⑨, cette quatrieme acheve de demanteler DeviceInfoKore</pre>
+<p class="verd">
+  <b>Au bout du fil :</b> une constante du système.<br>
+  <b>Verdict :</b> le gain de ce lot profite à <b>toutes</b> les fonctionnalités, pas seulement aux
+  messages contextuels.
+</p>
+</div>
