@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>findContextualMessage() — comment les 7 messages sont fabriqués (doc 14)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#30363d;
+    --tx:#e6edf3; --tx2:#9aa7b4; --acc:#58a6ff;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --info:#a371f7;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1400px;margin:0 auto;padding:40px 28px 130px}
+  h1{font-size:33px;line-height:1.2;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--tx2);font-size:15px;margin-bottom:20px}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--tx2);
+        background:var(--panel);border:1px solid var(--line);border-radius:8px;
+        padding:12px 16px;margin-bottom:36px}
+  h2{font-size:26px;margin:62px 0 8px;padding:24px 0 0;border-top:2px solid var(--acc);letter-spacing:-.01em}
+  h3{font-size:19px;margin:34px 0 10px;color:var(--acc)}
+  h4{font-size:16px;margin:24px 0 8px;color:var(--tx);font-weight:600}
+  p{margin:12px 0}
+  code{font-family:var(--mono);font-size:.9em;background:#1f2733;padding:2px 6px;border-radius:4px;color:#a5d6ff}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+      padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:12.7px;line-height:1.6}
+  pre .c{color:#7d8590} pre .r{color:#ff7b72} pre .g{color:#7ee787} pre .y{color:#e3b341} pre .b{color:#79c0ff}
+  table{border-collapse:collapse;width:100%;margin:20px 0;font-size:13.3px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600;color:var(--tx2);
+     text-transform:uppercase;font-size:11.3px;letter-spacing:.06em}
+  td code{font-size:11.8px}
+  tr:nth-child(even) td{background:#12171f}
+  .note{border-left:4px solid var(--acc);background:#12202f;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .warn{border-left:4px solid var(--warn);background:#241f10;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .bad{border-left:4px solid var(--bad);background:#2b1414;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .good{border-left:4px solid var(--ok);background:#0f2417;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .key{border-left:4px solid var(--info);background:#1d1630;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600;font-family:var(--mono)}
+  .p-ok{background:#1d4a2c;color:#7ee787} .p-no{background:#5a1c1c;color:#ff9d94}
+  .p-mid{background:#5a4520;color:#ffd591} .p-info{background:#12293d;color:#9fd4ff}
+  .p-dead{background:#3d3d3d;color:#b0b0b0}
+  ul{margin:10px 0;padding-left:22px} li{margin:6px 0}
+  ol{margin:10px 0;padding-left:24px} ol li{margin:8px 0}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 26px;margin:30px 0}
+  .toc a{color:var(--acc);text-decoration:none} .toc a:hover{text-decoration:underline}
+  .toc ol{margin:0;padding-left:22px} .toc li{margin:6px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:20px 0}
+  @media(max-width:1000px){.grid2,.grid3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card h5{margin:0 0 8px;font-size:14px;color:var(--acc)}
+  .card.g{border-color:#1d4a2c} .card.g h5{color:#7ee787}
+  .card.r{border-color:#5a2020} .card.r h5{color:#ff9d94}
+  .card.w{border-color:#5a4520} .card.w h5{color:#ffd591}
+  .mermaid{min-width:100%;display:flex;justify-content:center;margin:26px 0}
+  .mermaid svg{max-width:none !important;height:auto !important}
+  .blk{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+       padding:18px 22px;margin:26px 0}
+  .blk h3{margin-top:0}
+  .blk .hd{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .blk .num{font-family:var(--mono);font-size:12px;color:var(--tx2);
+            border:1px solid var(--line);border-radius:6px;padding:2px 8px}
+  .qa{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--warn);
+      border-radius:0 10px 10px 0;padding:16px 20px;margin:18px 0}
+  .qa .q{font-weight:600;color:#ffd591;margin:0 0 6px}
+  .dep{background:#12171f;border:1px solid var(--line);border-radius:12px;padding:14px 20px 8px;margin:26px 0}
+  .dep h3{margin-top:6px}
+  .verd{font-size:13.5px;margin:8px 0 10px}
+  pre.parc{background:#0b0f15;border-color:#243040;font-size:12.5px;line-height:1.7}
+  pre.cible{background:#0f2417;border-color:#1d4a2c}
+  .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx2);margin:16px 0 6px}
+  .big{font-size:34px;font-weight:700;font-family:var(--mono);line-height:1.1}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+<h1>findContextualMessage() — comment les 7 messages sont fabriqués</h1>
+<p class="sub">
+  Lecture complète des 183 lignes de <code>AjustoContextualMessageHelper</code> :
+  les 8 arguments, les 7 gardes, les 7 fabriques, et ce que contient exactement
+  chaque <code>AjustoContextualMessage</code> qui sort d'ici.
+</p>
+
+<div class="meta">
+  Fichier : <code>ad-digital-mobile-core-lib/…/core/trip/AjustoContextualMessageHelper.java</code> (183 l.)<br>
+  Lus aussi : <code>ContextualMessage.java</code> · <code>AjustoContextualMessage.java</code> ·
+  <code>BadgeContextualMessage.java</code> · <code>ExecutableContextualMessage.java</code> ·
+  <code>ExecutableContextualMessageImpl.java</code> · <code>Executable.java</code> ·
+  <code>Badge.java</code> · <code>TripServiceImpl.java</code> (l. 120-160 et 730)<br>
+  Complète le document 13 (parcours des dépendances) et le document 11 (plan écrit).
+</div>
+
+<div class="toc">
+  <ol>
+    <li><a href="#s1">La méthode en une image — trois étages</a></li>
+    <li><a href="#s2">Les 8 arguments : qui sert à quoi</a></li>
+    <li><a href="#s3">Les 7 gardes — ce qui est annoncé et ce qui est réellement testé</a></li>
+    <li><a href="#s4">Qu'est-ce qu'un « AjustoContextualMessage » ? La hiérarchie de types</a></li>
+    <li><a href="#s5">Les 7 fabriques, une par une</a></li>
+    <li><a href="#s6">Le tableau récapitulatif des 7 sorties</a></li>
+    <li><a href="#s7">Les 8 pièges que cette lecture révèle</a></li>
+    <li><a href="#s8">Comment tout cela devient du Kotlin</a></li>
+  </ol>
+</div>
+
+<h2 id="s1">1 · La méthode en une image — trois étages</h2>
+
+<p>
+  Le fichier fait 183 lignes, mais il ne contient que <b>trois choses</b> : une suite de gardes
+  (les conditions), une collection de petites fabriques (une par message), et un seul point de
+  sortie. Il ne lit aucune base de données, n'appelle aucun réseau : tout lui est donné en
+  argument — <b>sauf trois valeurs</b> qu'il va chercher lui-même, et c'est déjà le premier point
+  intéressant.
+</p>
+
+<div class="mermaid">
+flowchart TD
+  IN["8 arguments recus<br>profil · mode · compatibilites<br>classifyInvite · badge · isRecording"]:::in
+  SELF["3 valeurs lues EN DIRECT<br>deviceInfo.isBatteryLow()<br>.isBatteryChargeSustained()<br>.isPowerSavingModeEnabled()"]:::x
+  G["ETAGE 1 — LES GARDES<br>7 conditions en if / else if<br>le premier vrai gagne"]:::g
+  F["ETAGE 2 — LES FABRIQUES<br>7 methodes privees<br>chacune construit UN objet"]:::f
+  T["LocalizedStringSource<br>+ BrandLogic<br>LE TEXTE EST TRADUIT ICI"]:::t
+  OUT(["ETAGE 3 — LA SORTIE<br>UN AjustoContextualMessage<br>ou null"]):::o
+  IN --> G
+  SELF --> G
+  G --> F
+  T --> F
+  F --> OUT
+  classDef in fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef g fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef f fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef t fill:#12293d,stroke:#58a6ff,color:#9fd4ff
+  classDef o fill:#1d1630,stroke:#a371f7,color:#d2b8ff
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+
+<div class="note">
+  <b>Le détail qui explique le bug de fraîcheur.</b> La méthode reçoit 8 arguments, mais elle
+  interroge <b>elle-même</b> <code>deviceInfo</code> pour la batterie, la charge et le mode éco.
+  Ces trois valeurs ne sont donc pas « poussées » par un flux : elles sont <b>tirées</b> au moment
+  où la méthode s'exécute. Si personne ne rappelle la méthode, ces trois valeurs ne sont jamais
+  relues. C'est exactement le piège du réveil décrit au document 13.
+</div>
+
+<h2 id="s2">2 · Les 8 arguments : qui sert à quoi</h2>
+
+<div class="mermaid">
+flowchart TD
+  M["findContextualMessage(...)"]:::m
+  M --> A1["listener<br>action du bouton"]:::u
+  M --> A2["profile<br>CMTProfile"]:::k
+  M --> A3["mode<br>AjustoParameters.Mode"]:::x
+  M --> A4["isDeviceCompatible"]:::k
+  M --> A5["isDeviceBrandCompatible"]:::k
+  M --> A6["classifyInviteChecker"]:::k
+  M --> A7["topClaimableBadgeFinder"]:::k
+  M --> A8["isRecording"]:::k
+  A1 --> R1["regle 1 seulement"]:::r
+  A2 --> R6["regle 6"]:::r
+  A3 --> R5["regle 5 UNIQUEMENT<br>passe a 3 autres regles<br>qui l IGNORENT"]:::x
+  A4 --> R2["regle 2"]:::r
+  A5 --> R1
+  A6 --> R5
+  A7 --> R7["regle 7"]:::r
+  A8 --> R4["regle 4"]:::r
+  classDef m fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef u fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+
+<p>
+  Sept arguments sur huit servent à exactement une règle. Le huitième — <code>mode</code> — est
+  passé à <b>quatre</b> prédicats mais n'est réellement lu que par un seul, à l'intérieur du
+  <code>ClassifyInviteChecker</code>. C'est un vestige : à une époque, le mode conditionnait
+  aussi les messages de batterie.
+</p>
+
+<h2 id="s3">3 · Les 7 gardes — ce qui est annoncé, ce qui est testé</h2>
+
+<p>
+  Voici le corps réel de la méthode. C'est une cascade <code>if / else if</code> : le
+  <b>premier vrai gagne</b> et court-circuite les six autres.
+</p>
+
+<pre class="parc"><span class="c">// AjustoContextualMessageHelper.findContextualMessage() — le corps, tel quel</span>
+
+final Badge claimableBadge = topClaimableBadgeFinder.getBadge();   <span class="c">// calcule AVANT la cascade</span>
+
+<span class="r">if</span>      (showNotCompatibleContextualMessage(isDeviceBrandCompatible, mode))  <span class="g">→ deviceBrandNotCompatibleContextualMessage(listener)</span>
+<span class="r">else if</span> (!isDeviceCompatible)                                              <span class="g">→ deviceUnavailableContextualMessage()</span>
+<span class="r">else if</span> (showLowBatteryContextualMessage(mode))                          <span class="g">→ lowBatteryContextualMessage()</span>
+<span class="r">else if</span> (showPowerSavingContextualMessage(isRecording, mode))            <span class="g">→ powerSavingContextualMessage()</span>
+<span class="r">else if</span> (classifyInviteChecker.showClassifyInvite())                     <span class="g">→ classifyInviteContextualMessage()</span>
+<span class="r">else if</span> (showPolicyEffectiveContextualMessage(profile))                  <span class="g">→ policyEffectiveContextualMessage()</span>
+<span class="r">else if</span> (claimableBadge != null)                                        <span class="g">→ badgeContextualMessage(claimableBadge)</span>
+<span class="r">else</span>                                                                    <span class="y">→ null</span></pre>
+
+<p>
+  Trois de ces prédicats portent un nom qui promet plus que ce qu'ils font. Les voici dépliés :
+</p>
+
+<pre class="parc"><span class="c">// La signature annonce deux parametres… le corps n en utilise qu un</span>
+<span class="r">private boolean</span> showNotCompatibleContextualMessage(Boolean isDeviceBrandCompatible, Mode <span class="y">mode</span>) {
+    <span class="r">return</span> !isDeviceBrandCompatible;                       <span class="y">// mode IGNORE</span>
+}
+
+<span class="r">private boolean</span> showLowBatteryContextualMessage(Mode <span class="y">mode</span>) {
+    <span class="r">return</span> deviceInfo.isBatteryLow() &amp;&amp; !deviceInfo.isBatteryChargeSustained();   <span class="y">// mode IGNORE</span>
+}
+
+<span class="r">private boolean</span> showPowerSavingContextualMessage(<span class="r">boolean</span> isRecording, Mode <span class="y">mode</span>) {
+    <span class="r">return</span> deviceInfo.isPowerSavingModeEnabled() &amp;&amp; !isRecording;               <span class="y">// mode IGNORE</span>
+}
+
+<span class="r">private boolean</span> showPolicyEffectiveContextualMessage(CMTProfile profile) {
+    <span class="r">return</span> profile != <span class="b">null</span>
+        &amp;&amp; profile.getPolicyEffectiveDate() != <span class="b">null</span>
+        &amp;&amp; profile.getRemainingDaysUntilPolicyTakesEffect() &gt; 0;     <span class="c">// strictement &gt; 0</span>
+}</pre>
+
+<div class="mermaid">
+flowchart TD
+  S([" findContextualMessage() "]) --> R1{"1 · !isDeviceBrandCompatible"}
+  R1 -->|vrai| M1["deviceBrandNotCompatible<br>ExecutableContextualMessageImpl"]:::exe
+  R1 -->|faux| R2{"2 · !isDeviceCompatible"}
+  R2 -->|vrai| M2["deviceUnavailable<br>AjustoContextualMessageImpl"]:::std
+  R2 -->|faux| R3{"3 · isBatteryLow<br>ET !isBatteryChargeSustained"}
+  R3 -->|vrai| M3["lowBattery<br>icone BATTERY · teinte RED"]:::std
+  R3 -->|faux| R4{"4 · isPowerSavingModeEnabled<br>ET !isRecording"}
+  R4 -->|vrai| M4["powerSaving<br>icone BATTERY · teinte WARNING"]:::std
+  R4 -->|faux| R5{"5 · classifyInviteChecker<br>.showClassifyInvite()"}
+  R5 -->|vrai| M5["classifyInvite<br>icone CLASSIFY · teinte BLUE"]:::std
+  R5 -->|faux| R6{"6 · profil != null ET date != null<br>ET jours restants > 0"}
+  R6 -->|vrai| M6["policyEffective<br>icone POLICY · teinte ACCENT"]:::std
+  R6 -->|faux| R7{"7 · claimableBadge != null"}
+  R7 -->|vrai| M7["badge<br>BadgeContextualMessageImpl"]:::bad
+  R7 -->|faux| N(["null<br>aucun message"]):::nul
+  classDef exe fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef std fill:#12293d,stroke:#58a6ff,color:#9fd4ff
+  classDef bad fill:#1d4a2c,stroke:#3fb950,color:#7ee787
+  classDef nul fill:#3d3d3d,stroke:#6e7681,color:#b0b0b0
+</div>
+
+<p>
+  Notez la couleur des sorties : <b>trois types concrets différents</b> sortent de cette méthode,
+  alors que la signature annonce un seul type de retour. C'est le sujet de la section suivante,
+  et c'est la cause de la moitié des défauts du dossier.
+</p>
+
+<h2 id="s4">4 · Qu'est-ce qu'un « AjustoContextualMessage » ?</h2>
+
+<p>
+  C'est une <b>interface</b>, pas une classe. Elle hérite de <code>ContextualMessage</code>, qui
+  définit cinq champs — et rien d'autre. Aucune notion de « quel cas s'applique » : le message
+  qui sort ne sait pas <em>pourquoi</em> il existe.
+</p>
+
+<pre class="parc"><span class="c">// ContextualMessage.java — les 5 champs, et c est TOUT</span>
+<span class="r">public interface</span> <span class="g">ContextualMessage</span> <span class="r">extends</span> Serializable, Cloneable {
+    String   <span class="b">title</span>();            <span class="c">// deja traduit</span>
+    String   <span class="b">message</span>();          <span class="c">// deja traduit</span>
+    ImageKey <span class="b">messageIcon</span>();      <span class="c">// une constante d enum</span>
+    ColorKey <span class="b">messageIconTint</span>();  <span class="c">// une constante d enum</span>
+    String   <span class="b">messageButton</span>();    <span class="c">// deja traduit</span>
+}</pre>
+
+<div class="mermaid">
+flowchart TD
+  CM["ContextualMessage<br>interface — 5 champs"]:::i
+  ACM["AjustoContextualMessage<br>interface<br>+ enum Icon 4 valeurs<br>+ enum Color 4 valeurs"]:::i
+  BCM["BadgeContextualMessage<br>interface<br>+ badge() : Badge"]:::i
+  ECM["ExecutableContextualMessage<br>interface<br>+ enum Icon 3 valeurs"]:::i
+  CM --> ACM
+  CM --> ECM
+  ACM --> BCM
+  IMPL1["AjustoContextualMessageImpl<br>GENERE par SCRATCHModel"]:::gen
+  IMPL2["BadgeContextualMessageImpl<br>GENERE par SCRATCHModel"]:::gen
+  IMPL3["ExecutableContextualMessageImpl<br>ECRIT A LA MAIN<br>+ buttonExecutable : Executable"]:::hand
+  ACM -.->|implemente| IMPL1
+  BCM -.->|implemente| IMPL2
+  ECM -.->|implemente| IMPL3
+  ACM -.->|"implemente AUSSI"| IMPL3
+  classDef i fill:#12293d,stroke:#58a6ff,color:#9fd4ff
+  classDef gen fill:#1d4a2c,stroke:#3fb950,color:#7ee787
+  classDef hand fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+</div>
+
+<div class="bad">
+  <b>Le nœud de tout le dossier est cette double flèche.</b>
+  <code>ExecutableContextualMessageImpl</code> implémente <b>deux</b> interfaces à la fois :
+  <code>ExecutableContextualMessage</code> <em>et</em> <code>AjustoContextualMessage</code> —
+  mais <b>pas</b> <code>BadgeContextualMessage</code>.<br><br>
+  Or côté Android, le bridger teste dans cet ordre :
+  <code>is BadgeContextualMessage → … else → …</code>.
+  Le message « marque non compatible » n'est pas un badge, il tombe donc dans le
+  <code>else</code> générique — et son <code>buttonExecutable()</code>, qui n'existe que sur son
+  type concret, <b>n'est jamais lu</b>. Le texte du bouton passe, l'action non.
+</div>
+
+<p>
+  Deux vocabulaires d'icônes coexistent aussi, dans deux interfaces différentes :
+</p>
+
+<pre class="parc"><span class="c">// AjustoContextualMessage.Icon — 4 valeurs</span>          <span class="c">// ExecutableContextualMessage.Icon — 3 valeurs</span>
+CONTEXTUAL_MESSAGE_DEVICE_NOT_COMPATIBLE            CONTEXTUAL_MESSAGE_NULLIGAN      <span class="y">jamais produit ici</span>
+CONTEXTUAL_MESSAGE_BATTERY      <span class="y">← utilisee DEUX fois</span>   SCORE_VARIATION                 <span class="y">jamais produit ici</span>
+CONTEXTUAL_MESSAGE_CLASSIFY                         DEVICE_BRAND_NOT_COMPATIBLE
+CONTEXTUAL_MESSAGE_POLICY_EFFECTIVE
+
+<span class="c">// AjustoContextualMessage.Color — 4 valeurs</span>
+ACCENT · WARNING · RED · BLUE       <span class="y">deux messages sur sept n en portent AUCUNE</span></pre>
+
+<h2 id="s5">5 · Les 7 fabriques, une par une</h2>
+
+<p>
+  Chaque fabrique est une méthode privée de quelques lignes qui remplit un <em>builder</em>.
+  Toutes suivent le même moule : titre, message, icône, teinte — sauf deux, qui font autre chose.
+</p>
+
+<div class="dep">
+<h3>① <code>deviceBrandNotCompatibleContextualMessage(listener)</code> — la plus complexe</h3>
+<pre class="parc">final WeakReference&lt;Listener&gt; ref = <span class="r">new</span> WeakReference&lt;&gt;(listener);
+<span class="r">return</span> <span class="y">ExecutableContextualMessageImpl</span>.builder()
+    .title(          get(AJUSTO_BRAND_NOT_COMPATIBLE_CONTEXTUAL_MESSAGE_TITLE))
+    .message(        get(AJUSTO_BRAND_NOT_COMPATIBLE_CONTEXTUAL_MESSAGE_TEXT))
+    .messageIcon(    ExecutableContextualMessage.Icon.<span class="b">DEVICE_BRAND_NOT_COMPATIBLE</span>)
+    .messageButton(  get(AJUSTO_BRAND_NOT_COMPATIBLE_CONTEXTUAL_MESSAGE_BUTTON))   <span class="g">← le SEUL bouton</span>
+    .buttonExecutable(() -&gt; {
+        Listener l = ref.get();
+        <span class="r">if</span> (l != <span class="b">null</span>) l.onModalClick();          <span class="y">← une lambda Java capturee</span>
+    })
+    .build();                                     <span class="r">AUCUNE teinte (messageIconTint = null)</span></pre>
+<div class="mermaid">
+flowchart TD
+  A["buttonExecutable<br>lambda Java"]:::x
+  A --> B["WeakReference.get()"]:::x
+  B --> C["listener == null ?<br>alors RIEN ne se passe"]:::x
+  C --> D["TripServiceImpl.executableListener<br>.onModalClick()"]:::c
+  D --> E["instanceof AjustoSnapInProgressListener<br>OU instanceof AjustoSnapListener"]:::c
+  E --> F["setListener() n a AUCUN appelant<br>donc listener = null<br>les deux instanceof echouent TOUJOURS"]:::x
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+<p class="verd">
+  <b>Ce qu'elle produit :</b> le seul message porteur d'un bouton, et le seul du type
+  <code>ExecutableContextualMessageImpl</code>.<br>
+  <b>Ce qui ne marche pas :</b> la chaîne d'action est morte de bout en bout — la lambda existe,
+  mais le <code>listener</code> derrière la <code>WeakReference</code> est toujours
+  <code>null</code>, et de toute façon le bridger ne transporte pas la lambda.
+  <b>Ce n'est donc pas une régression à éviter : c'est une fonctionnalité qui n'existe pas.</b>
+</p>
+</div>
+
+<div class="dep">
+<h3>② <code>deviceUnavailableContextualMessage()</code> — la seule avec du texte interpolé</h3>
+<pre class="parc"><span class="r">return</span> <span class="g">AjustoContextualMessageImpl</span>.builder()
+    .title(      get(UBI_ONBOARDING_UNAVAILABLE_DEVICE_TITLE))
+    .message(    get(UBI_ONBOARDING_UNAVAILABLE_DEVICE_MESSAGE, <span class="y">brandLogic.drivingProgramName()</span>))
+    .messageIcon(AjustoContextualMessage.Icon.<span class="b">CONTEXTUAL_MESSAGE_DEVICE_NOT_COMPATIBLE</span>)
+    .build();                                     <span class="r">AUCUNE teinte non plus</span></pre>
+<p class="verd">
+  <b>Le point à retenir :</b> c'est la seule fabrique qui <b>interpole une variable</b> dans son
+  texte — le nom du programme de conduite, qui diffère selon la marque (DGAG / TPIC).
+  En Kotlin, ce sera le seul cas du <code>sealed</code> qui porte un paramètre autre qu'un badge.
+</p>
+</div>
+
+<div class="dep">
+<h3>③ et ④ <code>lowBattery</code> et <code>powerSaving</code> — les jumelles</h3>
+<pre class="parc"><span class="c">// REGLE 3</span>                                       <span class="c">// REGLE 4</span>
+AjustoContextualMessageImpl.builder()               AjustoContextualMessageImpl.builder()
+  .title(  get(CONTEXTUAL_MESSAGE_LOW_BATTERY_TITLE))  .title(  get(CONTEXTUAL_MESSAGE_POWER_SAVING_TITLE))
+  .message(get(CONTEXTUAL_MESSAGE_LOW_BATTERY_TEXT))   .message(get(CONTEXTUAL_MESSAGE_POWER_SAVING_TEXT))
+  .messageIcon(<span class="y">CONTEXTUAL_MESSAGE_BATTERY</span>)          .messageIcon(<span class="y">CONTEXTUAL_MESSAGE_BATTERY</span>)   <span class="r">← LA MEME</span>
+  .messageIconTint(<span class="r">Color.RED</span>)                     .messageIconTint(<span class="y">Color.WARNING</span>)          <span class="g">← la SEULE difference</span>
+  .build();                                           .build();</pre>
+<div class="mermaid">
+flowchart TD
+  A["lowBattery<br>icone BATTERY · teinte RED"]:::a
+  B["powerSaving<br>icone BATTERY · teinte WARNING"]:::b
+  A --> C["le bridger teste<br>messageIcon() == BATTERY"]:::x
+  B --> C
+  C --> D["isLowBatteryMessage = true<br>POUR LES DEUX"]:::x
+  D --> E["l ecran affiche<br>BatteryLow(WARNING)<br>dans les deux cas"]:::x
+  classDef a fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef b fill:#241f10,stroke:#d29922,color:#ffd591
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+<p class="verd">
+  <b>Deux règles distinctes, une seule icône, et la teinte pour seule différence.</b>
+  Comme le bridger ne lit jamais <code>messageIconTint()</code>, les deux messages deviennent
+  <b>indiscernables</b> à l'écran Summary. Tant qu'un seul message s'affiche, le défaut est
+  cosmétique — la cascade n'en montre jamais deux. Le jour où la zone affiche une liste de trois,
+  les deux peuvent apparaître l'un sous l'autre, identiques : le défaut devient fonctionnel.
+</p>
+</div>
+
+<div class="dep">
+<h3>⑤ et ⑥ <code>classifyInvite</code> et <code>policyEffective</code> — le moule standard</h3>
+<pre class="parc">AjustoContextualMessageImpl.builder()               AjustoContextualMessageImpl.builder()
+  .title(  get(CONTEXTUAL_MESSAGE_CLASSIFY_INVITE_TITLE)) .title(  get(CONTEXTUAL_MESSAGE_POLICY_EFFECTIVE_TITLE))
+  .message(get(CONTEXTUAL_MESSAGE_CLASSIFY_INVITE_TEXT))  .message(get(CONTEXTUAL_MESSAGE_POLICY_EFFECTIVE_TEXT))
+  .messageIcon(<span class="b">CONTEXTUAL_MESSAGE_CLASSIFY</span>)         .messageIcon(<span class="b">CONTEXTUAL_MESSAGE_POLICY_EFFECTIVE</span>)
+  .messageIconTint(Color.<span class="b">BLUE</span>)                    .messageIconTint(Color.<span class="b">ACCENT</span>)
+  .build();                                           .build();</pre>
+<p class="verd">
+  <b>Rien de particulier :</b> quatre champs constants, aucun paramètre, aucune interpolation.
+  Ce sont les deux cas les plus simples à porter — deux <code>data object</code> en Kotlin.<br>
+  <b>À noter tout de même :</b> le message « police » ne dit <em>pas</em> combien de jours il
+  reste. Le nombre de jours sert uniquement de condition, il n'apparaît pas dans le texte.
+</p>
+</div>
+
+<div class="dep">
+<h3>⑦ <code>badgeContextualMessage(claimableBadge)</code> — l'exception</h3>
+<pre class="parc"><span class="r">return</span> <span class="y">BadgeContextualMessageImpl</span>.builder()
+    .title(   <span class="y">claimableBadge.getTitle()</span>)                       <span class="r">← PAS une cle i18n : le nom du badge</span>
+    .message( get(<span class="y">claimableBadge.getBadgeLevelText()</span>))          <span class="g">← une cle i18n VARIABLE</span>
+    .badge(   claimableBadge)                                  <span class="g">← l objet Badge entier</span>
+    .build();                              <span class="r">AUCUNE icone, AUCUNE teinte</span></pre>
+<div class="mermaid">
+flowchart TD
+  A["Badge.getLevel()<br>1 a 6"]:::k
+  A --> B["badgeLevelTitles.get(level - 1)"]:::k
+  B --> C["NOVICE · APPRENTICE · EXPERT<br>MASTER · ACE · LEGEND"]:::k
+  A --> D["level == 0 ou > 6"]:::x
+  D --> E["getBadgeLevelText() renvoie null<br>puis get(null)"]:::x
+  F["Badge.getTitle()<br>vient du SERVEUR"]:::s
+  F --> G["title() = le nom du badge<br>PAS une felicitation"]:::m
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef m fill:#241f10,stroke:#d29922,color:#ffd591
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+<p class="verd">
+  <b>Trois particularités.</b> ① C'est la seule fabrique qui ne produit <b>ni icône ni teinte</b> —
+  l'écran devine tout seul qu'il faut une médaille. ② Le <code>title()</code> est le
+  <b>nom du badge</b> venu du serveur, pas une phrase de félicitations (c'est la décision D4 à
+  trancher avec le produit). ③ Le <code>message()</code> est le nom du niveau traduit : la clé
+  i18n <b>change selon le niveau</b> du badge — et vaut <code>null</code> si le niveau sort de
+  la plage 1-6.
+</p>
+</div>
+
+<h2 id="s6">6 · Le tableau récapitulatif des 7 sorties</h2>
+
+<table>
+  <tr>
+    <th style="width:4%">#</th><th style="width:16%">Fabrique</th><th style="width:17%">Type concret</th>
+    <th style="width:14%">Titre</th><th style="width:14%">Message</th>
+    <th style="width:12%">Icône</th><th style="width:9%">Teinte</th><th>Bouton</th>
+  </tr>
+  <tr><td>1</td><td>deviceBrandNotCompatible</td>
+      <td><code>ExecutableContextualMessageImpl</code> <span class="pill p-mid">à la main</span></td>
+      <td>clé i18n</td><td>clé i18n</td><td>DEVICE_BRAND_NOT_COMPATIBLE</td>
+      <td><span class="pill p-no">aucune</span></td>
+      <td><b>oui</b> + lambda</td></tr>
+  <tr><td>2</td><td>deviceUnavailable</td><td><code>AjustoContextualMessageImpl</code></td>
+      <td>clé i18n</td><td>clé i18n <b>+ nom du programme</b></td><td>DEVICE_NOT_COMPATIBLE</td>
+      <td><span class="pill p-no">aucune</span></td><td>—</td></tr>
+  <tr><td>3</td><td>lowBattery</td><td><code>AjustoContextualMessageImpl</code></td>
+      <td>clé i18n</td><td>clé i18n</td><td>BATTERY</td>
+      <td><span class="pill p-no">RED</span></td><td>—</td></tr>
+  <tr><td>4</td><td>powerSaving</td><td><code>AjustoContextualMessageImpl</code></td>
+      <td>clé i18n</td><td>clé i18n</td><td>BATTERY <span class="pill p-mid">la même</span></td>
+      <td><span class="pill p-mid">WARNING</span></td><td>—</td></tr>
+  <tr><td>5</td><td>classifyInvite</td><td><code>AjustoContextualMessageImpl</code></td>
+      <td>clé i18n</td><td>clé i18n</td><td>CLASSIFY</td>
+      <td><span class="pill p-info">BLUE</span></td><td>—</td></tr>
+  <tr><td>6</td><td>policyEffective</td><td><code>AjustoContextualMessageImpl</code></td>
+      <td>clé i18n</td><td>clé i18n</td><td>POLICY_EFFECTIVE</td>
+      <td><span class="pill p-info">ACCENT</span></td><td>—</td></tr>
+  <tr><td>7</td><td>badge</td>
+      <td><code>BadgeContextualMessageImpl</code> <span class="pill p-ok">+ badge()</span></td>
+      <td><b>nom du badge</b> (serveur)</td><td>clé i18n <b>variable</b></td>
+      <td><span class="pill p-no">aucune</span></td><td><span class="pill p-no">aucune</span></td><td>—</td></tr>
+</table>
+
+<p>
+  Lu en colonnes, ce tableau dit trois choses : <b>19 clés de traduction</b> sont résolues ici,
+  au moment de la décision ; <b>trois messages sur sept</b> sortent sans teinte ; et
+  <b>un seul</b> transporte un objet métier (le badge).
+</p>
+
+<h2 id="s7">7 · Les 8 pièges que cette lecture révèle</h2>
+
+<div class="mermaid">
+flowchart TD
+  H["findContextualMessage()<br>produit un objet a 5 champs"]:::c
+  H --> P1["le TEXTE est deja traduit<br>19 cles resolues ICI"]:::x
+  H --> P2["le CAS n est pas transporte<br>l objet ne sait pas pourquoi il existe"]:::x
+  H --> P3["3 messages sur 7<br>n ont AUCUNE teinte"]:::x
+  H --> P4["2 messages partagent<br>la MEME icone"]:::x
+  P1 --> R["l ecran ne peut ni trier<br>ni dedupliquer ni tracer<br>il peut seulement DEVINER une icone"]:::r
+  P2 --> R
+  P3 --> R
+  P4 --> R
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+</div>
+
+<table>
+  <tr><th style="width:5%">#</th><th style="width:33%">Le piège</th><th>Ce que ça change pour la migration</th></tr>
+  <tr><td><b>1</b></td>
+      <td><b>Le texte est traduit dans la fabrique.</b> <code>localizedStringSource.get(...)</code>
+          est appelé 19 fois ici, au moment où la décision est prise.</td>
+      <td>C'est <b>le</b> point structurant. Tant que la traduction a lieu ici, le Kotlin reçoit
+          une phrase finie et ne peut rien en faire. En Kotlin, le domaine émettra
+          <b>quel cas s'applique</b> et la traduction descendra dans la présentation.</td></tr>
+  <tr><td><b>2</b></td>
+      <td><b>Le cas n'est jamais transporté.</b> L'objet de sortie a cinq champs, dont aucun ne dit
+          « je suis le message batterie faible ».</td>
+      <td>Impossible de trier une liste, de dédupliquer, ou d'émettre un événement analytics par
+          type. Le <code>sealed</code> à 8 variantes règle ce point par construction.</td></tr>
+  <tr><td><b>3</b></td>
+      <td><b><code>mode</code> est un paramètre mort</b> dans les règles 1, 3 et 4 : il est passé,
+          la signature l'annonce, le corps l'ignore.</td>
+      <td>Ne pas recopier le vestige. En Kotlin, <code>mode</code> n'entre que dans la règle 5 —
+          trois signatures allégées.</td></tr>
+  <tr><td><b>4</b></td>
+      <td><b>Batterie faible et économie d'énergie partagent l'icône</b>
+          <code>CONTEXTUAL_MESSAGE_BATTERY</code>. Seule la teinte les distingue, et la teinte
+          n'est jamais lue en aval.</td>
+      <td>Deux <b>variantes distinctes</b> (<code>LowBattery</code>, <code>PowerSaving</code>) et
+          la teinte devient une propriété du cas, dérivée dans la présentation.
+          Devient <b>bloquant</b> avec la liste de trois.</td></tr>
+  <tr><td><b>5</b></td>
+      <td><b>Trois messages sur sept sortent sans teinte</b> (marque, appareil, badge) — et le badge
+          sort même <b>sans icône</b>.</td>
+      <td>L'écran « devine » aujourd'hui. En Kotlin, chaque variante déclare explicitement son
+          icône et sa teinte : plus de devinette, et les previews couvrent les 8 cas.</td></tr>
+  <tr><td><b>6</b></td>
+      <td><b>Le type concret trahit le polymorphisme.</b>
+          <code>ExecutableContextualMessageImpl</code> implémente
+          <code>ExecutableContextualMessage</code> <em>et</em> <code>AjustoContextualMessage</code>,
+          mais pas <code>BadgeContextualMessage</code> — donc il tombe dans le <code>else</code>
+          du bridger et son <code>buttonExecutable()</code> est perdu.</td>
+      <td>Le <code>when</code> exhaustif d'un <code>sealed</code> rend cette classe d'erreur
+          <b>impossible</b> : le compilateur refuse un cas oublié.</td></tr>
+  <tr><td><b>7</b></td>
+      <td><b>Le bouton est mort sur toute la chaîne.</b> La lambda capture une
+          <code>WeakReference</code> vers un <code>listener</code> que
+          <code>setListener()</code> ne remplit jamais — aucun appelant. Et dans
+          <code>TripServiceImpl</code>, les deux <code>instanceof</code> échouent donc toujours.</td>
+      <td>Ce n'est pas une régression à éviter : la fonctionnalité n'existe pas. Décision D2 —
+          on modélise <code>buttonText</code> dans le domaine, on ne rend pas le bouton tant que
+          le produit n'a pas défini la modale.</td></tr>
+  <tr><td><b>8</b></td>
+      <td><b>Le badge est un cas à part.</b> <code>title()</code> = le nom du badge venu du serveur ;
+          <code>message()</code> = une clé i18n <em>variable</em> selon le niveau ;
+          et si le niveau sort de 1-6, <code>getBadgeLevelText()</code> rend <code>null</code>,
+          donc <code>get(null)</code>.</td>
+      <td>La variante Kotlin transporte les trois informations
+          (<code>badgeIdentifier</code>, <code>badgeTitle</code>, <code>badgeLevelKey</code>) et la
+          présentation décide du libellé. Décision D4 à trancher : nom du badge ou félicitations ?</td></tr>
+</table>
+
+<div class="warn">
+  <b>Deux détails mineurs, mais qui disent quelque chose sur l'état du fichier.</b><br>
+  ① <code>topClaimableBadgeFinder.getBadge()</code> est appelé <b>avant</b> la cascade, donc le
+  calcul du meilleur badge est fait <b>à chaque battement</b>, même quand la règle 1 gagne
+  immédiatement. Sans conséquence fonctionnelle, mais c'est du travail jeté.<br>
+  ② Deux méthodes statiques — <code>showingForLessThan20Days()</code> et
+  <code>shouldTrackScoreVariation()</code> — n'ont <b>aucun appelant</b> dans les deux dépôts.
+  Ce sont les vestiges d'une fonctionnalité « variation de score » (voir l'icône
+  <code>SCORE_VARIATION</code>, jamais produite non plus). À ne pas porter.
+</div>
+
+<h2 id="s8">8 · Comment tout cela devient du Kotlin</h2>
+
+<div class="mermaid">
+flowchart TD
+  subgraph AV[" AUJOURD HUI — une methode fait TROIS metiers "]
+    A1["decide QUEL cas"]:::c
+    A2["choisit l icone et la teinte"]:::c
+    A3["TRADUIT le texte"]:::c
+    A4["construit un objet de vue<br>3 types concrets, 5 champs"]:::c
+    A1 --> A2 --> A3 --> A4
+  end
+  subgraph AP[" DEMAIN — trois responsabilites separees "]
+    B1["DOMAINE<br>ResolveContextualMessagesUseCase<br>rend une LISTE de cas<br>zero texte, zero icone"]:::n
+    B2["PRESENTATION<br>ContextualMessageMapper<br>cas -> icone + teinte + cle i18n"]:::m
+    B3["UI<br>AjustoSummaryMessageBox<br>dessine, et rien d autre"]:::k
+    B1 --> B2 --> B3
+  end
+  AV ==>|"migration"| AP
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef n fill:#1d1630,stroke:#a371f7,color:#d2b8ff
+  classDef m fill:#241f10,stroke:#d29922,color:#ffd591
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+</div>
+
+<p>
+  La correspondance est directe : chaque fabrique devient une <b>variante</b>, et les champs
+  qu'elle remplissait se répartissent entre le domaine et la présentation.
+</p>
+
+<pre class="cible"><span class="c">// DOMAINE — ce que la fabrique decidait, moins le texte et l icone</span>
+<span class="r">sealed interface</span> <span class="g">AjustoContextualMessage</span> {
+    <span class="r">data object</span> DeviceBrandNotCompatible                          <span class="c">// fabrique 1</span>
+    <span class="r">data class</span>  DeviceNotCompatible(<span class="r">val</span> drivingProgramName: String) <span class="c">// fabrique 2 — l interpolation</span>
+    <span class="r">data object</span> LowBattery                                        <span class="c">// fabrique 3</span>
+    <span class="r">data object</span> PowerSaving                                       <span class="c">// fabrique 4 — DISTINCTE de la 3</span>
+    <span class="r">data object</span> ClassifyInvite                                    <span class="c">// fabrique 5</span>
+    <span class="r">data object</span> PolicyEffective                                   <span class="c">// fabrique 6</span>
+    <span class="r">data class</span>  ClaimableBadge(identifier, title, levelKey)        <span class="c">// fabrique 7</span>
+    <span class="r">data class</span>  GoodToKnow(title, body, linkUrl)                   <span class="c">// NOUVEAU — 8e regle</span>
+}
+
+<span class="c">// PRESENTATION — ce que la fabrique remplissait, deplace ici</span>
+<span class="r">fun</span> AjustoContextualMessage.<span class="g">toMessageBox</span>(language: Language): MessageBox = <span class="r">when</span> (<span class="r">this</span>) {
+    DeviceBrandNotCompatible -&gt; MessageBox(WarningSign,        <span class="b">null</span>,    AJUSTO_BRAND_NOT_COMPATIBLE_*)
+    <span class="r">is</span> DeviceNotCompatible  -&gt; MessageBox(DeviceNotCompat,   BLUE,    UBI_ONBOARDING_*(drivingProgramName))
+    LowBattery               -&gt; MessageBox(BatteryLow,         <span class="r">RED</span>,     CONTEXTUAL_MESSAGE_LOW_BATTERY_*)
+    PowerSaving              -&gt; MessageBox(BatteryLow,         <span class="y">WARNING</span>, CONTEXTUAL_MESSAGE_POWER_SAVING_*)
+    ClassifyInvite           -&gt; MessageBox(EditPen,            BLUE,    CONTEXTUAL_MESSAGE_CLASSIFY_INVITE_*)
+    PolicyEffective          -&gt; MessageBox(FileWithMedal,      ACCENT,  CONTEXTUAL_MESSAGE_POLICY_EFFECTIVE_*)
+    <span class="r">is</span> ClaimableBadge       -&gt; MessageBox(FileWithMedal,      GREEN,   badgeTitle + get(levelKey))
+    <span class="r">is</span> GoodToKnow           -&gt; MessageBox(<span class="b">LightBulb</span>,          BLUE,    title + body)
+}
+<span class="g">// le compilateur refuse une branche manquante — le defaut n° 6 devient impossible</span></pre>
+
+<table>
+  <tr><th style="width:26%">Ce que faisait la fabrique</th><th style="width:24%">Où ça va</th><th>Pourquoi</th></tr>
+  <tr><td>Choisir le cas</td><td><b>Domaine</b> — le <code>when</code> du use case</td>
+      <td>Testable sans Android, sans iOS, sans Core. C'est l'objectif n° 1.</td></tr>
+  <tr><td>Choisir l'icône</td><td><b>Présentation</b> — le mapper</td>
+      <td>Une icône est une décision d'affichage, pas une décision métier.</td></tr>
+  <tr><td>Choisir la teinte</td><td><b>Présentation</b> — le mapper</td>
+      <td>Devient une propriété du cas : les jumelles batterie/éco cessent d'être confondues.</td></tr>
+  <tr><td>Traduire le texte</td><td><b>Présentation</b> — <code>AjustoLocalizedString</code></td>
+      <td>Traduire au moment de l'affichage, plus au moment de la décision. Le changement de
+          langue devient explicite au lieu de fonctionner par accident.</td></tr>
+  <tr><td>Porter la lambda du bouton</td><td><b>Présentation</b> — une <code>Action</code> MVI</td>
+      <td>Plus de <code>WeakReference</code>, plus de <code>instanceof</code> : une action typée
+          que le compilateur vérifie.</td></tr>
+  <tr><td>Transporter l'objet <code>Badge</code></td><td><b>Domaine</b> — trois champs plats</td>
+      <td>Aucun type Core ne traverse la frontière ; le claim se fait par identifiant.</td></tr>
+</table>
+
+<div class="good">
+  <b>Le résumé en une phrase.</b> <code>findContextualMessage()</code> fait aujourd'hui trois
+  métiers dans une seule méthode : elle décide, elle habille, et elle traduit.
+  La migration ne change pas <em>ce qu'elle décide</em> — l'invariant de parité le prouve à chaque
+  build — elle sépare seulement les trois métiers. Et c'est cette séparation, à elle seule, qui
+  fait disparaître cinq des huit pièges ci-dessus sans avoir à les corriger un par un.
+</div>
+
+<p style="color:var(--tx2);font-size:13px;margin-top:44px;border-top:1px solid var(--line);padding-top:16px">
+  Document 14 · 1<sup>er</sup> septembre 2026 · anatomie de
+  <code>AjustoContextualMessageHelper.findContextualMessage()</code>.<br>
+  Voir aussi : document 13 (parcours des dépendances + plan d'action) et document 11 (plan écrit).
+</p>
+
+</div>
+<script>
+  mermaid.initialize({startOnLoad:true,theme:'dark',
+    themeVariables:{fontSize:'14px',fontFamily:'ui-monospace,Menlo,monospace'},
+    flowchart:{useMaxWidth:false,htmlLabels:true,curve:'basis'}});
+</script>
+</body>
+</html>

@@ -550,3 +550,481 @@ flowchart TD
   messages contextuels.
 </p>
 </div>
+
+<div class="dep">
+<h3>⑪ <code>policyEffectiveDate</code> — la date d'effet de la police <span class="pill p-mid">règle 6</span></h3>
+<div class="mermaid">
+flowchart TD
+  A["SDK CMT<br>UserManager -> types.Profile<br>.effectiveDate"]:::s
+  A --> B["CMTProfileMapper.kt<br>androidApp — Kotlin<br>Profile + UserSummary -> CMTProfile"]:::a
+  B --> C["CMTProfileService<br>Core — 6 membres"]:::c
+  C --> D["notifyContextualMessage<br>subscribeOnce a CHAQUE battement<br>PAS de reveil propre"]:::c
+  D --> E["REGLE 6"]:::r
+  C --> F["CmtProfileServiceBridger<br>androidApp"]:::a
+  F --> G["CmtProfileService<br>PORT KMP DEJA EN PLACE"]:::k
+  D --> X["PIEGE : tant que le profil<br>n a pas repondu<br>AUCUN message ne sort"]:::x
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef a fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+<p class="lbl">Le parcours actuel</p>
+<pre class="parc">①  🛰️  <span class="b">SDK CMT</span> — com.cmtelematics.sdk.<span class="b">UserManager</span>
+              types.Profile.<span class="b">effectiveDate</span> · types.UserSummary
+              <span class="y">⚠ ce n est PAS un appel HTTP direct : la donnee vient du SDK</span>
+       ↑ traduit par…
+②  📱  <span class="y">CMTProfileMapper.kt</span>          androidApp/core/impl/profile
+              Profile + UserSummary → CMTProfile
+              policyEffectiveDate = profile.effectiveDate
+              (au passage : globalScore, termsAndConditionHandle, DynamicMessage)
+       ↓
+③  ☕  <span class="r">CMTProfileService.java</span>       Core — 6 membres
+              getProfileObservable() · getPolicyEffectiveDateObservable()
+              createFetchProfileOperation() · refreshProfileWhenAppIsInForeground()
+       ↓
+④  ☕  <span class="r">notifyContextualMessage()</span>
+              <span class="r">⚠ le profil N EST PAS dans le combineLatest</span>
+              il est relu par un <span class="y">subscribeOnce a chaque battement</span> du flux composite
+              → si la date change seule, <span class="r">rien ne se recalcule</span>
+              → si le profil n a pas encore repondu, <span class="r">la cascade ne s execute jamais</span>
+              rattrapage indirect : getPolicyEffectiveDateObservable()
+                                    → notifyLatestTrips() → latestTripsObservable
+       ↓
+⑤  ☕  <span class="r">Helper</span> → jours restants → <span class="y">regle 6</span>
+       ↘ cote KMP, en parallele
+⑥  📱  <span class="y">CmtProfileServiceBridger.kt</span> → 🟢 <span class="g">CmtProfileService.fetchProfile()</span>
+              port deja en place · CmtProfile.policyEffectiveDate : DateWrapper?</pre>
+<p class="lbl">La cible</p>
+<pre class="cible">🟢  <span class="g">RIEN A CREER</span> — le port CmtProfileService existe et rend deja la date
+       le dupliquer ferait deux chemins vers la meme donnee, donc deux facons de diverger
+🟢  <span class="g">RemainingDaysUntilPolicyRule</span> — le calcul des jours, porte en Kotlin
+       <span class="y">DECISION : donner une valeur initiale pour que les autres regles s affichent</span>
+       <span class="y">           avant la reponse du profil. Change ce que l utilisateur voit au 1er lancement.</span></pre>
+<p class="verd">
+  <b>Correction par rapport aux analyses précédentes :</b> la date de police ne vient pas d'un
+  appel HTTP au serveur Desjardins — elle vient du <b>SDK CMT</b>, via
+  <code>UserManager</code>/<code>Profile</code>, traduite côté Android.<br>
+  <b>Verdict :</b> rien à créer, le port existe. Mais le piège du <code>subscribeOnce</code> doit
+  être traité explicitement.
+</p>
+</div>
+
+<div class="dep">
+<h3>⑫ <code>CLASSIFY_INVITE_DISMISSED</code> — le drapeau <span class="pill p-mid">règle 5</span></h3>
+<div class="mermaid">
+flowchart TD
+  A["SharedPreferences<br>equivalent iOS"]:::s
+  A --> B["SCRATCHKeyValueStorage<br>getBoolean / putBoolean"]:::c
+  B --> C["ClassifyInviteQualifier<br>isQualify / qualify / disqualify"]:::c
+  C --> D["ClassifyInviteChecker<br>REGLE 5"]:::r
+  E["TripServiceImpl.setTripLabel()<br>= A ETIQUETE UN TRAJET"]:::c --> C
+  F["ClassifyInviteController<br>didDismissClassifyTripInvite()<br>AUCUN appelant trouve"]:::x --> C
+  A --> G["Storage — port KMP<br>PAS de getBoolean"]:::k
+  G --> X["D-F : lire par contains()<br>donnerait TOUJOURS vrai"]:::x
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+<p class="lbl">Le parcours actuel</p>
+<pre class="parc">①  📲  <span class="b">SharedPreferences</span> (Android) / equivalent iOS
+       ↑ accede par…
+②  ☕  <span class="r">SCRATCHKeyValueStorage</span> — getBoolean / putBoolean
+       ↑ enveloppe par…
+③  ☕  <span class="r">ClassifyInviteQualifier.java</span>   cle = "CLASSIFY_INVITE_DISMISSED"
+              isQualify()  = !getBoolean(CLE, false)
+              disqualify() =  putBoolean(CLE, true)
+              qualify()    =  putBoolean(CLE, false)   <span class="r">← AUCUN appelant (D-E)</span>
+       ↑ le drapeau est ECRIT par DEUX chemins :
+   ☕  <span class="r">TripServiceImpl.setTripLabel()</span> l. 493  → <span class="y">« a etiquete un trajet »</span>
+   ☕  <span class="r">ClassifyInviteController.didDismissClassifyTripInvite()</span> → « a ferme le bandeau »
+              <span class="y">enregistre dans le scope (BootstrapImpl l. 493) mais AUCUN appelant trouve</span>
+       ↓
+④  ☕  <span class="r">ClassifyInviteChecker</span> → <span class="y">regle 5</span>
+              mode == CONTINUOUS_V4
+              ET (numberOfTrips &gt; 5 OU recentTrips &gt; 5)   ET numberOfTrips &lt;= 20
+              ET aucun trajet deja etiquete   ET !dismissed
+       ↘ cote KMP
+⑤  🟢  <span class="g">Storage</span>  — putString · getString · remove · contains · clear
+              <span class="r">⚠ D-F : PAS de getBoolean. Lire par contains(cle) donnerait TOUJOURS vrai</span>
+              <span class="r">        des que le Core a ecrit false.</span></pre>
+<p class="lbl">La cible</p>
+<pre class="cible">🟢  <span class="g">ClassifyInviteRule</span> — les 5 conditions portees en Kotlin (bornes 5 et 20 verrouillees par test)
+🟢  le signal est renomme <span class="g">hasEverLabeledATrip</span> (D-D) — « dismissed » est un contresens
+       <span class="y">A VERIFIER AVANT LE LOT 1 : meme magasin physique et meme encodage que le Core ?</span>
+       <span class="y">Sinon : ajouter putBoolean/getBoolean au port Storage, ou encoder en String des deux cotes.</span></pre>
+<p class="verd">
+  <b>Au bout du fil :</b> un simple drapeau dans les préférences.<br>
+  <b>Deux choses à régler avant d'écrire la règle :</b> le <b>nom</b> (il ne veut pas dire ce
+  qu'il dit) et le <b>format</b> (booléen côté Core, texte côté port Kotlin).
+</p>
+</div>
+
+<div class="dep">
+<h3>⑬ Les 19 textes et le nom du programme <span class="pill p-mid">toutes les règles</span></h3>
+<div class="mermaid">
+flowchart TD
+  A["Lokalise<br>translations-kore.json"]:::s
+  A --> B["generateTranslations<br>plugin com.dgag.lokalise<br>19 enums generes"]:::a
+  B --> C["LocalizedStringSource<br>Core — src-generated"]:::c
+  C --> D["Helper<br>title() message() messageButton()<br>DEJA TRADUITS"]:::c
+  D --> E["le bridger transporte<br>du TEXTE FINI"]:::x
+  B --> F["AjustoLocalizedString<br>KMP — 19 cles"]:::k
+  F --> G["lu au moment de L AFFICHAGE<br>plus au moment de la DECISION"]:::k
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef a fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+<p class="lbl">Le parcours actuel</p>
+<pre class="parc">①  🗂️  <span class="b">Lokalise</span> → src/commonMain/resources/<span class="b">translations-kore.json</span>
+       ↓  tache generateTranslations (plugin com.dgag.lokalise)
+②  ⚙️  19 enums generes — dont AjustoLocalizedString ("ajusto", "global")
+              <span class="y">chaque compile*Kotlin en depend : sans le JSON, RIEN ne compile</span>
+       ↓  cote Core, meme principe
+③  ☕  <span class="r">src-generated/.../LocalizedString.java</span> + <span class="r">LocalizedStringSource</span>
+       ↓
+④  ☕  <span class="r">AjustoContextualMessageHelper</span>
+              title() · message() · messageButton() <span class="r">SONT DEJA TRADUITS ICI</span>
+              + drivingProgramName() ← BrandLogic (interpolation de la regle 2)
+       ↓
+⑤  📱  le bridger transporte <span class="r">du texte fini</span> — le KMP ne peut plus rien en faire
+              (ni trier, ni dedupliquer, ni tracer en analytics)</pre>
+<p class="lbl">La cible</p>
+<pre class="cible">🟢  <span class="g">AjustoLocalizedString</span> (19 cles) + <span class="g">BrandInfo.drivingProgramName()</span>
+       lus au moment de <span class="g">L AFFICHAGE</span>, plus au moment de la DECISION
+🟢  le domaine emet <span class="g">quel cas s applique</span> — un sealed a 8 variantes, zero chaine de caracteres
+       <span class="y">c est CE deplacement qui rend possibles le tri, la deduplication,</span>
+       <span class="y">l analytics par message, et la liste de trois</span></pre>
+<p class="verd">
+  <b>Au bout du fil :</b> les mêmes fichiers de traduction, déjà générés côté Kotlin.<br>
+  <b>Verdict :</b> aucune infrastructure à créer, mais c'est le déplacement le plus structurant
+  de tout le chantier.
+</p>
+</div>
+
+<h2 id="s3">3 · Le bilan</h2>
+
+<h3>3.1 · Sur 13 entrées, une seule famille exige un adapter</h3>
+<div class="mermaid">
+flowchart TD
+  H["13 entrees de<br>notifyContextualMessage"]:::c
+  H --> N1["SDK CMT<br>3 entrees<br>trajets · enregistrement · profil"]:::s
+  H --> N2["HTTP signe par le SDK<br>1 entree — badges"]:::s
+  H --> N3["HTTP simple<br>1 entree — compatibilite"]:::s
+  H --> N4["Systeme du telephone<br>4 entrees"]:::s
+  H --> N5["deja en Kotlin<br>4 entrees"]:::k
+  N1 --> V1["1 ADAPTER — 2 membres<br>le profil a DEJA son port"]:::n
+  N2 --> V2["port existant<br>a reimplementer"]:::m
+  N3 --> V3["Ktor<br>retire du code au Core"]:::k
+  N4 --> V4["androidMain / iosMain<br>retire du code au Core"]:::k
+  N5 --> V5["RIEN A FAIRE"]:::k
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+  classDef m fill:#241f10,stroke:#d29922,color:#ffd591
+  classDef n fill:#1d1630,stroke:#a371f7,color:#d2b8ff
+</div>
+<p>
+  <b>Aucune des 13 entrées n'est produite par de la logique métier du Core.</b> Pour cette
+  fonctionnalité, le Core n'est qu'un agrégateur : il ne détient aucune donnée qui lui soit propre.
+  Deux entrées font même un <b>aller-retour</b> — elles arrivent en Kotlin, redescendent vers le
+  Java par un bridger entrant, et remontent traduites.
+</p>
+
+<h3>3.2 · Le compte des bridgers</h3>
+<div class="mermaid">
+flowchart TD
+  A["AUJOURD HUI — 2 bridgers sortants<br>AjustoContextualMessageBridger<br>DeviceInfoKore<br>+ le shim dans shared/<br>AjustoBadgeControllerBridger : DEJA SUPPRIME"]:::c
+  A --> B["APRES CETTE MIGRATION — 1<br>CmtTripSignalsDataSource<br>2 booleens, aucune decision"]:::m
+  B --> C["APRES LE PORTAGE DU SDK — 0<br>meme fichier, meme contrat<br>seul son corps change"]:::k
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef m fill:#241f10,stroke:#d29922,color:#ffd591
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+</div>
+<p>
+  Le bon critère n'est pas « zéro fichier de pont » — inatteignable tant que le SDK CMT n'est
+  emballé que dans le Core. C'est <b>zéro pont porteur de décision</b> : un adapter qui transporte
+  « le SDK enregistre : oui » n'est pas de la dette ; un pont qui transporte « affiche cette phrase
+  traduite » en est.
+</p>
+<div class="warn">
+  <b>Conséquence de la suppression du bridger des badges.</b> Le port
+  <code>AjustoBadgeSource</code> n'a plus d'implémentation : aujourd'hui, <b>aucun badge n'arrive
+  au KMP</b>. La trajectoire « T1 — étendre le port, implémenté par le bridger » n'existe plus.
+  Il faut donc écrire directement une implémentation Kotlin du port — et l'étage HTTP est
+  <b>déjà en Kotlin</b> dans <code>androidApp/core/impl/badge</code>, ce qui rend l'opération
+  bien plus courte qu'un portage depuis le Java.
+</div>
+
+<h3>3.3 · Les classes, fichier par fichier</h3>
+<pre><span class="c">modules/feature/ajusto/domain/</span>
+├── contextualmessage/                          <span class="g">← TOUT LE DOSSIER EST NOUVEAU</span>
+│   ├── model/
+│   │   ├── <span class="g">AjustoContextualMessage.kt        sealed, 8 variantes, zero texte</span>
+│   │   ├── <span class="g">AjustoContextualSignals.kt        les 13 signaux, valeurs par defaut</span>
+│   │   └── <span class="g">AjustoBadgeScope.kt               7 familles — TURN exclu, documente</span>
+│   ├── rule/
+│   │   ├── <span class="g">ClassifyInviteRule.kt             port de ClassifyInviteChecker</span>
+│   │   ├── <span class="g">BadgeScopeResolver.kt             port de BadgeScoper, sans mutation</span>
+│   │   ├── <span class="g">TopClaimableBadgeSelector.kt      port de TopClaimableBadgeFinder</span>
+│   │   └── <span class="g">RemainingDaysUntilPolicyRule.kt</span>
+│   ├── usecase/
+│   │   └── <span class="g">ResolveContextualMessagesUseCase.kt   la cascade — rend une LISTE de 3</span>
+│   └── datasource/
+│       ├── <span class="g">CmtTripSignalsDataSource.kt       LE seul port dependant du Core</span>
+│       ├── <span class="g">AjustoRecentTrip.kt               3 champs, aucun type CMT</span>
+│       └── <span class="g">AjustoTipDataSource.kt            « Bon a savoir »</span>
+├── achievements/datasource/AjustoBadgeSource.kt <span class="y">← MODIFIE : + getAllBadges()</span>
+│                                                <span class="r">   (sans implementation depuis la</span>
+│                                                <span class="r">    suppression du bridger)</span>
+└── summary/shim/
+    ├── <span class="r">AjustoContextualMessageSource.kt         ← SUPPRIME (classe abstraite a etat)</span>
+    └── <span class="r">AjustoSummaryShim.kt                     ← SUPPRIME (apres le lot 2)</span>
+
+<span class="c">modules/feature/ajusto/data/</span>
+└── contextualmessage/
+    ├── <span class="g">AjustoContextualMessageRepositoryImpl.kt  combine + reset a la deconnexion</span>
+    ├── <span class="g">RecentTripsFilter.kt                      90 j / police / hors Mulligan</span>
+    ├── <span class="g">DeviceCompatibilityDataSource.kt          Ktor + cache</span>
+    ├── <span class="g">AjustoBadgeDataSourceImpl.kt              reprend BadgeHttpService / BadgeRepository</span>
+    └── <span class="g">KtorAjustoTipDataSource.kt</span>
+
+<span class="c">modules/feature/ajusto/presentation/</span>
+├── <span class="y">AjustoSummaryUiState.kt      MODIFIE : contextualMessages + getMessageBoxes()</span>
+├── <span class="y">AjustoSummaryViewModel.kt    MODIFIE : when a 8 branches, teinte, action, analytics</span>
+└── <span class="g">ContextualMessageMapper.kt   NOUVEAU : cas → icone, teinte, texte</span>
+
+<span class="c">modules/transverse/domain/device/</span>
+└── <span class="g">DeviceStateDataSource.kt         NOUVEAU : 3 StateFlow + 1 valeur (marque)</span>
+
+<span class="c">shared/</span>
+├── kore/info/DeviceInfo.kt · BaseDeviceInfo.kt  <span class="y">MODIFIES puis vides de leur role</span>
+└── <span class="r">ajusto/domain/summary/shim/AjustoSummaryShimImpl.kt   ← SUPPRIME (apres le lot 2)</span>
+
+<span class="c">androidApp/</span>
+├── bridger/ajusto/legacy/
+│   ├── <span class="r">AjustoContextualMessageBridger.kt        ← A SUPPRIMER (101 lignes)</span>
+│   └── <span class="c">AjustoBadgeControllerBridger.kt          DEJA SUPPRIME</span>
+├── kore/info/legacy/DeviceInfoKore.kt           <span class="r">← REECRIT en androidMain / iosMain</span>
+├── core/impl/badge/                             <span class="y">DEJA EN KOTLIN — a deplacer vers data/</span>
+│   BadgeHttpService · BadgeRepository · BadgeProviderImpl · BadgeMapper
+├── core/impl/legacy/DeviceInfoImpl.kt           <span class="r">VIDE dans la reconstitution — a recuperer</span>
+└── <span class="g">AjustoSummaryMessageBox.kt                    NOUVEAU + previews des 8 cas</span>
+
+<span class="c">ad-digital-mobile-core-lib/  (n est plus appele — 377 lignes de decision)</span>
+├── <span class="r">AjustoContextualMessageHelper.java        183 l.</span>
+├── <span class="r">ClassifyInviteChecker + Qualifier.java     80 l.</span>
+├── <span class="r">BadgeScoper.java                           81 l.</span>
+├── <span class="r">TopClaimableBadgeFinder.java               33 l.</span>
+└── <span class="r">TripServiceImpl.notifyContextualMessage()  45 l.</span>
+
+<span class="c">RESTENT INCHANGES</span>
+CmtProfileService · CmtProfile · CmtProfileServiceBridger · CMTProfileMapper
+AccountRemoteDataSource · AccountAjustoParameters · AccountRepositoryBridger
+Storage · AuthService / AuthState · BrandInfo · AjustoBadge · AjustoLocalizedString
+AjustoDashboardScreen (legacy, jusqu a la fin)
+CMTTripProvider(Impl) · CMTTripManager(Impl) · CMTTripLoader  (wrapper CMT, horizon 2)</pre>
+
+<h2 id="s4">4 · Le plan d'action</h2>
+
+<div class="mermaid">
+flowchart TD
+  L0["LOT 0 — correctifs + verifications<br>1 j"]:::m
+  L1["LOT 1 — SOCLE DOMAINE<br>8 regles + badges + table de verite<br>3,5 j — rien n est branche"]:::n
+  L2["LOT 2 — signaux du telephone en natif<br>2 j — SORT DU CORE"]:::n
+  L3["LOT 3 — compatibilite en Ktor<br>2 j — SORT DU CORE"]:::n
+  L4["LOT 4 — rebrancher les badges<br>2,5 j — le bridger n existe plus"]:::n
+  L5["LOT 5 — adapter SDK CMT<br>2 j"]:::n
+  L6["LOT 6 — data + presentation + UI<br>4 j — point de non-retour"]:::m
+  L7["LOT 7 — suppression des ponts + parite<br>2 j"]:::c
+  L8["LOT 8 — Bon a savoir<br>2 j — APRES la parite"]:::n
+  H["HORIZON 2<br>wrapper KMP du SDK CMT"]:::s
+  L0 --> L1
+  L1 --> L2 & L3 & L4 & L5
+  L2 & L3 & L4 & L5 --> L6 --> L7 --> L8 --> H
+  L2 -.->|"condition imperative"| L7
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef m fill:#241f10,stroke:#d29922,color:#ffd591
+  classDef n fill:#1d1630,stroke:#a371f7,color:#d2b8ff
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+</div>
+<p>
+  ≈ 21 jours cumulés, ≈ 13 jours de chemin critique si les lots 2 à 5 sont menés en parallèle,
+  + 2 jours pour iOS. Les lots 0 à 5 démarrent sans rien attendre. Le lot 2 doit être terminé
+  <b>avant</b> le lot 7, sinon les bandeaux « pas de réseau » et « localisation désactivée »
+  disparaissent du Summary avec le shim.
+</p>
+
+<h3>4.1 · La checklist d'exécution</h3>
+<pre><span class="c">AVANT DE COMMENCER</span>
+<span class="y">☐ Completer modules/transverse/presentation — 8 fichiers, 30 placeholders sur 31</span>
+<span class="y">  localized/{LocalizedString, LocalizedStringKey, LocalizedStringExt}.kt</span>
+<span class="y">  action/Action.kt · formatting/Formatters.kt · state/icon/IconKey.kt</span>
+<span class="y">  state/toolbar/ToolBar.kt · resources/translations-kore.json</span>
+<span class="y">  → bloque les lots 6 et 7, et la compilation du projet</span>
+☐ Completer les 5 stubs analytics de feature/ajusto/presentation   <span class="c">← lot 6 seulement</span>
+<span class="y">☐ Recuperer core/impl/legacy/DeviceInfoImpl.kt — fichier VIDE : les API Android exactes</span>
+<span class="y">  des 4 signaux du telephone en dependent (lot 2)</span>
+☐ ./gradlew build sur le VRAI depot — etablir la ligne de base
+☐ Verifier D-F : le Storage KMP ecrit-il dans le meme magasin, au meme format,
+  que SCRATCHKeyValueStorage.putBoolean ?
+☐ Retrouver la route exacte de AuthenticationHttpService.isDeviceCompatible (lot 3)
+☐ Trancher : la requete badges est signee par le SDK CMT (createPassThruRequester).
+  Peut-on l appeler autrement, ou faut-il rester derriere le SDK ? (lot 4)
+☐ Trancher D7 (deux messages « non compatible » ensemble) et D8 (plafond de 3)
+☐ Question backend : l API renvoie-t-elle des badges groupIdentifier = TURN ? (D1)
+☐ Question produit : titre du message badge — nom du badge ou felicitations ? (D4)
+☐ Question produit : position du « Bon a savoir » dans la cascade (D3)
+<span class="g">✔ settings.gradle.kts + les 3 build.gradle.kts — CORRIGES</span>
+<span class="g">✔ 7 fichiers restaures depuis la sauvegarde — feature/ajusto/domain compile</span>
+<span class="g">✔ Le Core — COMPLET, les 21 fichiers de la cascade sont pleins</span>
+<span class="g">✔ CmtProfileService · CmtProfile · AuthService · AuthState · AnalyticEvent — COMPLETS</span>
+<span class="g">✔ AccountAjustoParameters porte mode + numberOfTrips : signaux 5 et 6 DEJA en KMP</span>
+<span class="g">✔ D-E TRANCHE : qualify() n a aucun appelant, et didDismissClassifyTripInvite() non plus</span>
+<span class="g">  (ClassifyInviteController est instancie par BootstrapImpl mais jamais appele)</span>
+<span class="g">✔ AjustoBadgeControllerBridger — DEJA SUPPRIME</span>
+
+<span class="c">LOT 0 — CORRECTIFS BLOQUANTS                                          1 j</span>
+☐ contextualMessagesStateFlow -&gt; contextualMessageStateFlow (2 occurrences)
+  <span class="c">a confirmer d abord sur le VRAI depot — possible artefact de reconstitution</span>
+<span class="y">☐ KoreInitializer l. 82-83 : verifier ce qui alimente ajustoBadgeSource maintenant</span>
+<span class="y">  que le bridger badge n existe plus (la reconstitution y fait encore reference)</span>
+☐ Supprimer init { startObserving() } de AjustoContextualMessageBridger
+☐ Passer subscribe() en private (aucun appelant externe)
+☐ La branche compile
+
+<span class="c">LOT 1 — SOCLE DOMAINE                                               3,5 j</span>
+☐ model/ : AjustoContextualMessage (8 variantes) · AjustoContextualSignals · AjustoBadgeScope
+☐ rule/ : ClassifyInviteRule · BadgeScopeResolver · TopClaimableBadgeSelector
+          RemainingDaysUntilPolicyRule
+☐ usecase/ : ResolveContextualMessagesUseCase — buildList + take(3)
+<span class="y">☐ Ecarts assumes, a commenter dans le code :</span>
+<span class="y">  - le parametre `mode` n est PAS recopie dans les regles 1, 3 et 4 (D-I)</span>
+<span class="y">  - le chainage previous/next passe par des copies, plus de mutation (D-K)</span>
+<span class="y">  - le drapeau s appelle hasEverLabeledATrip, pas dismissed (D-D)</span>
+<span class="y">  - le filtre de niveau utilise la constante 6 (D-B)</span>
+☐ ResolveContextualMessagesUseCaseTest — les 24 cas de la table de verite
+☐ BadgeScopeResolverTest — 7 cas, dont turn_badges_sont_ignores()
+☐ TopClaimableBadgeSelectorTest — 6 cas
+☐ ClassifyInviteRuleTest — 4 cas de bornes (5 / 6 / 20 / 21)
+☐ Couverture domain/contextualmessage = 100 %
+<span class="c">  Critere de sortie : tout compile, rien n est branche, zero risque de regression</span>
+
+<span class="c">LOT 2 — SIGNAUX DU TELEPHONE EN NATIF                                 2 j</span>
+☐ 3 StateFlow : isBatteryLow · isBatteryChargeSustained · isPowerSavingModeEnabled
+☐ La marque reste une VALEUR, pas un flux
+☐ Receivers Android : ACTION_BATTERY_CHANGED et ACTION_POWER_SAVE_MODE_CHANGED
+☐ Equivalents iOS
+☐ DeviceStateDataSource dans modules/transverse/domain
+☐ DeviceInfoKore ne delegue plus au Core
+<span class="y">☐ TEST INSTRUMENTE : un vrai changement de batterie fait emettre le flow</span>
+<span class="y">☐ Log de demarrage tracant la premiere emission de chacun des 3 flux</span>
+<span class="c">  Critere de sortie : le test instrumente passe — sinon le message n apparaitra jamais</span>
+
+<span class="c">LOT 3 — COMPATIBILITE DE L APPAREIL EN KTOR                           2 j</span>
+☐ DeviceCompatibilityDataSource : POST + DTO + cache
+☐ Payload : partnerKey · deviceModel · deviceName
+☐ Cache via Storage — encoder l entier en String (Storage n a pas getInt)
+☐ Rafraichissement au retour en avant-plan
+<span class="y">☐ DECISION D-A : corriger l inversion du cache (recommande) ou porter a l identique</span>
+☐ Test : cache present / absent / reponse serveur en retard
+
+<span class="c">LOT 4 — REBRANCHER LES BADGES                                       2,5 j</span>
+<span class="r">☐ Constat : le bridger est supprime, le port AjustoBadgeSource n a plus d implementation</span>
+☐ Deplacer l etage HTTP <span class="g">deja en Kotlin</span> (BadgeHttpService · BadgesResponseParser ·
+  BadgeMapper · BadgeRepository · BadgeProviderImpl) vers feature/ajusto/data
+<span class="y">☐ Trancher la signature de la requete : rester derriere createPassThruRequester (SDK)</span>
+<span class="y">  ou obtenir une route authentifiee autrement</span>
+☐ Remplacer les modeles Core (Badge · BadgesResponse · BadgeStorage) par AjustoBadge
+☐ getAllBadges() sur AjustoBadgeSource — la liste brute, pas l agregat
+☐ Conserver le filtre level &lt;= 6 et la remise a zero a la deconnexion
+<span class="c">  A lancer EN PARALLELE du lot 1 : il bloque le lot 6</span>
+
+<span class="c">LOT 5 — ADAPTER DU SDK CMT                                            2 j</span>
+<span class="y">☐ Lire CMTTripProvider / CMTTripManager — PAS TripService</span>
+☐ CmtTripSignalsDataSource : isRecording + recentTrips, rien d autre
+☐ AjustoRecentTrip : startDate · isUserLabeled · isMulligan
+☐ RecentTripsFilter porte en Kotlin (90 j / apres la police / hors Mulligan) + test de parite
+☐ Helper SCRATCHObservable.asFlow() avec awaitClose { subscriptionManager.cancel() }
+☐ Relecture par un connaisseur SCRATCH (risque de fuite d abonnement)
+
+<span class="c">LOT 6 — DATA + PRESENTATION + UI                                      4 j</span>
+☐ AjustoContextualMessageRepositoryImpl — combine GROUPE (3 combine imbriques types),
+  pas la variante vararg : au-dela de 10 sources ca ne compile pas
+☐ flatMapLatest sur authStateFlow, reset uniquement sur NOT_AUTH
+  <span class="c">(pas !isAuthenticated : UNKNOWN et AUTH_V2_PENDING ne sont pas des deconnexions)</span>
+☐ Valeur initiale pour la date de police — ne plus bloquer les autres regles
+☐ distinctUntilChanged sur la LISTE entiere (evite le scintillement)
+☐ getMessageBoxes(language) — 8 branches exhaustives, teinte incluse
+☐ OnClaimBadge(badgeIdentifier) · NavigateToClaimedBadgeView(badgeIdentifier)
+☐ AjustoAnalyticContent.powerSaving + un evenement par message affiche, avec sa position
+<span class="y">☐ Prevenir l equipe data AVANT : le KPI « batterie faible » va chuter</span>
+☐ AjustoSummaryMessageBox + insertion APRES InformationalList, AVANT les tuiles
+☐ key() stable par type de message
+☐ Branche NavigateToClaimedBadgeView dans ObserveAsEvents
+☐ MockProvider 8 valeurs · previews DGAG + TPIC
+☐ Koin : AjustoDataModule + KoreStartupInputKoinModule + KoreInitializer
+
+<span class="c">LOT 7 — SUPPRESSION DES PONTS + NON-DIVERGENCE                        2 j</span>
+<span class="r">☐ Le lot 2 DOIT etre termine — sinon les bandeaux reseau et localisation tombent</span>
+<span class="r">☐ SUPPRIMER AjustoContextualMessageBridger · AjustoContextualMessageSource</span>
+<span class="r">           AjustoSummaryShim · AjustoSummaryShimImpl</span>
+☐ Verifier qu aucun import ca.dgag.ajusto.core ne subsiste dans le chemin du message
+☐ ContextualMessageTruthTable — 24 cas, fichier de donnees versionne
+☐ Harnais JVM cote core-lib + harnais commonTest cote KMP
+☐ Les deux tournent en CI
+<span class="y">☐ Ligne dediee au plan de tests : la parite ne voit PAS les defauts de rendu</span>
+<span class="y">  (teinte, action du bouton, icones) — les tester separement</span>
+
+<span class="c">LOT 8 — BON A SAVOIR                                                  2 j</span>
+☐ Source confirmee (champ API summary · endpoint dedie · DynamicMessage)
+☐ AjustoTipDataSource + implementation + DTO + tests
+☐ 8e branche dans le use case et dans getMessageBoxes()
+☐ Icone LightBulb / BLUE — elle existe deja, drawable inclus
+<span class="c">  JAMAIS avant la parite : ne pas melanger une nouveaute et une migration</span>
+
+<span class="c">LOT iOS — PARALLELISABLE des la fin du lot 5</span>
+☐ CmtTripSignalsAdapter.swift
+☐ DeviceStateAdapter.swift
+☐ Le MessageBox SwiftUI</pre>
+
+<h3>4.2 · Le critère de succès</h3>
+<div class="good">
+  <p style="margin-top:0">La migration est réussie quand ces cinq affirmations sont vraies
+  en même temps :</p>
+  <ol style="margin-bottom:0">
+    <li>Un <code>grep</code> sur <code>ca.dgag.ajusto.core</code> dans le chemin du message —
+      du repository jusqu'au composable — ne remonte <b>rien</b>.</li>
+    <li><code>shared/</code> ne contient plus aucun fichier du package
+      <code>ajusto/domain/summary/shim</code>.</li>
+    <li>Les 24 cas de la table de vérité passent <b>des deux côtés</b>, Java et Kotlin.</li>
+    <li>Les 8 messages s'affichent réellement sur le Summary, avec la bonne icône et la bonne
+      teinte, sur les deux marques.</li>
+    <li>Il ne reste <b>aucun pont porteur de décision</b> : le seul adapter Core-dépendant
+      transporte deux booléens.</li>
+  </ol>
+</div>
+
+<p style="color:var(--tx2);font-size:13px;margin-top:44px;border-top:1px solid var(--line);padding-top:16px">
+  Document 13 · 1<sup>er</sup> septembre 2026 · remplace le document 12.
+  Détail écrit et justifications : document 11.<br>
+  Mises à jour de cette version : parcours complet source → écran pour chaque dépendance ·
+  <code>AjustoBadgeControllerBridger</code> pris en compte comme supprimé ·
+  la date de police vient du SDK, pas d'un appel HTTP ·
+  <code>mode</code> et <code>numberOfTrips</code> font un aller-retour par un bridger entrant ·
+  D-E tranché.
+</p>
+
+</div>
+<script>
+  mermaid.initialize({startOnLoad:true,theme:'dark',
+    themeVariables:{fontSize:'14px',fontFamily:'ui-monospace,Menlo,monospace'},
+    flowchart:{useMaxWidth:false,htmlLabels:true,curve:'basis'}});
+</script>
+</body>
+</html>

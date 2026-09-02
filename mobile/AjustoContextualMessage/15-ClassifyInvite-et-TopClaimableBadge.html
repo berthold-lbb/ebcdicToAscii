@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Les deux algorithmes de la cascade — ClassifyInviteChecker et TopClaimableBadgeFinder (doc 15)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#30363d;
+    --tx:#e6edf3; --tx2:#9aa7b4; --acc:#58a6ff;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --info:#a371f7;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1400px;margin:0 auto;padding:40px 28px 130px}
+  h1{font-size:33px;line-height:1.2;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--tx2);font-size:15px;margin-bottom:20px}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--tx2);
+        background:var(--panel);border:1px solid var(--line);border-radius:8px;
+        padding:12px 16px;margin-bottom:36px}
+  h2{font-size:26px;margin:62px 0 8px;padding:24px 0 0;border-top:2px solid var(--acc);letter-spacing:-.01em}
+  h3{font-size:19px;margin:34px 0 10px;color:var(--acc)}
+  h4{font-size:16px;margin:24px 0 8px;color:var(--tx);font-weight:600}
+  p{margin:12px 0}
+  code{font-family:var(--mono);font-size:.9em;background:#1f2733;padding:2px 6px;border-radius:4px;color:#a5d6ff}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+      padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:12.7px;line-height:1.6}
+  pre .c{color:#7d8590} pre .r{color:#ff7b72} pre .g{color:#7ee787} pre .y{color:#e3b341} pre .b{color:#79c0ff}
+  table{border-collapse:collapse;width:100%;margin:20px 0;font-size:13.3px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600;color:var(--tx2);
+     text-transform:uppercase;font-size:11.3px;letter-spacing:.06em}
+  td code{font-size:11.8px}
+  tr:nth-child(even) td{background:#12171f}
+  .note{border-left:4px solid var(--acc);background:#12202f;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .warn{border-left:4px solid var(--warn);background:#241f10;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .bad{border-left:4px solid var(--bad);background:#2b1414;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .good{border-left:4px solid var(--ok);background:#0f2417;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .key{border-left:4px solid var(--info);background:#1d1630;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600;font-family:var(--mono)}
+  .p-ok{background:#1d4a2c;color:#7ee787} .p-no{background:#5a1c1c;color:#ff9d94}
+  .p-mid{background:#5a4520;color:#ffd591} .p-info{background:#12293d;color:#9fd4ff}
+  .p-dead{background:#3d3d3d;color:#b0b0b0}
+  ul{margin:10px 0;padding-left:22px} li{margin:6px 0}
+  ol{margin:10px 0;padding-left:24px} ol li{margin:8px 0}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 26px;margin:30px 0}
+  .toc a{color:var(--acc);text-decoration:none} .toc a:hover{text-decoration:underline}
+  .toc ol{margin:0;padding-left:22px} .toc li{margin:6px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:20px 0}
+  @media(max-width:1000px){.grid2,.grid3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card h5{margin:0 0 8px;font-size:14px;color:var(--acc)}
+  .card.g{border-color:#1d4a2c} .card.g h5{color:#7ee787}
+  .card.r{border-color:#5a2020} .card.r h5{color:#ff9d94}
+  .card.w{border-color:#5a4520} .card.w h5{color:#ffd591}
+  .mermaid{min-width:100%;display:flex;justify-content:center;margin:26px 0}
+  .mermaid svg{max-width:none !important;height:auto !important}
+  .blk{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+       padding:18px 22px;margin:26px 0}
+  .blk h3{margin-top:0}
+  .blk .hd{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+  .blk .num{font-family:var(--mono);font-size:12px;color:var(--tx2);
+            border:1px solid var(--line);border-radius:6px;padding:2px 8px}
+  .qa{background:var(--panel);border:1px solid var(--line);border-left:4px solid var(--warn);
+      border-radius:0 10px 10px 0;padding:16px 20px;margin:18px 0}
+  .qa .q{font-weight:600;color:#ffd591;margin:0 0 6px}
+  .dep{background:#12171f;border:1px solid var(--line);border-radius:12px;padding:14px 20px 8px;margin:26px 0}
+  .dep h3{margin-top:6px}
+  .verd{font-size:13.5px;margin:8px 0 10px}
+  pre.parc{background:#0b0f15;border-color:#243040;font-size:12.5px;line-height:1.7}
+  pre.cible{background:#0f2417;border-color:#1d4a2c}
+  .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx2);margin:16px 0 6px}
+  .big{font-size:34px;font-weight:700;font-family:var(--mono);line-height:1.1}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+
+<h1>Les deux algorithmes de la cascade</h1>
+<p class="sub">
+  <code>ClassifyInviteChecker</code> (règle 5) et le duo
+  <code>BadgeScoper</code> → <code>TopClaimableBadgeFinder</code> (règle 7) :
+  ce qu'ils calculent exactement, avec des exemples chiffrés.
+</p>
+
+<div class="meta">
+  Fichiers lus : <code>ClassifyInviteChecker.java</code> · <code>ClassifyInviteQualifier.java</code> ·
+  <code>BadgeScoper.java</code> (81 l.) · <code>TopClaimableBadgeFinder.java</code> (33 l.) ·
+  <code>Badge.java</code> (329 l.) · <code>AjustoContextualMessageHelper.java</code><br>
+  Complète le document 14 (anatomie de <code>findContextualMessage()</code>).
+</div>
+
+<h2 id="s0">0 · Où ils se branchent</h2>
+
+<p>
+  Sur les sept règles de la cascade, cinq sont de simples comparaisons de booléens.
+  <b>Deux seulement font un vrai calcul</b>, et elles ne sont pas construites de la même façon :
+  ces deux-là sont des <b>objets jetables</b>, fabriqués à neuf à chaque battement du flux,
+  puis passés à la cascade.
+</p>
+
+<pre class="parc"><span class="c">// TripServiceImpl.notifyContextualMessage() — juste avant d appeler la cascade</span>
+<span class="r">new</span> <span class="y">ClassifyInviteChecker</span>(keyValueStorage, ajustoParameters, latestTrips);   <span class="c">// regle 5</span>
+<span class="r">new</span> <span class="y">BadgeScoper</span>(badges);                                                  <span class="c">// prepare la regle 7</span>
+<span class="r">new</span> <span class="y">TopClaimableBadgeFinder</span>(badgeScoper.scopedBadges());                  <span class="c">// regle 7</span>
+
+<span class="c">// puis, dans le Helper :</span>
+<span class="r">else if</span> (classifyInviteChecker.<span class="g">showClassifyInvite</span>())  → classifyInviteContextualMessage()
+<span class="r">else if</span> (claimableBadge != <span class="b">null</span>)                       → badgeContextualMessage(claimableBadge)
+       <span class="c">// avec  claimableBadge = topClaimableBadgeFinder.getBadge()  — appele AVANT la cascade</span></pre>
+
+<div class="mermaid">
+flowchart TD
+  A["notifyContextualMessage()<br>a chaque battement du flux"]:::c
+  A --> B["new ClassifyInviteChecker<br>storage + parametres + trajets"]:::f
+  A --> C["new BadgeScoper<br>la liste brute des badges"]:::f
+  C --> D["scopedBadges()<br>7 echelles triees"]:::f
+  D --> E["new TopClaimableBadgeFinder"]:::f
+  B --> F["showClassifyInvite()<br>-> un booleen<br>REGLE 5"]:::r
+  E --> G["getBadge()<br>-> un Badge ou null<br>REGLE 7"]:::r
+  F --> H["Helper.findContextualMessage()"]:::c
+  G --> H
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef f fill:#12293d,stroke:#58a6ff,color:#9fd4ff
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+</div>
+
+<div class="good">
+  <b>La meilleure nouvelle du dossier est là.</b> Ces trois classes sont des <b>calculateurs
+  sans état</b> : elles reçoivent tout par le constructeur, elles ne touchent ni au réseau, ni au
+  SDK, ni à la plateforme. Ce sont <b>des fonctions pures déguisées en objets</b>. Leur seul
+  contact avec l'extérieur est la lecture d'un drapeau en stockage, dans le premier.<br>
+  Conséquence directe : elles se portent en Kotlin <b>telles quelles</b>, et se testent à 100 %
+  sans téléphone.
+</div>
+
+<h2 id="s1">1 · <code>ClassifyInviteChecker</code> — « invite-le à étiqueter ses trajets »</h2>
+
+<h3>1.1 · Le besoin métier, tel qu'il est écrit dans le code</h3>
+<pre class="parc"><span class="c">/*
+ Je suis un nouvel utilisateur :
+ qui a complete les 5 premiers trajets
+ qui n a labele aucun trajet
+ Je vois le bandeau informatif qui me suggere de labeler mes trajets.
+ Je le vois tant que je n ai pas labele de trajet jusqu a mon 20e trajet. Apres le bandeau disparait.
+ Le processus se repete pour un resnap.
+*/</span></pre>
+<p>
+  Traduit en une phrase : <b>« montre le bandeau aux nouveaux, entre le 6ᵉ et le 20ᵉ trajet,
+  tant qu'ils n'ont rien étiqueté ».</b> Le code met cinq conditions pour dire ça — et la
+  dernière phrase du commentaire (« le processus se répète pour un resnap ») <b>n'est pas
+  implémentée</b>, on y revient.
+</p>
+
+<h3>1.2 · Les cinq conditions, dans l'ordre</h3>
+<pre class="parc"><span class="r">return</span>  (ajustoParameters.mode() == Mode.<span class="y">CONTINUOUS_V4</span>)                       <span class="c">// ① le bon programme</span>
+     &amp;&amp; (numberOfTrips &gt; 5 <span class="y">||</span> latestTrips.size() &gt; 5)                        <span class="c">// ② assez de trajets — un OU</span>
+     &amp;&amp;  numberOfTrips &lt;= 20                                                <span class="c">// ③ pas trop de trajets</span>
+     &amp;&amp; !hasUserLabeledTrips(latestTrips)                                    <span class="c">// ④ rien d etiquete recemment</span>
+     &amp;&amp;  new ClassifyInviteQualifier(keyValueStorage).isQualify();           <span class="c">// ⑤ le drapeau durable</span></pre>
+
+<div class="mermaid">
+flowchart TD
+  S([showClassifyInvite]) --> C1{"1 · mode == CONTINUOUS_V4 ?"}
+  C1 -->|non| NO(["false<br>pas de bandeau"]):::n
+  C1 -->|oui| C2{"2 · numberOfTrips > 5<br>OU latestTrips.size() > 5 ?"}
+  C2 -->|non| NO
+  C2 -->|oui| C3{"3 · numberOfTrips &lt;= 20 ?"}
+  C3 -->|non| NO
+  C3 -->|oui| C4{"4 · aucun trajet recent<br>deja etiquete ?"}
+  C4 -->|non| NO
+  C4 -->|oui| C5{"5 · drapeau CLASSIFY_INVITE_DISMISSED<br>absent ou faux ?"}
+  C5 -->|non| NO
+  C5 -->|oui| YES(["true<br>on affiche le bandeau"]):::y
+  classDef n fill:#3d3d3d,stroke:#6e7681,color:#b0b0b0
+  classDef y fill:#0f2417,stroke:#3fb950,color:#7ee787
+</div>
+
+<h3>1.3 · Les deux compteurs — le point le plus subtil</h3>
+<p>
+  La condition ② compare <b>deux chiffres qui ne viennent pas du même endroit</b>, avec un
+  <b>OU</b> :
+</p>
+
+<div class="mermaid">
+flowchart TD
+  A["numberOfTrips<br>AjustoParameters"]:::s --> A2["vient du SERVEUR<br>compteur de vie du compte<br>ne redescend jamais"]:::s
+  B["latestTrips.size()<br>List CMTTrip"]:::b --> B2["vient du SDK, base LOCALE<br>DEJA FILTREE :<br>apres la police · moins de 90 j<br>hors Mulligan"]:::b
+  A2 --> C{"OU"}:::x
+  B2 --> C
+  C --> D["condition 2 satisfaite"]:::y
+  A --> E["condition 3 : &lt;= 20<br>PORTE UNIQUEMENT<br>sur numberOfTrips"]:::x
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef b fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+  classDef y fill:#0f2417,stroke:#3fb950,color:#7ee787
+</div>
+
+<div class="warn">
+  <b>L'asymétrie à connaître.</b> Le plancher (« plus de 5 ») accepte <b>l'un ou l'autre</b>
+  des deux compteurs, mais le plafond (« au plus 20 ») ne regarde <b>que</b>
+  <code>numberOfTrips</code>, celui du serveur.<br>
+  Conséquence : si le compteur serveur est en retard ou à zéro alors que la base locale contient
+  50 trajets, la condition ② passe par la voie locale, la condition ③ passe parce que
+  <code>0 &lt;= 20</code> — et <b>le bandeau reste affiché bien au-delà du 20ᵉ trajet</b>.
+  Ce n'est pas théorique : les deux sources se désynchronisent naturellement (le serveur compte
+  la vie du compte, le local ne garde que 90 jours).
+</div>
+
+<h3>1.4 · Exemples chiffrés</h3>
+<table>
+  <tr><th style="width:8%">Cas</th><th style="width:13%">mode</th><th style="width:13%">numberOfTrips<br>(serveur)</th>
+      <th style="width:13%">latestTrips<br>(local)</th><th style="width:13%">un trajet<br>étiqueté ?</th>
+      <th style="width:13%">drapeau</th><th>Résultat</th></tr>
+  <tr><td>A</td><td>CONTINUOUS_V4</td><td>3</td><td>3</td><td>non</td><td>absent</td>
+      <td><span class="pill p-no">non</span> trop tôt — ni l'un ni l'autre ne dépasse 5</td></tr>
+  <tr><td>B</td><td>CONTINUOUS_V4</td><td><b>6</b></td><td>6</td><td>non</td><td>absent</td>
+      <td><span class="pill p-ok">OUI</span> le cas nominal</td></tr>
+  <tr><td>C</td><td>CONTINUOUS_V4</td><td><b>5</b></td><td>5</td><td>non</td><td>absent</td>
+      <td><span class="pill p-no">non</span> la borne est <code>&gt; 5</code>, pas <code>&gt;= 5</code></td></tr>
+  <tr><td>D</td><td>CONTINUOUS_V4</td><td><b>21</b></td><td>21</td><td>non</td><td>absent</td>
+      <td><span class="pill p-no">non</span> au-delà du plafond</td></tr>
+  <tr><td>E</td><td>CONTINUOUS_V4</td><td>10</td><td>10</td><td><b>oui</b></td><td>absent</td>
+      <td><span class="pill p-no">non</span> l'utilisateur a compris tout seul</td></tr>
+  <tr><td>F</td><td>CONTINUOUS_V4</td><td>10</td><td>10</td><td>non</td><td><b>vrai</b></td>
+      <td><span class="pill p-no">non</span> le drapeau bloque, définitivement</td></tr>
+  <tr><td>G</td><td><b>NONE</b></td><td>10</td><td>10</td><td>non</td><td>absent</td>
+      <td><span class="pill p-no">non</span> mauvais programme — <b>seul endroit où <code>mode</code> sert vraiment</b></td></tr>
+  <tr><td>H</td><td>CONTINUOUS_V4</td><td><b>0</b></td><td><b>50</b></td><td>non</td><td>absent</td>
+      <td><span class="pill p-mid">OUI</span> ⚠ l'asymétrie : le bandeau s'affiche au 50ᵉ trajet</td></tr>
+</table>
+
+<h3>1.5 · Les deux garde-fous « déjà étiqueté » — et ils ne disent pas la même chose</h3>
+<div class="mermaid">
+flowchart TD
+  A["condition 4<br>hasUserLabeledTrips(latestTrips)"]:::a
+  A --> A2["parcourt les trajets RECENTS<br>s arrete au premier userLabeled()<br>fenetre de 90 jours"]:::a
+  B["condition 5<br>ClassifyInviteQualifier.isQualify()"]:::b
+  B --> B2["lit un drapeau DURABLE<br>CLASSIFY_INVITE_DISMISSED<br>survit aux 90 jours"]:::b
+  B2 --> C["ecrit par setTripLabel()<br>= a etiquete un trajet"]:::x
+  B2 --> D["ecrit aussi par<br>didDismissClassifyTripInvite()<br>MAIS aucun appelant"]:::x
+  B2 --> E["qualify() remettrait a false<br>AUCUN appelant non plus<br>-> le bandeau ne revient JAMAIS"]:::x
+  classDef a fill:#5a3a1c,stroke:#e3833d,color:#ffd8b0
+  classDef b fill:#12293d,stroke:#58a6ff,color:#9fd4ff
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+<p>
+  La condition ④ est une <b>fenêtre glissante</b> : elle ne voit que les trajets encore présents
+  dans la liste filtrée. La condition ⑤ est une <b>mémoire permanente</b> : une fois le drapeau
+  posé, il n'est jamais retiré, puisque <code>qualify()</code> n'a aucun appelant.
+</p>
+<div class="bad">
+  <b>La conséquence, et c'est la phrase du commentaire qui ne tient pas.</b>
+  « Le processus se répète pour un resnap » — non : rien ne remet le drapeau à zéro.
+  Un utilisateur qui étiquette un trajet une seule fois, puis recommence un nouveau contrat
+  (resnap), <b>ne reverra jamais l'invitation</b>. Soit l'appelant manquant est dans un fichier
+  hors dépôt, soit la fonctionnalité n'a jamais été branchée. <b>À trancher avant de porter</b> :
+  reproduire le comportement réel, ou implémenter l'intention du commentaire ?
+</div>
+
+<h2 id="s2">2 · <code>BadgeScoper</code> → <code>TopClaimableBadgeFinder</code> — « quelle médaille proposer ? »</h2>
+
+<p>
+  La règle 7 se joue en <b>deux temps</b>, dans deux classes. La première range, la seconde
+  choisit. Il faut comprendre ce qu'est un badge avant d'entrer dans le rangement.
+</p>
+
+<h3>2.1 · Ce qu'est un <code>Badge</code>, en trois faits</h3>
+
+<div class="mermaid">
+flowchart TD
+  ID["identifier<br>exemple : SNAP3"]:::s
+  ID --> G["getGroupIdentifier()<br>regex [a-zA-Z_]+<br>-> SNAP"]:::k
+  ID --> L["getLevel()<br>regex [0-9]+<br>-> 3"]:::k
+  D1["completedDate"]:::s --> C{"isClaimable()"}:::r
+  D2["claimedDate"]:::s --> C
+  C --> C1["completedDate != null<br>ET claimedDate == null<br>= debloque mais pas encore reclame"]:::y
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef y fill:#1d4a2c,stroke:#3fb950,color:#7ee787
+</div>
+
+<ol>
+  <li><b>Le badge ne connaît ni sa famille ni son niveau : il les déduit de son identifiant</b>,
+      par deux expressions régulières. <code>"SNAP3"</code> → famille <code>SNAP</code>, niveau
+      <code>3</code>.</li>
+  <li><b>« Réclamable » = débloqué mais pas encore encaissé</b> :
+      <code>completedDate != null &amp;&amp; claimedDate == null</code>. Un badge déjà réclamé
+      n'est plus réclamable.</li>
+  <li><b>Il y a six niveaux nommés</b> : Novice, Apprenti, Expert, Maître, As, Légende. Le nombre
+      6 n'est pas une constante déclarée : c'est la taille de cette liste.</li>
+</ol>
+
+<h3>2.2 · Temps 1 — <code>BadgeScoper</code> range les badges en échelles</h3>
+
+<p>
+  Il reçoit une <b>liste plate</b> de badges, toutes familles mélangées, et rend
+  <b>sept listes</b> — une par famille — chacune triée du plus petit au plus grand niveau.
+</p>
+
+<div class="mermaid">
+flowchart TD
+  A["liste plate de badges<br>toutes familles melangees"]:::s
+  A --> B{"la famille est-elle<br>dans badgeScopeMap ?"}:::r
+  B -->|non| SKIP["IGNORE<br>TURN tombe ici"]:::x
+  B -->|oui| C{"niveau entre 0 et 6 ?"}:::r
+  C -->|non| SKIP
+  C -->|oui| D["insertion triee<br>dans l echelle de sa famille<br>du plus petit au plus grand"]:::k
+  D --> E["2e passe : chainage<br>setPreviousBadge / setNextBadge<br>MUTE les badges recus"]:::x
+  E --> F["7 echelles<br>SNAP · FIRSTSCORE · TOTAL<br>BRAKE · DISTRACTION<br>SPEEDING · ACCEL"]:::k
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+  classDef r fill:#3a2a10,stroke:#d29922,color:#ffd591
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+  classDef x fill:#5a1c1c,stroke:#f85149,color:#ff9d94
+</div>
+
+<pre class="parc"><span class="c">// BadgeScoper — la table de rangement, definie une fois pour toutes</span>
+badgeScopeMap.put(BADGE_SCOPE_SNAP,        <span class="b">0</span>);   <span class="c">// ← index 0 = la PLUS PRIORITAIRE</span>
+badgeScopeMap.put(BADGE_SCOPE_FIRSTSCORE,  <span class="b">1</span>);
+badgeScopeMap.put(BADGE_SCOPE_TOTAL,       <span class="b">2</span>);
+badgeScopeMap.put(BADGE_SCOPE_BRAKE,       <span class="b">3</span>);
+badgeScopeMap.put(BADGE_SCOPE_DISTRACTION, <span class="b">4</span>);
+badgeScopeMap.put(BADGE_SCOPE_SPEEDING,    <span class="b">5</span>);
+badgeScopeMap.put(BADGE_SCOPE_ACCEL,       <span class="b">6</span>);
+<span class="r">// BADGE_SCOPE_TURN est declare dans Badge.java … mais ABSENT de cette table</span>
+
+<span class="c">// le filtre d entree</span>
+<span class="r">if</span> (scopeIndex == <span class="b">null</span> || badge.getLevel() &lt; 0 || badge.getLevel() &gt; supportedBadgeLevels())
+    <span class="r">continue</span>;      <span class="c">// le badge est SAUTE, silencieusement</span></pre>
+
+<div class="bad">
+  <b>Le badge « TURN » ne peut jamais produire de message.</b> La famille est déclarée dans
+  <code>Badge.java</code> (8 constantes) mais la table de rangement n'en enregistre que
+  <b>7</b>. Un badge dont l'identifiant commence par <code>TURN</code> n'entre dans aucune
+  échelle, donc reste invisible pour le sélecteur — <b>même s'il est réclamable</b>.<br>
+  C'est la décision <b>D1</b> : on reproduit ce comportement à l'identique, on le documente, et on
+  le verrouille par un test nommé <code>turn_badges_sont_ignores()</code> qui deviendra rouge le
+  jour où le produit tranchera. Reste la question au backend : l'API renvoie-t-elle réellement
+  des badges <code>TURN</code> ?
+</div>
+
+<h3>2.3 · Temps 2 — <code>TopClaimableBadgeFinder</code> choisit</h3>
+
+<p>
+  Il parcourt les sept échelles <b>dans l'ordre</b>, et dans chaque échelle il monte les barreaux
+  du plus bas au plus haut. Il s'arrête au <b>premier badge réclamable dont le suivant ne l'est
+  pas</b> — ou qui est le dernier de l'échelle.
+</p>
+
+<pre class="parc"><span class="r">for</span> (List&lt;Badge&gt; badgeScope : scopedBadgeList) {          <span class="c">// SNAP d abord, ACCEL en dernier</span>
+    <span class="r">for</span> (Badge badge : badgeScope) {                       <span class="c">// du niveau le plus bas au plus haut</span>
+        <span class="r">int</span> i = badgeScope.indexOf(badge);
+        <span class="r">if</span> (badge.isClaimable()
+            &amp;&amp; (i == badgeScope.size() - 1                  <span class="c">// il est le dernier barreau</span>
+                || !badgeScope.get(i + 1).isClaimable()))   <span class="c">// ou le barreau du dessus ne l est pas</span>
+        { claimableBadge = badge; <span class="r">break</span>; }
+    }
+    <span class="r">if</span> (claimableBadge != <span class="b">null</span>) <span class="r">break</span>;                     <span class="c">// une seule echelle gagne</span>
+}</pre>
+
+<p>
+  Dit en français : <b>« le plus haut palier débloqué d'affilée, dans la famille la plus
+  prioritaire »</b>. Trois exemples valent mieux qu'une définition.
+</p>
+
+<div class="mermaid">
+flowchart TD
+  subgraph EX1[" CAS 1 — echelle SNAP normale "]
+    A1["SNAP1 · reclame"]:::done
+    A2["SNAP2 · reclame"]:::done
+    A3["SNAP3 · RECLAMABLE"]:::pick
+    A4["SNAP4 · verrouille"]:::lock
+    A1 --> A2 --> A3 --> A4
+  end
+  subgraph EX2[" CAS 2 — deux paliers d un coup "]
+    B1["SNAP1 · RECLAMABLE"]:::claim
+    B2["SNAP2 · RECLAMABLE"]:::pick
+    B3["SNAP3 · verrouille"]:::lock
+    B1 --> B2 --> B3
+  end
+  subgraph EX3[" CAS 3 — un trou dans l echelle "]
+    C1["SNAP1 · RECLAMABLE"]:::pick
+    C2["SNAP2 · verrouille"]:::lock
+    C3["SNAP3 · RECLAMABLE"]:::claim
+    C1 --> C2 --> C3
+  end
+  classDef done fill:#3d3d3d,stroke:#6e7681,color:#b0b0b0
+  classDef lock fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef claim fill:#241f10,stroke:#d29922,color:#ffd591
+  classDef pick fill:#0f2417,stroke:#3fb950,color:#7ee787
+</div>
+
+<table>
+  <tr><th style="width:8%">Cas</th><th style="width:36%">L'échelle</th><th style="width:16%">Retenu</th><th>Pourquoi</th></tr>
+  <tr><td><b>1</b></td><td>1 réclamé · 2 réclamé · <b>3 réclamable</b> · 4 verrouillé</td>
+      <td><b>SNAP3</b></td>
+      <td>Le seul réclamable, et le barreau au-dessus ne l'est pas.</td></tr>
+  <tr><td><b>2</b></td><td><b>1 réclamable</b> · <b>2 réclamable</b> · 3 verrouillé</td>
+      <td><b>SNAP2</b></td>
+      <td>On ne prend pas le premier réclamable rencontré, mais <b>le sommet de la série
+          continue</b> — le 1 est sauté parce que le 2 est réclamable aussi.
+          Réclamer le sommet réclame aussi ceux du dessous.</td></tr>
+  <tr><td><b>3</b></td><td><b>1 réclamable</b> · 2 verrouillé · 3 réclamable</td>
+      <td><b>SNAP1</b></td>
+      <td>Le trou coupe la série : la boucle s'arrête au 1, et le 3 — pourtant plus haut —
+          n'est jamais atteint. Situation anormale sur des données saines, puisqu'on ne débloque
+          pas le 3 sans le 2.</td></tr>
+</table>
+
+<div class="note">
+  <b>La priorité entre familles est un ordre figé dans le code, pas une règle métier écrite
+  quelque part.</b> Si un badge SNAP et un badge ACCEL sont réclamables en même temps,
+  c'est <b>toujours</b> le SNAP qui est proposé — parce que <code>SNAP</code> est à l'index 0 de
+  la table. À porter à l'identique, et à documenter, car rien dans le code ne dit que c'est
+  intentionnel.
+</div>
+
+<h3>2.4 · Les quatre défauts de ce duo</h3>
+<table>
+  <tr><th style="width:6%">#</th><th style="width:32%">Le défaut</th><th>Effet, et ce qu'on en fait</th></tr>
+  <tr><td><b>1</b></td>
+      <td><b>Le rangement modifie les badges qu'il reçoit.</b> La deuxième passe appelle
+          <code>setPreviousBadge()</code> et <code>setNextBadge()</code> sur les objets
+          <code>Badge</code> venus du <code>BadgeProvider</code> — donc sur des objets partagés
+          avec le reste de l'application.</td>
+      <td>Calculer le message contextuel a un <b>effet de bord</b> sur l'état des badges.
+          En Kotlin, <code>AjustoBadge</code> est une <code>data class</code> : le chaînage
+          devient une construction de copies. Résultat identique, effet de bord disparu.</td></tr>
+  <tr><td><b>2</b></td>
+      <td><b><code>indexOf(badge)</code> compare par valeur.</b> La boucle demande l'index d'un
+          badge qu'elle est en train de parcourir, via <code>equals()</code> — qui compare une
+          douzaine de champs.</td>
+      <td>Sur deux badges identiques dans la même échelle, l'index renvoyé est celui du
+          <b>premier</b> : le test « le barreau du dessus » regarde alors le mauvais voisin.
+          En Kotlin on utilise l'index de boucle — correct sur des données saines
+          <b>et</b> sur des données douteuses.</td></tr>
+  <tr><td><b>3</b></td>
+      <td><b>Le niveau 0 est accepté par le rangement.</b> Le filtre est
+          <code>level &gt;= 0</code>, mais <code>getBadgeLevelText()</code> ne connaît que
+          les niveaux 1 à 6 et rend <code>null</code> en dehors.</td>
+      <td>Un badge de niveau 0 réclamable produirait un message dont le texte est
+          <code>get(null)</code>. À border explicitement dans le port Kotlin.</td></tr>
+  <tr><td><b>4</b></td>
+      <td><b>Le chaînage clone.</b> <code>setNextBadge()</code> stocke un <em>clone</em> du
+          voisin, qui lui-même a un voisin cloné…</td>
+      <td>Travail et mémoire dépensés à chaque battement du flux, pour une information dont la
+          règle 7 <b>n'a pas besoin</b>. En Kotlin, on ne reconstruit le chaînage que là où il
+          sert réellement — la réclamation en cascade.</td></tr>
+</table>
+
+<h2 id="s3">3 · Ce que ça donne en Kotlin</h2>
+
+<p>
+  Les deux algorithmes sont du <b>calcul pur</b> : ils se portent sans pont, sans adapter, sans
+  dépendance. C'est le lot 1 du plan — celui qui peut démarrer aujourd'hui, sans rien attendre.
+</p>
+
+<pre class="cible"><span class="c">// REGLE 5 — ~10 lignes, aucune dependance</span>
+<span class="r">class</span> <span class="g">ClassifyInviteRule</span> {
+    <span class="r">operator fun</span> invoke(s: AjustoContextualSignals): Boolean =
+        s.mode == AjustoMode.CONTINUOUS_V4 &amp;&amp;
+        (s.numberOfTrips &gt; MIN_TRIPS || s.recentTripCount &gt; MIN_TRIPS) &amp;&amp;
+        s.numberOfTrips &lt;= MAX_TRIPS &amp;&amp;
+        !s.hasUserLabeledRecentTrips &amp;&amp;
+        !s.<span class="y">hasEverLabeledATrip</span>          <span class="c">// ex-CLASSIFY_INVITE_DISMISSED, renomme</span>
+
+    <span class="r">companion object</span> { <span class="r">const val</span> MIN_TRIPS = 5; <span class="r">const val</span> MAX_TRIPS = 20 }
+}
+
+<span class="c">// REGLE 7 — le rangement, sans mutation</span>
+<span class="r">class</span> <span class="g">BadgeScopeResolver</span> {
+    <span class="r">operator fun</span> invoke(badges: List&lt;AjustoBadge&gt;): List&lt;List&lt;AjustoBadge&gt;&gt; =
+        AjustoBadgeScope.entries.map { scope -&gt;
+            badges.filter { AjustoBadgeScope.from(it.groupIdentifier) == scope }
+                  .filter { it.level <span class="r">in</span> 0..SUPPORTED_BADGE_LEVELS }
+                  .sortedBy { it.level }
+        }
+    <span class="r">companion object</span> { <span class="r">const val</span> SUPPORTED_BADGE_LEVELS = 6 }
+}
+
+<span class="c">// REGLE 7 — la selection, avec l index de boucle</span>
+<span class="r">class</span> <span class="g">TopClaimableBadgeSelector</span> {
+    <span class="r">operator fun</span> invoke(scoped: List&lt;List&lt;AjustoBadge&gt;&gt;): AjustoBadge? {
+        scoped.forEach { scope -&gt;
+            scope.forEachIndexed { i, badge -&gt;
+                <span class="r">if</span> (badge.isClaimable &amp;&amp; (i == scope.lastIndex || !scope[i + 1].isClaimable))
+                    <span class="r">return</span> badge
+            }
+        }
+        <span class="r">return null</span>
+    }
+}</pre>
+
+<div class="mermaid">
+flowchart TD
+  A["ClassifyInviteChecker<br>54 l. Java"]:::c --> A2["ClassifyInviteRule<br>~10 l. Kotlin<br>4 tests de bornes"]:::n
+  B["ClassifyInviteQualifier<br>27 l. Java"]:::c --> B2["un champ du modele<br>hasEverLabeledATrip"]:::n
+  C["BadgeScoper<br>81 l. Java"]:::c --> C2["BadgeScopeResolver<br>~12 l. Kotlin<br>7 tests"]:::n
+  D["TopClaimableBadgeFinder<br>33 l. Java"]:::c --> D2["TopClaimableBadgeSelector<br>~10 l. Kotlin<br>6 tests"]:::n
+  A2 --> E["LOT 1 — socle domaine<br>zero dependance<br>testable a 100 pourcent<br>demarre aujourd hui"]:::k
+  B2 --> E
+  C2 --> E
+  D2 --> E
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef n fill:#1d1630,stroke:#a371f7,color:#d2b8ff
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+</div>
+
+<h3>3.1 · Les tests qui verrouillent ces deux règles</h3>
+<pre class="parc"><span class="c">// ClassifyInviteRuleTest — les bornes, qui sont la seule vraie subtilite</span>
+✓ 5 trajets  → false      <span class="c">// la condition est &gt; 5, pas &gt;= 5</span>
+✓ 6 trajets  → true
+✓ 20 trajets → true
+✓ 21 trajets → false
+✓ 0 au serveur mais 6 en local → true       <span class="c">// la voie alternative du OU</span>
+✓ mauvais mode, tout le reste favorable → false
+
+<span class="c">// BadgeScopeResolverTest</span>
+✓ les 7 echelles sortent dans l ordre SNAP, FIRSTSCORE, TOTAL, BRAKE, DISTRACTION, SPEEDING, ACCEL
+✓ chaque echelle est triee par niveau croissant
+✓ un niveau negatif est ignore
+✓ un niveau &gt; 6 est ignore
+<span class="y">✓ turn_badges_sont_ignores()          ← LE test qui verrouille la decision D1</span>
+✓ une famille inconnue est ignoree
+✓ une liste vide donne 7 echelles vides
+
+<span class="c">// TopClaimableBadgeSelectorTest — les 3 cas du tableau 2.3, plus les bords</span>
+✓ aucun reclamable → null
+✓ un seul reclamable → celui-la
+✓ deux reclamables consecutifs → le plus HAUT des deux
+✓ reclamables non consecutifs → le premier dont le suivant ne l est pas
+✓ reclamable dans SNAP et dans ACCEL → celui de SNAP (priorite de famille)
+✓ dernier de l echelle et reclamable → retenu</pre>
+
+<h3>3.2 · Les décisions que ces deux classes imposent</h3>
+<table>
+  <tr><th style="width:8%">Réf.</th><th style="width:34%">Question</th><th>Proposition</th></tr>
+  <tr><td>D1</td><td>Les badges <code>TURN</code> doivent-ils rester invisibles ?</td>
+      <td><b>Oui, à l'identique</b>, documenté et verrouillé par test. Question ouverte au backend :
+          l'API en renvoie-t-elle ?</td></tr>
+  <tr><td>D-E</td><td>Le « resnap » doit-il faire revenir l'invitation à étiqueter ?</td>
+      <td>Le code ne le fait pas — <code>qualify()</code> n'a aucun appelant.
+          <b>Parité par défaut</b> ; l'implémenter est une demande produit, pas un correctif.</td></tr>
+  <tr><td>D-F</td><td>Comment lire le drapeau depuis le Kotlin ?</td>
+      <td>Le Core écrit un booléen, le port <code>Storage</code> ne lit que du texte.
+          <b>À vérifier avant le lot 1</b> : même magasin, même encodage ?</td></tr>
+  <tr><td>D-H</td><td>Comment comparer le mode ?</td>
+      <td><code>mode == "continuous4"</code>, <b>exact et sensible à la casse</b>. C'est le seul
+          endroit de toute la chaîne où <code>mode</code> sert vraiment.</td></tr>
+  <tr><td>—</td><td>L'asymétrie plancher / plafond doit-elle être corrigée ?</td>
+      <td>Aujourd'hui le plafond ne regarde que le compteur serveur. <b>Parité par défaut</b>,
+          mais à signaler au produit : c'est un bandeau qui peut rester affiché indéfiniment.</td></tr>
+</table>
+
+<div class="good">
+  <b>À retenir pour la présentation.</b> Ces deux algorithmes représentent <b>195 des 377 lignes</b>
+  de métier à déplacer, et ce sont les plus faciles : aucune dépendance, aucun pont, aucun
+  téléphone. Ils se réécrivent en une trentaine de lignes de Kotlin et se couvrent à 100 % par
+  des tests. C'est exactement pourquoi le lot 1 peut démarrer <b>avant</b> toute décision
+  d'architecture.
+</div>
+
+<p style="color:var(--tx2);font-size:13px;margin-top:44px;border-top:1px solid var(--line);padding-top:16px">
+  Document 15 · 1<sup>er</sup> septembre 2026 · les deux algorithmes de la cascade.<br>
+  Voir aussi : document 14 (anatomie de <code>findContextualMessage()</code>),
+  document 13 (parcours des dépendances + plan d'action), document 11 (plan écrit).
+</p>
+
+</div>
+<script>
+  mermaid.initialize({startOnLoad:true,theme:'dark',
+    themeVariables:{fontSize:'14px',fontFamily:'ui-monospace,Menlo,monospace'},
+    flowchart:{useMaxWidth:false,htmlLabels:true,curve:'basis'}});
+</script>
+</body>
+</html>
