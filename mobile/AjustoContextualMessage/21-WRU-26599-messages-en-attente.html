@@ -1,0 +1,851 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Messages Ajusto en attente</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root{
+    --ground:#F5F6F7;
+    --surface:#FFFFFF;
+    --surface-2:#ECEEF0;
+    --ink:#15181C;
+    --muted:#5C6672;
+    --faint:#8A939E;
+    --rule:#DCE0E5;
+    --accent:#2C5D7C;
+    --accent-soft:#E7EEF3;
+
+    /* Teintes sémantiques — elles encodent la sévérité du message, ce n'est pas de la décoration */
+    --sem-critical:#A33A2E;
+    --sem-caution:#8A6212;
+    --sem-positive:#2F6B4E;
+    --sem-info:#2C5D7C;
+
+    /* La maquette représente l'application en thème clair : elle garde ses couleurs propres
+       dans les deux thèmes du document, comme une capture d'écran. */
+    --app-bg:#FFFFFF;
+    --app-surface:#F2F4F6;
+    --app-ink:#15181C;
+    --app-muted:#5C6672;
+    --app-rule:#E3E7EB;
+
+    --sans:'Archivo',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+    --serif:'Source Serif 4',Georgia,'Times New Roman',serif;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --ground:#111417;
+      --surface:#191D21;
+      --surface-2:#22272C;
+      --ink:#E7EBEF;
+      --muted:#9BA5B0;
+      --faint:#727C87;
+      --rule:#2B3138;
+      --accent:#7FB3D5;
+      --accent-soft:#1B2A34;
+      --sem-critical:#D98A7E;
+      --sem-caution:#D0A94E;
+      --sem-positive:#7BB79A;
+      --sem-info:#7FB3D5;
+    }
+  }
+  :root[data-theme="dark"]{
+    --ground:#111417;
+    --surface:#191D21;
+    --surface-2:#22272C;
+    --ink:#E7EBEF;
+    --muted:#9BA5B0;
+    --faint:#727C87;
+    --rule:#2B3138;
+    --accent:#7FB3D5;
+    --accent-soft:#1B2A34;
+    --sem-critical:#D98A7E;
+    --sem-caution:#D0A94E;
+    --sem-positive:#7BB79A;
+    --sem-info:#7FB3D5;
+  }
+
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    background:var(--ground);
+    color:var(--ink);
+    font-family:var(--serif);
+    font-size:17px;
+    line-height:1.62;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding-block:56px 120px;padding-left:20px;padding-right:20px}
+
+  h1,h2,h3,h4,.label,.eyebrow,.chip,.btn,.fiche dt,.stat{font-family:var(--sans)}
+  h1{font-size:clamp(30px,4.6vw,44px);line-height:1.1;letter-spacing:-.022em;font-weight:700;margin:0 0 14px;text-wrap:balance}
+  h2{font-size:clamp(22px,2.8vw,28px);line-height:1.2;letter-spacing:-.015em;font-weight:600;margin:0;text-wrap:balance}
+  h3{font-size:19px;line-height:1.25;letter-spacing:-.01em;font-weight:600;margin:0;text-wrap:balance}
+  h4{font-size:14px;font-weight:600;margin:0 0 6px;letter-spacing:.01em}
+  p{margin:0 0 14px;max-width:68ch}
+  a{color:var(--accent)}
+
+  .eyebrow{
+    font-size:11.5px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;
+    color:var(--faint);margin:0 0 10px;
+  }
+  .lede{font-size:19px;color:var(--muted);max-width:66ch;margin-bottom:26px}
+
+  .meta{
+    font-family:var(--mono);font-size:12px;color:var(--muted);
+    border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);
+    padding-block:12px;margin-bottom:52px;
+    display:flex;flex-wrap:wrap;gap:6px 26px;
+  }
+
+  section{margin-top:64px}
+  .sec-head{display:flex;flex-direction:column;gap:6px;margin-bottom:22px;padding-top:20px;border-top:2px solid var(--ink)}
+
+  code{font-family:var(--mono);font-size:.86em;background:var(--surface-2);padding:1px 6px;border-radius:4px;color:var(--ink)}
+
+  /* ── règles de la zone ─────────────────────────────────────────── */
+  .rules{display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule);border-radius:10px;overflow:hidden;margin:26px 0}
+  .rules > div{background:var(--surface);padding:18px 20px}
+  .rules h4{color:var(--accent)}
+  .rules p{font-size:15px;margin:0;color:var(--muted)}
+
+  /* ── fiche d'un signal ─────────────────────────────────────────── */
+  .signal{
+    margin:38px 0 0;padding-top:30px;border-top:1px solid var(--rule);
+    display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:34px;align-items:start;
+  }
+  @media(max-width:880px){.signal{grid-template-columns:1fr;gap:24px}}
+  .signal-head{grid-column:1/-1;display:flex;align-items:baseline;gap:14px;flex-wrap:wrap;margin-bottom:2px}
+  .rule-no{
+    font-family:var(--mono);font-size:12px;font-weight:500;color:var(--muted);
+    border:1px solid var(--rule);border-radius:99px;padding:3px 10px;white-space:nowrap;
+  }
+  .cat{font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+
+  .when{font-size:16px}
+  .when dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:8px 16px;align-items:baseline}
+  .when dt{font-family:var(--sans);font-size:11.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);white-space:nowrap;padding-top:4px}
+  .when dd{margin:0;font-size:15.5px;color:var(--ink)}
+  .when dd + dt{border-top:1px solid var(--rule);padding-top:12px;margin-top:4px}
+  .when dd.sep{border-top:1px solid var(--rule);padding-top:12px;margin-top:4px}
+
+  /* ── maquette ──────────────────────────────────────────────────── */
+  .mock-frame{
+    background:var(--app-bg);border:1px solid var(--app-rule);border-radius:14px;
+    padding:20px 18px;box-shadow:0 1px 2px rgba(0,0,0,.05),0 8px 24px -14px rgba(0,0,0,.28);
+  }
+  .mock-cap{
+    font-family:var(--mono);font-size:11px;color:var(--faint);
+    margin-top:9px;display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  }
+  .msgbox{
+    display:flex;gap:13px;align-items:flex-start;
+    background:var(--app-surface);border-radius:12px;padding:14px 15px;
+  }
+  .msgbox + .msgbox{margin-top:10px}
+  .ico{flex:0 0 auto;width:38px;height:38px;border-radius:10px;display:grid;place-items:center}
+  .ico svg{display:block}
+  .msgtxt{min-width:0;flex:1}
+  .msgtxt .t{font-family:var(--sans);font-weight:600;font-size:14.5px;line-height:1.3;color:var(--app-ink);margin:0 0 3px}
+  .msgtxt .m{font-family:var(--sans);font-weight:400;font-size:13.5px;line-height:1.45;color:var(--app-muted);margin:0}
+  .msgtxt .b{
+    font-family:var(--sans);font-weight:600;font-size:13.5px;color:#2C5D7C;
+    margin-top:9px;display:inline-block;border-bottom:1.5px solid currentColor;padding-bottom:1px;
+  }
+  .empty-note{
+    font-family:var(--mono);font-size:11.5px;color:var(--faint);text-align:center;
+    border:1px dashed var(--app-rule);border-radius:10px;padding:20px 12px;
+  }
+
+  /* ── fiche technique ───────────────────────────────────────────── */
+  .fiche{
+    grid-column:1/-1;margin-top:6px;background:var(--surface);border:1px solid var(--rule);
+    border-radius:10px;padding:18px 20px;
+  }
+  .fiche dl{margin:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:16px 26px}
+  .fiche dt{font-size:11px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);margin-bottom:3px}
+  .fiche dd{margin:0;font-family:var(--mono);font-size:12.5px;line-height:1.5;color:var(--ink);word-break:break-word}
+
+  /* ── encarts ───────────────────────────────────────────────────── */
+  .note,.ask{
+    border-left:3px solid var(--accent);background:var(--surface);
+    padding:15px 18px;border-radius:0 8px 8px 0;margin:22px 0;font-size:15.5px;
+  }
+  .note p:last-child,.ask p:last-child{margin-bottom:0}
+  .ask{border-left-color:var(--sem-caution)}
+  .ask .eyebrow{color:var(--sem-caution)}
+  .note .eyebrow{color:var(--accent)}
+  .signal .ask{grid-column:1/-1;margin:2px 0 0}
+
+  /* ── wireframe écran ───────────────────────────────────────────── */
+  .screen{display:flex;gap:34px;align-items:flex-start;flex-wrap:wrap;margin:26px 0}
+  .phone{
+    flex:0 0 auto;width:262px;background:var(--app-bg);border:1px solid var(--app-rule);
+    border-radius:20px;padding:14px 12px;display:flex;flex-direction:column;gap:8px;
+    box-shadow:0 1px 2px rgba(0,0,0,.05),0 10px 30px -18px rgba(0,0,0,.4);
+  }
+  .blk{background:var(--app-surface);border-radius:8px;font-family:var(--mono);font-size:9.5px;
+       color:#8A939E;padding:9px 10px;letter-spacing:.03em}
+  .blk.tall{height:74px;display:grid;place-items:center}
+  .blk.grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:none;padding:0}
+  .blk.grid2 > span{background:var(--app-surface);border-radius:8px;padding:14px 8px;text-align:center}
+  .blk.zone{
+    background:#EAF1F6;border:1.5px solid #2C5D7C;color:#2C5D7C;font-weight:500;
+    padding:13px 10px;text-align:center;
+  }
+  .screen-side{flex:1;min-width:270px}
+  .screen-side ol{margin:0;padding-left:20px;font-size:15.5px}
+  .screen-side li{margin:7px 0}
+  .screen-side li.hi{color:var(--accent);font-weight:600;font-family:var(--sans);font-size:14.5px}
+
+  /* ── tableaux ──────────────────────────────────────────────────── */
+  .tbl-wrap{overflow-x:auto;margin:22px 0}
+  table{border-collapse:collapse;width:100%;font-family:var(--sans);font-size:14px}
+  th,td{text-align:left;vertical-align:top;padding:11px 14px;border-bottom:1px solid var(--rule)}
+  th{font-size:11px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:600;border-bottom:1px solid var(--ink)}
+  td code{font-size:11.5px}
+  .off td:first-child{color:var(--muted)}
+
+  .chip{
+    display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+    padding:2px 8px;border-radius:99px;border:1px solid currentColor;white-space:nowrap;
+  }
+  .chip.on{color:var(--sem-positive)}
+  .chip.off{color:var(--faint)}
+  .chip.todo{color:var(--sem-caution)}
+
+  ul.plain{margin:0 0 14px;padding-left:20px;max-width:68ch}
+  ul.plain li{margin:6px 0}
+
+  footer{margin-top:76px;padding-top:20px;border-top:1px solid var(--rule);font-size:13.5px;color:var(--faint);font-family:var(--sans)}
+</style>
+</head>
+<body>
+
+
+<div class="wrap">
+
+<p class="eyebrow">WRU-26599 · Spécification fonctionnelle · 10 septembre 2026</p>
+<h1>Les quatre messages en attente</h1>
+<p class="lede">
+  Écrits, testés, branchés — et volontairement masqués. Voici ce qu'ils disent, quand ils
+  apparaîtront, et ce qu'il faut décider avant de les allumer.
+</p>
+
+<div class="meta">
+  <span>Écran : Sommaire Ajusto</span>
+  <span>4 messages masqués sur 8</span>
+  <span>Activation : une ligne de code</span>
+  <span>Complément du document « Messages contextuels Ajusto »</span>
+</div>
+
+<p>
+  L'écran Sommaire d'Ajusto sait produire huit messages contextuels. Quatre sont affichés
+  aujourd'hui — le conseil, la batterie faible, le mode économie d'énergie, la médaille à
+  réclamer — et font l'objet d'un document séparé. Les quatre autres sont le sujet de celui-ci.
+</p>
+<p>
+  Ils ne sont pas en cours d'écriture : <strong>ils sont finis</strong>. Le code les résout, les
+  traduit et sait les afficher ; ils sont simplement retirés juste avant le rendu. Les allumer
+  demandera de déplacer une ligne, pas de développer. C'est précisément pour ça qu'il faut décider
+  maintenant à quoi ils ressemblent — le jour où quelqu'un voudra les activer, il ne restera plus
+  de temps de design.
+</p>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<section>
+  <div class="sec-head">
+    <p class="eyebrow" style="margin:0">Le cadre</p>
+    <h2>Comment ils s'inséreront dans ce qui existe</h2>
+  </div>
+
+  <p>
+    Les messages <strong>s'empilent</strong> : un conseil, une alerte d'appareil, une invitation et
+    une médaille peuvent s'afficher en même temps, l'un sous l'autre. Ce qui les limite, ce n'est
+    pas leur nombre total mais leur <strong>catégorie</strong> — il n'y en a jamais deux de la
+    même famille à l'écran.
+  </p>
+
+  <div class="rules" style="grid-template-columns:repeat(auto-fit,minmax(250px,1fr))">
+    <div>
+      <h4>Conseil</h4>
+      <p>« Bon à savoir ». Toujours en tête. Un seul message, déjà actif.</p>
+    </div>
+    <div>
+      <h4>Appareil</h4>
+      <p>Quatre situations possibles, une seule s'affiche. <strong>Deux des quatre sont en attente</strong> — et elles sont plus prioritaires que la batterie.</p>
+    </div>
+    <div>
+      <h4>Engagement</h4>
+      <p>Deux situations, une seule s'affiche. <strong>Les deux sont en attente</strong> : cette catégorie est aujourd'hui entièrement vide.</p>
+    </div>
+    <div>
+      <h4>Médaille</h4>
+      <p>Une seule situation. Déjà active.</p>
+    </div>
+  </div>
+
+  <h3 style="margin-top:38px;margin-bottom:14px">Le cas maximal, une fois tout activé</h3>
+  <p>
+    Quatre boîtes — une par catégorie. C'est le plafond, et il est atteignable : rien n'empêche une
+    personne d'avoir un conseil disponible, une batterie faible, des trajets jamais identifiés et
+    une médaille en attente le même jour.
+  </p>
+
+  <div style="max-width:560px">
+    <div class="mock-frame">
+      <div class="msgbox">
+        <span class="ico" style="background:#E7EEF3">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2C5D7C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 18h6"/><path d="M10 21h4"/>
+            <path d="M12 3a6 6 0 0 0-3.6 10.8c.5.4.8 1 .9 1.6l.1.6h5.2l.1-.6c.1-.6.4-1.2.9-1.6A6 6 0 0 0 12 3Z"/>
+          </svg>
+        </span>
+        <div class="msgtxt">
+          <p class="t">Conduire l'hiver</p>
+          <p class="m">Un démarrage en douceur sur une chaussée froide améliore votre score.</p>
+        </div>
+      </div>
+      <div class="msgbox">
+        <span class="ico" style="background:#F6E9E7">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#A33A2E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="2" y="7" width="16" height="10" rx="2.5"/><path d="M21 10.5v3"/>
+            <rect x="4.4" y="9.4" width="3.2" height="5.2" rx="1" fill="#A33A2E" stroke="none"/>
+          </svg>
+        </span>
+        <div class="msgtxt">
+          <p class="t">Batterie faible</p>
+          <p class="m">Vos trajets pourraient ne pas être enregistrés.</p>
+        </div>
+      </div>
+      <div class="msgbox">
+        <span class="ico" style="background:#E7EEF3">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2C5D7C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M16.4 3.6a2.3 2.3 0 0 1 3.3 3.3L8.2 18.4l-4.3 1.2 1.2-4.3L16.4 3.6Z"/>
+            <path d="M14.6 5.4 18.6 9.4"/>
+          </svg>
+        </span>
+        <div class="msgtxt">
+          <p class="t">Étiez-vous au volant ?</p>
+          <p class="m">Identifiez vos trajets pour que votre score reflète vraiment votre conduite.</p>
+        </div>
+      </div>
+      <div class="msgbox">
+        <span class="ico" style="background:#E6EFEA">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2F6B4E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 3H6a1.6 1.6 0 0 0-1.6 1.6v14.8A1.6 1.6 0 0 0 6 21h6"/>
+            <path d="M8 7.5h5M8 11h3.5"/><circle cx="17" cy="14.6" r="3.4"/>
+            <path d="M15.2 17.6 14.6 21l2.4-1.2 2.4 1.2-.6-3.4"/>
+          </svg>
+        </span>
+        <div class="msgtxt">
+          <p class="t">Félicitations, vous avez reçu une médaille !</p>
+          <p class="m">Conduite en douceur — niveau or</p>
+          <span class="b">Réclamer ma médaille</span>
+        </div>
+      </div>
+      <p class="mock-cap"><span>Quatre boîtes · une par catégorie</span><span>l'ordre ne varie jamais</span></p>
+    </div>
+  </div>
+
+  <div class="ask">
+    <p class="eyebrow" style="margin-bottom:6px">La première chose à regarder</p>
+    <p>
+      Quatre boîtes, c'est <strong>haut</strong>. Insérées entre la liste d'informations et les
+      tuiles de navigation, elles repoussent ces dernières hors de l'écran sur un téléphone de
+      taille moyenne. La question n'est pas seulement esthétique : les tuiles sont le seul chemin
+      vers les autres pages d'Ajusto.
+    </p>
+    <p>
+      Faut-il plafonner l'affichage ? Compacter les boîtes au-delà de la deuxième ? Rendre la pile
+      défilante ? C'est une décision de design, et elle ne se pose qu'à partir du moment où ces
+      quatre messages sont activés — donc maintenant.
+    </p>
+  </div>
+
+  <h3 style="margin-top:38px;margin-bottom:14px">L'effet de substitution</h3>
+  <p>
+    Les deux messages d'appareil en attente sont <strong>plus prioritaires que la batterie</strong>.
+    Une fois activés, ils prennent sa place quand ils s'appliquent — ils ne s'ajoutent pas. C'est
+    voulu : quelqu'un dont le téléphone ne peut pas mesurer ses trajets n'a pas besoin qu'on lui
+    parle de son niveau de batterie.
+  </p>
+
+  <div class="screen" style="align-items:stretch">
+    <div style="flex:1;min-width:270px">
+      <div class="mock-frame">
+        <div class="msgbox">
+          <span class="ico" style="background:#F6E9E7">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#A33A2E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="2" y="7" width="16" height="10" rx="2.5"/><path d="M21 10.5v3"/>
+              <rect x="4.4" y="9.4" width="3.2" height="5.2" rx="1" fill="#A33A2E" stroke="none"/>
+            </svg>
+          </span>
+          <div class="msgtxt">
+            <p class="t">Batterie faible</p>
+            <p class="m">Vos trajets pourraient ne pas être enregistrés.</p>
+          </div>
+        </div>
+        <p class="mock-cap"><span>Aujourd'hui</span><span>appareil incompatible, batterie faible</span></p>
+      </div>
+    </div>
+    <div style="flex:1;min-width:270px">
+      <div class="mock-frame">
+        <div class="msgbox">
+          <span class="ico" style="background:#ECEEF0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5C6672" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="6" y="2.6" width="12" height="18.8" rx="2.6"/>
+              <path d="M10.6 5.6h2.8"/><path d="M3.4 3.4 20.6 20.6"/>
+            </svg>
+          </span>
+          <div class="msgtxt">
+            <p class="t">Appareil non compatible</p>
+            <p class="m">Votre appareil ne répond pas aux exigences techniques d'Ajusto.</p>
+          </div>
+        </div>
+        <p class="mock-cap"><span>Une fois activé</span><span>la batterie ne s'affiche plus</span></p>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <p class="eyebrow" style="margin-bottom:6px">Sur les textes des maquettes</p>
+    <p>
+      La copie affichée est <strong>illustrative</strong>, et les teintes sont des couleurs de
+      substitution. Les textes réels viennent de Lokalise ; chaque fiche donne la clé exacte. Les
+      vraies valeurs de couleur doivent venir du système de design, pour les deux marques.
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<section>
+  <div class="sec-head">
+    <p class="eyebrow" style="margin:0">Un par un</p>
+    <h2>Les quatre fiches</h2>
+  </div>
+
+  <!-- ── Marque non compatible ───────────────────── -->
+  <div class="signal">
+    <div class="signal-head">
+      <h3>Marque non compatible</h3>
+      <span class="rule-no">règle 1</span>
+      <span class="cat">catégorie appareil · la plus prioritaire de toutes</span>
+      <span class="chip off">masqué</span>
+    </div>
+
+    <div>
+      <div class="mock-frame">
+        <div class="msgbox">
+          <span class="ico" style="background:#ECEEF0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5C6672" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 4.2 2.6 19.2h18.8L12 4.2Z"/>
+              <path d="M12 10v3.6"/><path d="M12 16.6v.2"/>
+            </svg>
+          </span>
+          <div class="msgtxt">
+            <p class="t">Votre téléphone n'est pas pris en charge</p>
+            <p class="m">La marque de votre appareil ne permet pas de mesurer vos trajets.</p>
+          </div>
+        </div>
+        <p class="mock-cap"><span>Icône à confirmer · teinte neutre</span><span>copie à confirmer</span></p>
+      </div>
+    </div>
+
+    <div class="when">
+      <dl>
+        <dt>Quand</dt>
+        <dd>Le fabricant du téléphone figure sur une liste d'exclusion. En pratique, <strong>une seule marque</strong> est concernée.</dd>
+        <dt>Disparaît</dt>
+        <dd>Jamais, tant que la personne garde ce téléphone. C'est un état permanent, pas un incident.</dd>
+        <dt>Ce qu'elle comprend</dt>
+        <dd>« Mon téléphone ne peut pas faire fonctionner Ajusto. » Message le plus lourd de conséquences : il annonce que le programme ne marchera pas pour elle.</dd>
+        <dt>Action</dt>
+        <dd>C'est le seul des huit à porter un bouton dans l'existant — mais <strong>ce bouton ne fait rien</strong>. Il n'est donc pas repris.</dd>
+      </dl>
+    </div>
+
+    <div class="fiche">
+      <dl>
+        <div><dt>Icône câblée</dt><dd>dsd_ic_road_minus_sign</dd></div>
+        <div><dt>Teinte</dt><dd>DEFAULT (neutre)</dd></div>
+        <div><dt>Clés de texte</dt><dd>AJUSTO_BRAND_NOT_COMPATIBLE_CONTEXTUAL_MESSAGE_TITLE<br>…_TEXT<br>…_BUTTON (non utilisée)</dd></div>
+        <div><dt>Statut</dt><dd>existe aujourd'hui · masqué pour cette livraison</dd></div>
+      </dl>
+    </div>
+
+    <div class="ask">
+      <p class="eyebrow" style="margin-bottom:6px">Deux anomalies à regarder</p>
+      <p>
+        <strong>Personne ne sait plus pourquoi cette marque est exclue.</strong> Le code ne porte
+        aucun commentaire, et l'exclusion vise un fabricant précis, pas une caractéristique
+        technique. Si la raison a disparu — un défaut corrigé depuis, un accord expiré — le message
+        n'a plus lieu d'être et la règle non plus. Question pour l'équipe télématique avant de
+        dessiner quoi que ce soit ici.
+      </p>
+      <p>
+        <strong>L'icône câblée ne correspond pas au nom du cas.</strong> Le message « panneau
+        d'avertissement » pointe vers un dessin de route barrée, tandis qu'un autre élément de
+        l'écran, nommé « route barrée », pointe vers un dessin de vigilance. Les deux ont tout
+        l'air d'avoir été intervertis. La maquette ci-dessus montre l'intention, pas ce que
+        l'application afficherait aujourd'hui.
+      </p>
+    </div>
+  </div>
+
+  <!-- ── Appareil non compatible ─────────────────── -->
+  <div class="signal">
+    <div class="signal-head">
+      <h3>Appareil non compatible</h3>
+      <span class="rule-no">règle 2</span>
+      <span class="cat">catégorie appareil</span>
+      <span class="chip off">masqué</span>
+    </div>
+
+    <div>
+      <div class="mock-frame">
+        <div class="msgbox">
+          <span class="ico" style="background:#ECEEF0">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#5C6672" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="6" y="2.6" width="12" height="18.8" rx="2.6"/>
+              <path d="M10.6 5.6h2.8"/>
+              <path d="M3.4 3.4 20.6 20.6"/>
+            </svg>
+          </span>
+          <div class="msgtxt">
+            <p class="t">Appareil non compatible</p>
+            <p class="m">Votre appareil ne répond pas aux exigences techniques d'Ajusto.</p>
+          </div>
+        </div>
+        <p class="mock-cap"><span>Icône appareil · teinte neutre</span><span>texte interpolé — voir ci-contre</span></p>
+      </div>
+    </div>
+
+    <div class="when">
+      <dl>
+        <dt>Quand</dt>
+        <dd>Le modèle n'est pas reconnu par le serveur, <strong>ou</strong> il lui manque un des quatre capteurs nécessaires : GPS, réseau cellulaire, gyroscope, accéléromètre.</dd>
+        <dt>Disparaît</dt>
+        <dd>Comme le précédent : pas tant que la personne garde cet appareil.</dd>
+        <dt>Ce qu'elle comprend</dt>
+        <dd>« Ce téléphone-là ne suffit pas. » Nuance importante par rapport au message précédent : ici c'est le modèle ou son matériel, pas la marque.</dd>
+        <dt>Action</dt>
+        <dd>Aucune.</dd>
+      </dl>
+    </div>
+
+    <div class="fiche">
+      <dl>
+        <div><dt>Icône</dt><dd>dsd_ic_device_not_compatible</dd></div>
+        <div><dt>Teinte</dt><dd>DEFAULT (neutre)</dd></div>
+        <div><dt>Clés de texte</dt><dd>UBI_ONBOARDING_UNAVAILABLE_DEVICE_TITLE<br>UBI_ONBOARDING_UNAVAILABLE_DEVICE_MESSAGE</dd></div>
+        <div><dt>Statut</dt><dd>existe aujourd'hui · en attente d'une route serveur</dd></div>
+      </dl>
+    </div>
+
+    <div class="ask">
+      <p class="eyebrow" style="margin-bottom:6px">À trancher — contenu</p>
+      <p>
+        Le texte <strong>contient le nom du programme</strong>, inséré dynamiquement — il diffère
+        donc d'une marque à l'autre. Prévoir que la longueur varie.
+      </p>
+      <p>
+        Plus gênant : les clés utilisées appartiennent au <strong>parcours d'adhésion</strong>
+        (« onboarding »), pas au tableau de bord. Un texte écrit pour quelqu'un qui s'inscrit ne dit
+        pas forcément la bonne chose à quelqu'un qui utilise le service depuis six mois. À relire,
+        et probablement à réécrire pour ce contexte.
+      </p>
+      <p>
+        C'est aussi le seul des quatre dont l'activation dépend d'autre chose que d'une décision :
+        la route serveur qui dit si un modèle est compatible <strong>reste introuvable</strong>. Le
+        design peut avancer, pas la mise en ligne.
+      </p>
+    </div>
+  </div>
+
+  <!-- ── Invitation à identifier un trajet ───────── -->
+  <div class="signal">
+    <div class="signal-head">
+      <h3>Invitation à identifier un trajet</h3>
+      <span class="rule-no">règle 5</span>
+      <span class="cat">catégorie engagement</span>
+      <span class="chip off">masqué</span>
+    </div>
+
+    <div>
+      <div class="mock-frame">
+        <div class="msgbox">
+          <span class="ico" style="background:#E7EEF3">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2C5D7C" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M16.4 3.6a2.3 2.3 0 0 1 3.3 3.3L8.2 18.4l-4.3 1.2 1.2-4.3L16.4 3.6Z"/>
+              <path d="M14.6 5.4 18.6 9.4"/>
+            </svg>
+          </span>
+          <div class="msgtxt">
+            <p class="t">Étiez-vous au volant ?</p>
+            <p class="m">Identifiez vos trajets pour que votre score reflète vraiment votre conduite.</p>
+          </div>
+        </div>
+        <p class="mock-cap"><span>Icône crayon · teinte information</span><span>copie à confirmer</span></p>
+      </div>
+    </div>
+
+    <div class="when">
+      <dl>
+        <dt>Quand</dt>
+        <dd>Une <strong>fenêtre précise</strong> : la personne a fait plus de 5 trajets mais pas plus de 20, elle n'a <strong>jamais</strong> identifié un trajet, et son programme le permet.</dd>
+        <dt>Disparaît</dt>
+        <dd>Définitivement, dès qu'elle en identifie un — ou toute seule au 21<sup>e</sup> trajet, sans rien dire.</dd>
+        <dt>Ce qu'elle comprend</dt>
+        <dd>« Je peux dire si je conduisais ou si j'étais passagère, et ça compte. » C'est une invitation, pas un reproche.</dd>
+        <dt>Action</dt>
+        <dd>Aucun bouton aujourd'hui, alors que c'est le message qui en appellerait le plus un.</dd>
+      </dl>
+    </div>
+
+    <div class="fiche">
+      <dl>
+        <div><dt>Icône</dt><dd>dsd_ic_ajusto_classify_invite</dd></div>
+        <div><dt>Teinte</dt><dd>BLUE</dd></div>
+        <div><dt>Clés de texte</dt><dd>CONTEXTUAL_MESSAGE_CLASSIFY_INVITE_TITLE<br>CONTEXTUAL_MESSAGE_CLASSIFY_INVITE_TEXT</dd></div>
+        <div><dt>Statut</dt><dd>existe aujourd'hui · masqué pour cette livraison</dd></div>
+      </dl>
+    </div>
+
+    <div class="ask">
+      <p class="eyebrow" style="margin-bottom:6px">Le message le plus intéressant à retravailler</p>
+      <p>
+        C'est le seul des huit qui a une <strong>durée de vie</strong> : il apparaît, insiste
+        pendant une quinzaine de trajets, puis s'éteint tout seul — que la personne ait compris ou
+        non. Si elle n'a rien fait au 21<sup>e</sup> trajet, on ne lui redemande plus jamais.
+        Est-ce le comportement voulu ?
+      </p>
+      <p>
+        Et il n'est <strong>pas refermable</strong> : une fonction pour le masquer existe dans le
+        code, mais rien ne l'appelle — le geste n'a jamais été branché à l'interface. Une personne
+        qui ne veut pas identifier ses trajets le voit à chaque ouverture pendant quinze trajets,
+        sans moyen de s'en débarrasser. Faut-il une croix de fermeture, un bouton qui mène à la
+        liste des trajets, ou les deux ?
+      </p>
+    </div>
+  </div>
+
+  <!-- ── Jours avant l'entrée en vigueur ─────────── -->
+  <div class="signal">
+    <div class="signal-head">
+      <h3>Jours avant l'entrée en vigueur</h3>
+      <span class="rule-no">règle 6</span>
+      <span class="cat">catégorie engagement</span>
+      <span class="chip off">masqué</span>
+    </div>
+
+    <div>
+      <div class="mock-frame">
+        <div class="msgbox">
+          <span class="ico" style="background:#EBEFE9">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4A6741" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M14 3H6a1.6 1.6 0 0 0-1.6 1.6v14.8A1.6 1.6 0 0 0 6 21h6"/>
+              <path d="M8 7.5h5M8 11h3.5"/>
+              <circle cx="17" cy="14.6" r="3.4"/>
+              <path d="M15.2 17.6 14.6 21l2.4-1.2 2.4 1.2-.6-3.4"/>
+            </svg>
+          </span>
+          <div class="msgtxt">
+            <p class="t">Votre protection n'est pas encore en vigueur</p>
+            <p class="m">Vos trajets sont enregistrés, mais ils compteront à partir du début de votre contrat.</p>
+          </div>
+        </div>
+        <p class="mock-cap"><span>Icône médaille · teinte BRAND à substituer</span><span>même dessin que « médaille »</span></p>
+      </div>
+    </div>
+
+    <div class="when">
+      <dl>
+        <dt>Quand</dt>
+        <dd>Le contrat existe mais sa date de début n'est pas encore atteinte — il reste un nombre de jours connu.</dd>
+        <dt>Disparaît</dt>
+        <dd>Le jour où le contrat prend effet.</dd>
+        <dt>Ce qu'elle comprend</dt>
+        <dd>« C'est normal que rien ne compte encore, ça commence bientôt. » Message rassurant : il explique une absence de résultats.</dd>
+        <dt>Action</dt>
+        <dd>Aucune.</dd>
+      </dl>
+    </div>
+
+    <div class="fiche">
+      <dl>
+        <div><dt>Icône</dt><dd>dsd_ic_policy_effective</dd></div>
+        <div><dt>Teinte</dt><dd>BRAND (couleur de marque)</dd></div>
+        <div><dt>Clés de texte</dt><dd>CONTEXTUAL_MESSAGE_POLICY_EFFECTIVE_TITLE<br>CONTEXTUAL_MESSAGE_POLICY_EFFECTIVE_TEXT</dd></div>
+        <div><dt>Statut</dt><dd>existe aujourd'hui · masqué pour cette livraison</dd></div>
+      </dl>
+    </div>
+
+    <div class="ask">
+      <p class="eyebrow" style="margin-bottom:6px">Le nombre de jours est calculé — mais jamais affiché</p>
+      <p>
+        Le message s'appelle « jours avant l'entrée en vigueur », le nombre de jours restants est
+        calculé et transporté jusqu'à l'écran… et <strong>aucun des deux textes ne l'utilise</strong>.
+        Deux lectures possibles : soit le texte n'a jamais mentionné de décompte et le calcul ne
+        sert qu'à savoir s'il faut afficher le message, soit le décompte a été perdu en route.
+      </p>
+      <p>
+        C'est une décision de contenu avant d'être technique. Si on veut afficher « il reste 12
+        jours », il faut une clé qui accepte un nombre, et gérer le singulier (« il reste 1 jour »).
+        Si on n'en veut pas, le message actuel convient tel quel — mais alors son nom induit en
+        erreur toute personne qui lit le code.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<section>
+  <div class="sec-head">
+    <p class="eyebrow" style="margin:0">Ce que l'empilement rend visible</p>
+    <h2>Deux dessins pour quatre messages</h2>
+  </div>
+
+  <p>
+    Une fois les huit messages posés côte à côte, <strong>deux dessins servent chacun à deux
+    situations différentes</strong>, seule la teinte les distinguant.
+  </p>
+
+  <div class="rules" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+    <div>
+      <h4>La batterie — sans conséquence à l'écran</h4>
+      <p>
+        « Batterie faible » (rouge) et « mode économie d'énergie » (orange) partagent un dessin.
+        Les deux appartiennent à la catégorie appareil : ils ne peuvent <strong>jamais</strong>
+        s'afficher ensemble. La confusion possible est d'un jour à l'autre, pas sur un écran.
+      </p>
+    </div>
+    <div>
+      <h4>La médaille — avec conséquence à l'écran</h4>
+      <p>
+        « Nouvelle médaille » (vert) et « jours avant l'entrée en vigueur » (couleur de marque)
+        partagent aussi un dessin. Mais ceux-là sont dans <strong>deux catégories
+        différentes</strong> — engagement et médaille. Depuis que les messages s'empilent, ils
+        peuvent apparaître <strong>l'un sous l'autre, en même temps</strong>.
+      </p>
+    </div>
+  </div>
+
+  <div style="max-width:560px">
+    <div class="mock-frame">
+      <div class="msgbox">
+        <span class="ico" style="background:#EBEFE9">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#4A6741" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 3H6a1.6 1.6 0 0 0-1.6 1.6v14.8A1.6 1.6 0 0 0 6 21h6"/>
+            <path d="M8 7.5h5M8 11h3.5"/><circle cx="17" cy="14.6" r="3.4"/>
+            <path d="M15.2 17.6 14.6 21l2.4-1.2 2.4 1.2-.6-3.4"/>
+          </svg>
+        </span>
+        <div class="msgtxt">
+          <p class="t">Votre protection n'est pas encore en vigueur</p>
+          <p class="m">Vos trajets sont enregistrés, mais ils compteront à partir du début de votre contrat.</p>
+        </div>
+      </div>
+      <div class="msgbox">
+        <span class="ico" style="background:#E6EFEA">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2F6B4E" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M14 3H6a1.6 1.6 0 0 0-1.6 1.6v14.8A1.6 1.6 0 0 0 6 21h6"/>
+            <path d="M8 7.5h5M8 11h3.5"/><circle cx="17" cy="14.6" r="3.4"/>
+            <path d="M15.2 17.6 14.6 21l2.4-1.2 2.4 1.2-.6-3.4"/>
+          </svg>
+        </span>
+        <div class="msgtxt">
+          <p class="t">Félicitations, vous avez reçu une médaille !</p>
+          <p class="m">Conduite en douceur — niveau or</p>
+          <span class="b">Réclamer ma médaille</span>
+        </div>
+      </div>
+      <p class="mock-cap"><span>Le même dessin, deux fois, sur un même écran</span><span>seule la teinte diffère</span></p>
+    </div>
+  </div>
+
+  <div class="ask">
+    <p class="eyebrow" style="margin-bottom:6px">À trancher — design, avant activation</p>
+    <p>
+      Cet écran est possible dès que « jours avant l'entrée en vigueur » est activé. Deux
+      pictogrammes identiques, superposés, distingués par une nuance de couleur : c'est illisible
+      au premier coup d'œil, et invisible pour quelqu'un qui distingue mal les couleurs.
+    </p>
+    <p>
+      Le nom du dessin, <code>policy_effective</code>, suggère qu'il a été créé pour le message de
+      police et réutilisé pour la médaille. Il faut donc probablement <strong>un dessin propre à
+      la médaille</strong> — ce qui touche aussi un message déjà en production.
+    </p>
+  </div>
+</section>
+
+<!-- ═══════════════════════════════════════════════════════ -->
+<section>
+  <div class="sec-head">
+    <p class="eyebrow" style="margin:0">Pour avancer</p>
+    <h2>Les décisions à prendre</h2>
+  </div>
+
+  <div class="tbl-wrap">
+    <table>
+      <thead>
+        <tr><th style="width:34%">Décision</th><th style="width:18%">Qui</th><th>Pourquoi maintenant</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Hauteur de la pile à quatre boîtes</td><td>Design</td>
+          <td>Les tuiles de navigation sortent de l'écran ; c'est le seul chemin vers les autres pages</td>
+        </tr>
+        <tr>
+          <td>Place de la catégorie « engagement » dans l'ordre</td><td>Produit</td>
+          <td>Les deux messages d'engagement sont en attente ; l'ordre n'a jamais été tranché</td>
+        </tr>
+        <tr>
+          <td>Un dessin propre à la médaille</td><td>Design</td>
+          <td>Sans ça, deux boîtes identiques peuvent se superposer</td>
+        </tr>
+        <tr>
+          <td>Décompte affiché, ou pas, pour la police</td><td>Contenu</td>
+          <td>Détermine s'il faut une clé de traduction qui accepte un nombre</td>
+        </tr>
+        <tr>
+          <td>Fermeture et bouton pour l'invitation</td><td>Produit + design</td>
+          <td>Message répété pendant quinze trajets, sans moyen de le refermer</td>
+        </tr>
+        <tr>
+          <td>Réécriture du texte « appareil non compatible »</td><td>Contenu</td>
+          <td>Les clés viennent du parcours d'adhésion, pas du tableau de bord</td>
+        </tr>
+        <tr>
+          <td>Raison de l'exclusion d'une marque</td><td>Télématique</td>
+          <td>Si la raison a disparu, le message et la règle disparaissent aussi</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <p class="eyebrow" style="margin-bottom:6px">Un point d'attention</p>
+    <p>
+      Ces quatre messages existent déjà dans l'ancien tableau de bord et sont vus par de vraies
+      personnes aujourd'hui — les masquer sur le nouvel écran est une décision temporaire, pas un
+      retrait. Tout écart visuel par rapport à l'existant est un choix à assumer explicitement ;
+      chacun est signalé à l'endroit qui le concerne dans ce document.
+    </p>
+  </div>
+</section>
+
+<footer>
+  WRU-26599 · Messages contextuels en attente · document de travail, maquettes à valider.
+  Complément du document consacré aux quatre messages actifs.
+</footer>
+
+</div>
+
+</body>
+</html>

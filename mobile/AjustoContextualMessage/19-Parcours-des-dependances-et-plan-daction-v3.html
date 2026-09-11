@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>notifyContextualMessage — parcours des dépendances et plan d'action v3 (doc 19)</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.1/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --panel2:#1c2230; --line:#30363d;
+    --tx:#e6edf3; --tx2:#9aa7b4; --acc:#58a6ff;
+    --ok:#3fb950; --warn:#d29922; --bad:#f85149; --info:#a371f7;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--tx);
+       font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  .wrap{max-width:1400px;margin:0 auto;padding:40px 28px 130px}
+  h1{font-size:33px;line-height:1.2;margin:0 0 6px;letter-spacing:-.02em}
+  .sub{color:var(--tx2);font-size:15px;margin-bottom:20px}
+  .meta{font-family:var(--mono);font-size:12.5px;color:var(--tx2);
+        background:var(--panel);border:1px solid var(--line);border-radius:8px;
+        padding:12px 16px;margin-bottom:36px}
+  h2{font-size:26px;margin:62px 0 8px;padding:24px 0 0;border-top:2px solid var(--acc);letter-spacing:-.01em}
+  h3{font-size:19px;margin:34px 0 10px;color:var(--acc)}
+  h4{font-size:16px;margin:24px 0 8px;color:var(--tx);font-weight:600}
+  p{margin:12px 0}
+  code{font-family:var(--mono);font-size:.9em;background:#1f2733;padding:2px 6px;border-radius:4px;color:#a5d6ff}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;
+      padding:16px 18px;overflow-x:auto;font-family:var(--mono);font-size:12.7px;line-height:1.6}
+  pre .c{color:#7d8590} pre .r{color:#ff7b72} pre .g{color:#7ee787} pre .y{color:#e3b341} pre .b{color:#79c0ff}
+  table{border-collapse:collapse;width:100%;margin:20px 0;font-size:13.3px}
+  th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);font-weight:600;color:var(--tx2);
+     text-transform:uppercase;font-size:11.3px;letter-spacing:.06em}
+  td code{font-size:11.8px}
+  tr:nth-child(even) td{background:#12171f}
+  .note{border-left:4px solid var(--acc);background:#12202f;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .warn{border-left:4px solid var(--warn);background:#241f10;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .bad{border-left:4px solid var(--bad);background:#2b1414;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .good{border-left:4px solid var(--ok);background:#0f2417;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .key{border-left:4px solid var(--info);background:#1d1630;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0}
+  .new{border-left:4px solid var(--info);background:#1d1630;padding:14px 18px;border-radius:0 8px 8px 0;margin:20px 0;font-size:14.5px}
+  .banner{background:var(--panel);border:1px solid var(--acc);border-radius:12px;padding:18px 24px;margin:26px 0}
+  .banner h3{margin:0 0 10px;color:var(--acc)}
+  .pill{display:inline-block;padding:2px 9px;border-radius:99px;font-size:11px;font-weight:600;font-family:var(--mono)}
+  .p-ok{background:#1d4a2c;color:#7ee787} .p-no{background:#5a1c1c;color:#ff9d94}
+  .p-mid{background:#5a4520;color:#ffd591} .p-info{background:#12293d;color:#9fd4ff}
+  .p-new{background:#2a1d47;color:#d2b8ff} .p-dead{background:#3d3d3d;color:#b0b0b0}
+  ul{margin:10px 0;padding-left:22px} li{margin:6px 0}
+  ol{margin:10px 0;padding-left:24px} ol li{margin:8px 0}
+  .toc{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 26px;margin:30px 0}
+  .toc a{color:var(--acc);text-decoration:none} .toc a:hover{text-decoration:underline}
+  .toc ol{margin:0;padding-left:22px} .toc li{margin:6px 0}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:20px 0}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin:20px 0}
+  @media(max-width:1000px){.grid2,.grid3{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+  .card h5{margin:0 0 8px;font-size:14px;color:var(--acc)}
+  .card.g{border-color:#1d4a2c} .card.g h5{color:#7ee787}
+  .card.r{border-color:#5a2020} .card.r h5{color:#ff9d94}
+  .card.w{border-color:#5a4520} .card.w h5{color:#ffd591}
+  .mermaid{min-width:100%;display:flex;justify-content:center;margin:26px 0}
+  .mermaid svg{max-width:none !important;height:auto !important}
+  .dep{background:#12171f;border:1px solid var(--line);border-radius:12px;padding:14px 20px 8px;margin:28px 0}
+  .dep h3{margin-top:6px}
+  .verd{font-size:13.5px;margin:8px 0 10px}
+  pre.parc{background:#0b0f15;border-color:#243040;font-size:12.4px;line-height:1.75}
+  pre.cible{background:#0f2417;border-color:#1d4a2c}
+  .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx2);margin:16px 0 6px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>notifyContextualMessage — parcours des dépendances et plan d'action <span style="color:#a371f7">v3</span></h1>
+<p class="sub">
+  Version ajustée : trois décisions tranchées, un blocage levé par les sources, une erreur
+  d'architecture corrigée, et l'arborescence des fichiers remise en conformité avec le dépôt réel.
+</p>
+
+<div class="banner">
+  <h3>Document 19 — ajuste le document 17</h3>
+  <p style="margin-bottom:6px">
+    Mise à jour au <b>10 septembre 2026</b>, après la relecture des sources de
+    <code>SharedPreferencesKeyValueStorage</code>, les décisions de ken sur les badges, le
+    « Bon à savoir » et les previews, et une vérification fichier par fichier du dépôt.
+  </p>
+  <p style="margin-bottom:0">
+    Ce qui a bougé porte <span class="pill p-new">V3</span>, <span class="pill p-mid">CORRIGÉ</span>
+    ou <span class="pill p-ok">TRANCHÉ</span>. Ce qui n'est pas marqué reste tel que le
+    <b>document 17</b> le décrit — ce document ne le recopie pas, il le met à jour. L'état des
+    lieux détaillé et les raisonnements sont dans le <b>document 18</b>.
+  </p>
+</div>
+
+<div class="meta">
+  <b>Légende des étages :</b>
+  🌐 serveur &nbsp;·&nbsp; 🛰️ SDK CMT natif &nbsp;·&nbsp; 📲 système du téléphone &nbsp;·&nbsp;
+  📱 androidApp &nbsp;·&nbsp; ☕ Core Java &nbsp;·&nbsp; 🟢 KMP<br>
+  <b>Statut des fichiers cités :</b> tout ce qui porte <code>WRU-26599-</code> est une
+  <b>proposition</b>, rien n'est fusionné. Les fichiers <code>-Backup</code> ne se suppriment jamais.<br>
+  Réserve : dépôt reconstitué — les points non vérifiables restent marqués
+  <span class="pill p-mid">À VÉRIFIER</span>.
+</div>
+
+<div class="toc">
+  <ol>
+    <li><a href="#s0">Ce qui a changé depuis la v2</a></li>
+    <li><a href="#s1">La chaîne cible — où se décide quoi</a></li>
+    <li><a href="#s2">Les entrées dont le verdict a changé</a></li>
+    <li><a href="#s3">Le bilan — les classes, fichier par fichier</a></li>
+    <li><a href="#s4">Le plan d'action — checklist réajustée</a></li>
+    <li><a href="#s5">Ce qui reste à trancher</a></li>
+  </ol>
+</div>
+
+<h2 id="s0">0 · Ce qui a changé depuis la v2</h2>
+
+<table>
+  <tr><th style="width:4%">#</th><th style="width:26%">Nouvelle information</th>
+      <th style="width:36%">Ce que ça change</th><th>Où c'est répercuté</th></tr>
+
+  <tr><td><b>1</b></td>
+      <td><span class="pill p-ok">TRANCHÉ</span> <b>D-F</b> — les sources de
+          <code>SharedPreferencesKeyValueStorage</code> sont lues</td>
+      <td>Le Core stocke en types <b>natifs</b>, sans sérialisation. Lire
+          <code>CLASSIFY_INVITE_DISMISSED</code> avec <code>Storage.getString()</code> lève une
+          <b><code>ClassCastException</code></b> — pas un <code>null</code>. Solution retenue :
+          étendre <code>Storage</code>, <b>Android d'abord, iOS plus tard</b></td>
+      <td>§2 entrées ④ et ⑫ · lots 3 et 5</td></tr>
+
+  <tr><td><b>2</b></td>
+      <td><span class="pill p-ok">TRANCHÉ</span> <b>Badges</b> — on reste derrière le SDK CMT</td>
+      <td>L'implémentation descend en <code>androidMain</code> de
+          <code>feature/ajusto/data</code>, dans <code>achievements/</code>. Le port reste en
+          <code>commonMain</code>. Plus d'attente côté backend pour ce lot</td>
+      <td>§2 entrée ③ · §3 · lot 4 débloqué</td></tr>
+
+  <tr><td><b>3</b></td>
+      <td><span class="pill p-ok">TRANCHÉ</span> <b>« Bon à savoir »</b> — un mock sur le patron
+          <code>history</code></td>
+      <td>Le port rend désormais une <b>liste</b> de conseils, dont on affiche le premier.
+          <code>dto/</code> et <code>http/</code> apparaissent enfin dans
+          <code>data/contextualmessage/</code>. La source réelle reste inconnue, mais elle
+          n'affecte plus que l'implémentation HTTP</td>
+      <td>§3 · lot 8</td></tr>
+
+  <tr><td><b>4</b></td>
+      <td><span class="pill p-mid">CORRIGÉ</span> <b>Le domaine évalue toujours les 8 règles</b></td>
+      <td>Le filtrage à 4 signaux actifs se fait <b>en présentation</b>, par
+          <code>ContextualMessageActivation</code>, pas en rognant le use case. C'est ce qui
+          garde l'invariant de parité vérifiable et rend l'activation progressive gratuite</td>
+      <td>§1 · lots 1 et 6</td></tr>
+
+  <tr><td><b>5</b></td>
+      <td><span class="pill p-mid">CORRIGÉ</span> <b>L'arborescence data du §3.3 était fausse</b></td>
+      <td>Le doc 17 décrivait <code>data/contextualmessage/</code> à plat. Le dépôt réel découpe
+          en <code>datasource/</code>, <code>dto/</code>, <code>http/</code>,
+          <code>repository/</code> — voir <code>data/summary/</code> et
+          <code>data/history/</code>. Corrigé et appliqué</td>
+      <td>§3 réécrit</td></tr>
+
+  <tr><td><b>6</b></td>
+      <td><span class="pill p-mid">CORRIGÉ</span> <b><code>mode</code> et
+          <code>numberOfTrips</code> ne sont PAS bloqués</b></td>
+      <td>Le document 18 §9 affirmait qu'aucun port n'existait : <b>c'est faux</b>, ma recherche
+          était trop étroite. <code>AccountRemoteDataSource.retrieve()</code> et
+          <code>Account.ajustoParameters</code> existent bien, et
+          <code>AccountPublicRepository.getAccountFlow()</code> offre même un <b>Flow</b>,
+          directement combinable. Le doc 17 avait raison</td>
+      <td>§2 entrées ⑤-⑥ · lot 6</td></tr>
+
+  <tr><td><b>7</b></td>
+      <td><span class="pill p-ok">RÉGLÉ</span> <code>contextualMessageStateFlow</code>, au singulier</td>
+      <td>Ce n'était pas un artefact de reconstitution mais une vraie faute de frappe, dans un
+          seul fichier. Corrigée. Le premier point du lot 0 tombe</td>
+      <td>lot 0</td></tr>
+
+  <tr><td><b>8</b></td>
+      <td><span class="pill p-new">V3</span> <b>Une convention de previews qui se vérifie
+          toute seule</b></td>
+      <td>Un catalogue d'exemplaires verrouillé sur la <code>sealed class</code> par un
+          <code>when</code> exhaustif, plus un test sur <code>sealedSubclasses</code> :
+          tout état déclaré obtient sa preview, sans que personne ait à y penser</td>
+      <td>§3 · lot 6</td></tr>
+</table>
+
+<div class="new">
+  <b>Ce qui n'a pas bougé :</b> la carte des 13 dépendances et leurs natures · le verdict sur les
+  bridgers (2 → 1 → 0) · le découpage en neuf lots et leur enchaînement · les trois algorithmes de
+  règles · le modèle à catégories et l'invariant reformulé · <code>AuthenticationHttpService</code>
+  toujours absent · <code>translations-kore.json</code> toujours vide.
+</div>
+
+<h2 id="s1">1 · La chaîne cible — où se décide quoi</h2>
+
+<p>
+  Le doc 17 décrit le chemin <em>actuel</em> — six flux assemblés dans le Core, une cascade qui
+  rend du texte déjà traduit, cinq couches traversées. Ça n'a pas changé. Ce qui change ici,
+  c'est la chaîne <b>cible</b>, et surtout l'endroit où chaque décision est prise.
+</p>
+
+<div class="mermaid">
+flowchart TB
+  A["13 signaux<br/>batterie · trajets · badges · compte · profil · marque"] --> B["AjustoContextualMessageRepositoryImpl<br/>combine → AjustoContextualSignals"]
+  B --> C["ResolveContextualMessagesUseCase<br/>les 8 règles, TOUJOURS évaluées<br/>groupBy → minBy priority → tri d'affichage"]
+  C --> D["AjustoSummaryUiStateV2.contextualMessages<br/>liste complète, non filtrée"]
+  D --> E["ContextualMessageActivation<br/>isEnabledInProduction — 4 actifs sur 8"]
+  E --> F["ContextualMessageMapper<br/>texte + icône + teinte"]
+  F --> G["AjustoSummaryMessageBox"]
+  classDef d fill:#161b22,stroke:#30363d,color:#e6edf3
+  classDef a fill:#12202f,stroke:#58a6ff,stroke-width:2px,color:#e6edf3
+  class A,B,C,D,F,G d
+  class E a
+</div>
+
+<div class="key">
+<b>Le principe, en une phrase :</b> le <b>domaine</b> répond à « quelle règle s'applique », la
+<b>présentation</b> répond à « qu'est-ce qu'on livre ce trimestre ». Ce sont deux questions de
+nature différente — l'une stable et portée par le code Java qu'on migre, l'autre volatile et
+décidée par le produit. Les coder au même endroit ferait qu'un changement de portée rouvre le
+code métier.
+</div>
+
+<p>
+  Concrètement, quatre signaux sur huit sortent aujourd'hui à l'écran — <code>GoodToKnow</code>,
+  <code>LowBattery</code>, <code>PowerSaving</code>, <code>Badge</code>. Les quatre autres sont
+  résolus, mappés et testés, mais filtrés avant l'affichage. Les activer, plus tard, c'est
+  déplacer une ligne d'un bloc à l'autre dans <code>ContextualMessageActivation</code> :
+  le domaine les résolvait déjà, le mapper les traduisait déjà, la vue les affichait déjà.
+</p>
+
+<div class="warn">
+<b>Pourquoi ça compte pour le lot 7.</b> Le critère de sortie de la migration est l'invariant
+<code>resolve(signals).filterNot { it is GoodToKnow }.firstOrNull() == cascadeJava(signals)</code>.
+Si le domaine n'évaluait que 4 règles sur 8, cette égalité deviendrait invérifiable — on perdrait
+le seul moyen mécanique de prouver qu'on n'a rien cassé. C'est la raison technique, pas seulement
+stylistique, pour laquelle le filtre est en présentation.
+</div>
+
+<h2 id="s2">2 · Les entrées dont le verdict a changé</h2>
+
+<p>
+  Les parcours des 13 entrées — d'où part l'appel, par quelles classes il passe — sont inchangés :
+  le <b>document 17 §2</b> reste la référence pour les neuf autres. Ne sont repris ici que celles
+  dont le <em>verdict</em> ou la <em>cible</em> ont bougé.
+</p>
+
+<div class="dep">
+<h3>③ <code>badges</code> — la liste des médailles <span class="pill p-mid">règle 7</span>
+    <span class="pill p-ok">TRANCHÉ</span></h3>
+
+<p>Le doc 17 laissait deux options ouvertes : rester derrière le SDK, ou obtenir du backend une
+route authentifiée autrement. <b>Décision de ken : rester derrière le SDK</b>, avec une
+dépendance <code>androidMain</code> uniquement.</p>
+
+<pre class="cible">🟢  <span class="g">domain / commonMain — le port, inchangé</span>
+    achievements/datasource/<span class="g">AjustoBadgeSource</span> + <span class="y">getAllBadges()</span>
+
+🟢  <span class="g">data / androidMain — l implementation, SDK CMT</span>
+    ajusto/data/<span class="y">achievements</span>/http/       <span class="c">reprend androidApp/core/impl/badge/http/</span>
+    ajusto/data/<span class="y">achievements</span>/dto/        <span class="c">reprend BadgesResponseParser + BadgeMapper</span>
+    ajusto/data/<span class="y">achievements</span>/datasource/  <span class="c">filtre level &lt;= 6 · reset a la deconnexion</span>
+
+    <span class="c">pourquoi achievements/ et pas contextualmessage/ :</span>
+    <span class="c">le port vit deja dans domain/achievements/, et les badges servent aussi</span>
+    <span class="c">a l ecran Realisations — ils ne sont pas propres au message contextuel</span></pre>
+
+<p class="verd">
+  <b>Ce que ça débloque :</b> le lot 4 n'attend plus personne. <b>Ce que ça coûte :</b> le graphe
+  DI Android doit fournir cette implémentation au repository, qui vit en <code>commonMain</code> —
+  schéma KMP habituel, mais à ne pas oublier. <b>Ce qui reste vrai :</b> les sept fichiers de
+  <code>androidApp/core/impl/badge/</code> sont <b>déjà en Kotlin</b> — c'est un déplacement, pas
+  une réécriture, et les originaux ne bougent pas.
+</p>
+</div>
+
+<div class="dep">
+<h3>④ <code>isDeviceCompatible</code> — appareil compatible <span class="pill p-mid">règle 2</span>
+    <span class="pill p-mid">CORRIGÉ</span></h3>
+
+<p>Le doc 17 concluait : « <code>Storage</code> n'a ni <code>getInt</code> ni <code>putInt</code> :
+encoder en String ». Les sources du Core montrent que ce contournement est <b>une mauvaise
+idée</b> — il ferait perdre le cache existant sur toutes les installations.</p>
+
+<pre class="parc">②  ☕  <span class="r">AjustoDeviceCompatibleImpl.java</span>     Core — 116 l.
+              cache : keyValueStorage.<span class="y">getInt/putInt</span>("IS_DEVICE_COMPATIBLE_KEY")
+              <span class="g">→ SharedPreferencesKeyValueStorage.putInt delegue a</span>
+              <span class="g">  sharedPreferences.edit().putInt(...) — un Integer NATIF</span>
+              <span class="r">⚠ D-A : le cache n est lu QUE lorsqu il est ABSENT, et publie alors false</span></pre>
+
+<pre class="cible">🟢  <span class="g">DeviceCompatibilityDataSource</span> — Ktor  <span class="r">⚠ route TOUJOURS absente du depot</span>
+🟢  cache : <span class="g">Storage</span> etendu avec <span class="y">getInt / putInt</span>
+       <span class="g">→ meme cle, meme type : les installations existantes gardent leur valeur</span>
+       <span class="r">✖ ne PAS encoder en String : getString sur un Integer leve ClassCastException</span>
+       <span class="y">DECISION D-A maintenue : corriger l inversion, ne pas la reproduire</span></pre>
+
+<p class="verd">
+  <b>Deux blocages distincts, un seul levé.</b> Le stockage est réglé ; la route serveur
+  <code>AuthenticationHttpService.isDeviceCompatible</code> reste introuvable et reste bloquante
+  côté backend.
+</p>
+</div>
+
+<div class="dep">
+<h3>⑤ et ⑥ <code>mode</code> et <code>numberOfTrips</code> <span class="pill p-mid">règle 5</span>
+    <span class="pill p-mid">CORRECTION DU DOC 18</span></h3>
+
+<div class="bad">
+<b>Correction d'une erreur de ma part.</b> Le document 18 §9 classait ces deux signaux comme
+bloqués, au motif qu'« aucun port ni repository exposant <code>AccountAjustoParameters</code>
+n'a été retrouvé ». <b>C'est faux.</b> Ma recherche portait sur le nom du type et ne pouvait pas
+trouver un port qui rend un <code>Account</code>. Le document 17 avait raison : il n'y a rien à
+écrire.
+</div>
+
+<pre class="cible">🟢  <span class="g">AccountRemoteDataSource.retrieve() : Result&lt;Account, AccountError&gt;</span>
+       modules/transverse/domain/…/account/ — <span class="g">suspend one-shot</span>
+🟢  <span class="g">Account.ajustoParameters : AccountAjustoParameters?</span>
+       <span class="g">→ mode : String?   ·   numberOfTrips : Int?</span>
+🟢  <span class="y">AccountPublicRepository.getAccountFlow() : Flow&lt;Account?&gt;</span>
+       <span class="y">← LE MEILLEUR CANDIDAT : c est deja un Flow, donc directement combinable</span>
+       <span class="c">deux appelants le prouvent : CmtRepositoryImpl et AccountRepositoryBridger</span>
+       <span class="pill p-mid">À VÉRIFIER</span> <span class="c">l interface elle-meme n est pas dans cette reconstitution</span>
+       <span class="c">(package ca.dgag.ajusto.profile.data.repository.legacy)</span></pre>
+
+<p class="verd">
+  <b>Ce que ça change pour le lot 6 :</b> une source de plus qui entre dans le
+  <code>combine()</code> sans poser le problème du « one-shot dans un flux ». À confirmer sur le
+  vrai dépôt, puis à préférer à <code>retrieve()</code>.
+  <span class="pill p-mid">D-H</span> reste ouvert : la comparaison
+  <code>mode == "continuous4"</code> est exacte et sensible à la casse — valeur à reconfirmer.
+</p>
+</div>
+
+<div class="dep">
+<h3>⑫ <code>CLASSIFY_INVITE_DISMISSED</code> <span class="pill p-mid">règle 5</span>
+    <span class="pill p-ok">D-F TRANCHÉ</span></h3>
+
+<p>C'était la question ouverte la plus incertaine du doc 17 : « même magasin, même encodage ? ».
+Les sources de la bibliothèque Mirego répondent aux deux.</p>
+
+<pre class="parc">②  ☕  <span class="r">SharedPreferencesKeyValueStorage</span>  — sources 1.413, <span class="g">LUES</span>
+              <span class="g">getBoolean(k, d) → sharedPreferences.getBoolean(k, d)      delegation DIRECTE</span>
+              <span class="g">putBoolean(k, v) → commitOrApply(edit().putBoolean(k, v))  type NATIF</span>
+              <span class="g">commitOrApply(e) → if (sync) e.commit() else e.apply()</span>
+       <span class="g">→ AUCUNE serialisation. La valeur est un java.lang.Boolean dans le XML.</span>
+
+    <span class="c">MEME MAGASIN, prouve :</span>
+    <span class="c">BootstrapImpl.getKeyValueStorage() = new SharedPreferencesKeyValueStorage(</span>
+    <span class="c">    getSharedPreferences(), <span class="y">true</span>)   ← sync = true, donc commit()</span>
+    <span class="c">getSharedPreferences()  = EncryptedPreferenceManager.getEncryptedSharedPreferences()</span>
+    <span class="c">                          ← la MEME instance que celle injectee dans StorageImpl</span></pre>
+
+<pre class="cible">🟢  <span class="g">Storage</span> etendu : <span class="y">getBoolean / putBoolean</span>  (+ getInt / putInt pour l entree ④)
+       <span class="g">→ zero migration · compatible avec ce qui est deja sur les telephones</span>
+       <span class="g">→ symetrique avec SCRATCHKeyValueStorage, qu on veut supprimer a terme</span>
+       <span class="g">→ semantique sync IDENTIQUE des deux cotes : StorageImpl fait deja</span>
+       <span class="g">  if (sync) commit() else apply(), et sync vaut true par defaut</span>
+       <span class="y">PORTEE : Android d abord. L implementation iOS sera regardee ensuite (ken)</span>
+🟢  <span class="g">ClassifyInviteRule</span> · signal renomme <span class="g">hasEverLabeledATrip</span> (D-D)</pre>
+
+<div class="bad">
+<b>Le piège à connaître :</b> <code>Storage.getString()</code> sur une clé écrite en
+<code>putBoolean</code> ne rend pas <code>null</code> — elle lève
+<code>ClassCastException: java.lang.Boolean cannot be cast to java.lang.String</code>, parce que
+<code>SharedPreferencesImpl.getString()</code> fait un cast non vérifié. Un <code>?: false</code>
+ou un <code>orEmpty()</code> ne protège de rien : le crash arrive avant.
+Seul <code>contains(key)</code> est sans risque — mais inutilisable comme substitut, puisque les
+deux écritures (<code>qualify()</code> et <code>disqualify()</code>) posent la même clé.
+</div>
+</div>
+
+<h3>Récapitulatif des 13 entrées</h3>
+
+<table>
+<tr><th style="width:6%">#</th><th style="width:24%">Entrée</th><th style="width:22%">Verdict v3</th><th>Ce qui bloque encore</th></tr>
+<tr><td>①</td><td><code>latestTrips</code></td><td>Adapter SDK CMT</td><td>API <code>SCRATCHObservable</code> à relire — lot 5</td></tr>
+<tr><td>②</td><td><code>isRecording</code></td><td>Adapter SDK CMT</td><td>idem — même fichier, 2<sup>e</sup> membre</td></tr>
+<tr><td>③</td><td><code>badges</code></td><td><span class="pill p-ok">Tranché — SDK, androidMain</span></td><td>rien</td></tr>
+<tr><td>④</td><td><code>isDeviceCompatible</code></td><td>Ktor + cache <code>Int</code></td><td><b>route serveur introuvable</b></td></tr>
+<tr><td>⑤⑥</td><td><code>mode</code>, <code>numberOfTrips</code></td><td><span class="pill p-ok">Rien à écrire</span></td><td>D-H : valeur exacte de <code>"continuous4"</code></td></tr>
+<tr><td>⑦⑧⑨</td><td>batterie, charge, éco</td><td><code>DeviceStateDataSource</code></td><td>décision « avant-plan seulement ? » — lot 2</td></tr>
+<tr><td>⑩</td><td>marque du téléphone</td><td>Valeur simple, déjà portée</td><td>produit : pourquoi Huawei ?</td></tr>
+<tr><td>⑪</td><td><code>policyEffectiveDate</code></td><td>Port existant</td><td>stratégie de rafraîchissement du profil</td></tr>
+<tr><td>⑫</td><td><code>CLASSIFY_INVITE_DISMISSED</code></td><td><span class="pill p-ok">Tranché — étendre Storage</span></td><td>iOS, plus tard</td></tr>
+<tr><td>⑬</td><td>les 19 textes</td><td>Port existant</td><td><b><code>translations-kore.json</code> vide</b></td></tr>
+</table>
+
+<h2 id="s3">3 · Le bilan — les classes, fichier par fichier</h2>
+
+<h3>3.1 · Le compte des bridgers — inchangé</h3>
+
+<p>
+  Deux bridgers sortants aujourd'hui, plus le shim. Un seul après cette migration —
+  <code>CmtTripSignalsDataSource</code>, deux booléens, aucune décision transportée. Zéro après
+  le portage du wrapper SDK CMT, à l'horizon 2 : même fichier, même contrat, seul son corps
+  change. Le doc 17 §3.2 reste exact.
+</p>
+
+<h3>3.2 · L'arborescence réelle <span class="pill p-mid">RÉÉCRIT</span></h3>
+
+<p>
+  Le §3.3 du doc 17 décrivait <code>data/contextualmessage/</code> à plat. Le dépôt découpe en
+  <code>datasource/ · dto/ · http/ · repository/</code>. Voici l'état <b>vérifié</b> sur le
+  dépôt, avec ce qui existe, ce qui est à créer et ce qui est à refaire.
+</p>
+
+<pre><span class="c">modules/feature/ajusto/domain/src/commonMain/…/ajusto/domain/</span>
+├── contextualmessage/
+│   ├── model/
+│   │   ├── <span class="g">WRU-26599-AjustoContextualMessage.kt</span>      sealed, 8 variantes, zero texte
+│   │   ├── <span class="g">WRU-26599-AjustoContextualSignals.kt</span>      les 13 signaux, valeurs par defaut
+│   │   ├── <span class="g">WRU-26599-AjustoMessageGroup.kt</span>           ADVICE · DEVICE · ENGAGEMENT · BADGE
+│   │   └── <span class="g">WRU-26599-AjustoBadgeScope.kt</span>             7 familles — TURN exclu, documente
+│   ├── rule/
+│   │   ├── <span class="g">WRU-26599-ClassifyInviteRule.kt</span>           <span class="c">port de ClassifyInviteChecker</span>
+│   │   ├── <span class="g">WRU-26599-BadgeScopeResolver.kt</span>           <span class="c">port de BadgeScoper, sans mutation</span>
+│   │   ├── <span class="g">WRU-26599-TopClaimableBadgeSelector.kt</span>    <span class="c">port de TopClaimableBadgeFinder</span>
+│   │   └── <span class="g">WRU-26599-RemainingDaysUntilPolicyRule.kt</span>
+│   ├── usecase/
+│   │   └── <span class="g">WRU-26599-ResolveContextualMessagesUseCase.kt</span>
+│   │       <span class="y">   CASCADE COMPLETE des 8 regles — jamais rognee (voir §1)</span>
+│   ├── repository/
+│   │   └── <span class="g">WRU-26599-AjustoContextualMessageRepository.kt</span>
+│   └── datasource/
+│       ├── <span class="g">WRU-26599-CmtTripSignalsDataSource.kt</span>     LE seul port dependant du Core
+│       ├── <span class="g">WRU-26599-AjustoRecentTrip.kt</span>             3 champs, aucun type CMT
+│       └── <span class="y">WRU-26599-AjustoTipDataSource.kt</span>          <span class="y">← A MODIFIER : rend une LISTE</span>
+├── achievements/datasource/
+│   ├── <span class="c">AjustoBadgeSource.kt</span>                          existant, inchange
+│   └── <span class="g">WRU-26599-AjustoBadgeSourceV2.kt</span>              + getAllBadges(), liste BRUTE
+└── summary/shim/                                    <span class="r">← SUPPRIME au lot 7</span>
+
+<span class="c">modules/feature/ajusto/data/src/commonMain/…/ajusto/data/contextualmessage/</span>
+├── datasource/
+│   ├── <span class="g">WRU-26599-RecentTripsFilter.kt</span>               90 j / police / hors Mulligan
+│   ├── <span class="g">WRU-26599-DeviceCompatibilityDataSource.kt</span>   <span class="y">✔ cache Int + correction D-A, fait le 10/09</span>
+│   ├── <span class="g">WRU-26599-AjustoBadgeDataSourceImpl.kt</span>       <span class="r">✔ DESCENDU en androidMain le 10/09</span>
+│   ├── <span class="g">WRU-26599-KtorAjustoTipDataSource.kt</span>         <span class="y">✔ rebranche sur http/ le 10/09</span>
+│   ├── <span class="b">WRU-26599-AjustoBadgeDataSourceImpl-Backup.kt</span>      <span class="r">NE JAMAIS SUPPRIMER</span>
+│   └── <span class="b">WRU-26599-DeviceCompatibilityDataSource-Backup.kt</span>  <span class="r">NE JAMAIS SUPPRIMER</span>
+├── <span class="y">dto/</span>                                            <span class="y">✔ CREE le 10/09 (lot 8)</span>
+│   └── <span class="y">WRU-26599-TipDto.kt</span>                         @Serializable + toDomain()
+├── <span class="y">http/</span>                                           <span class="y">✔ CREE le 10/09 (lot 8)</span>
+│   ├── <span class="y">WRU-26599-TipHttpService.kt</span>                 fun interface
+│   └── <span class="y">WRU-26599-MockTipHttpService.kt</span>             liste de conseils en dur
+└── repository/
+    └── <span class="g">WRU-26599-AjustoContextualMessageRepositoryImpl.kt</span>
+        <span class="y">   combine + reset a la deconnexion · renseigne TOUS les signaux disponibles</span>
+
+<span class="c">modules/feature/ajusto/data/src/androidMain/…/ajusto/data/</span>
+├── contextualmessage/datasource/
+│   └── <span class="g">WRU-26599-AndroidCmtTripSignalsDataSource.kt</span>  <span class="r">init = TODO() — lot 5</span>
+└── <span class="y">achievements/</span>                                   <span class="y">✔ CREE le 10/09 (lot 4)</span>
+    ├── <span class="y">http/       WRU-26599-BadgeHttpService.kt</span>    <span class="c">SDK CMT — passThruRequester</span>
+    ├── <span class="y">dto/        WRU-26599-BadgeDto.kt</span>            <span class="c">+ parser + mapper</span>
+    └── <span class="y">datasource/ WRU-26599-AjustoBadgeDataSourceImpl.kt</span>
+
+<span class="c">modules/feature/ajusto/presentation/src/commonMain/…/summary/</span>
+├── <span class="c">AjustoSummaryUiState.kt · AjustoSummaryViewModel.kt</span>    existants, INCHANGES
+├── <span class="y">WRU-26599-AjustoSummaryUiStateV2.kt</span>       <span class="y">✔ FAIT le 10/09 — recopie integrale, 392 l.</span>
+├── <span class="y">WRU-26599-AjustoSummaryViewModelV2.kt</span>     <span class="y">✔ FAIT le 10/09 — recopie integrale, 255 l.</span>
+├── <span class="g">WRU-26599-ContextualMessageMapper.kt</span>      cas → icone, teinte, texte
+└── <span class="y">ContextualMessageActivation.kt</span>            <span class="y">✔ RENOMME le 10/09</span>
+    <span class="c">   le filtre d affichage — 4 actifs sur 8 (voir §1)</span>
+
+<span class="c">modules/transverse/domain/…/device/</span>
+├── <span class="g">WRU-26599-DeviceStateDataSource.kt</span>           commonMain — 3 StateFlow + 1 valeur
+└── <span class="g">WRU-26599-AndroidDeviceStateDataSource.kt</span>     androidMain — receivers, seuil 20 %
+
+<span class="c">shared/ + androidApp/ — l extension de Storage</span>   <span class="y">✔ CREE le 10/09 (§2 ④ et ⑫)</span>
+├── <span class="y">shared/…/kore/data/repository/WRU-26599-TypedStorage.kt</span>
+│       <span class="c">interface TypedStorage : Storage  — + getBoolean/putBoolean/getInt/putInt</span>
+│       <span class="c">on ne modifie PAS Storage.kt : une 2e interface, fusionnee au moment du merge</span>
+└── <span class="y">androidApp/…/kore/info/platform/WRU-26599-TypedStorageImpl.kt</span>
+        <span class="c">delegue aux memes accesseurs natifs que le Core · sync = commit()</span>
+        <span class="y">ANDROID SEULEMENT pour l instant — iOS sera regarde ensuite (ken)</span>
+
+<span class="c">androidApp/…/feature/ajusto/presentation/summary/</span>
+├── view/
+│   ├── <span class="c">AjustoSummaryScreen.kt</span>                    <span class="y">TODO : y deplacer les 2 fonctions de preview a la fusion</span>
+│   └── <span class="y">WRU-26599-AjustoSummaryMessageBox.kt</span>      <span class="y">✔ previews refaites le 10/09</span>
+└── preview/
+    ├── <span class="c">AjustoSummaryMockProvider.kt · …ScoreGauge… · …TripGauge…</span>   existants
+    ├── <span class="y">WRU-26599-ContextualMessageMockCatalog.kt</span>    <span class="y">✔ CREE le 10/09</span>
+    └── <span class="y">WRU-26599-AjustoSummaryMessageBoxMockProvider.kt</span> <span class="y">✔ CREE le 10/09</span>
+
+<span class="c">ad-digital-mobile-core-lib/  — 377 lignes de decision qui ne sont plus appelees</span>
+<span class="r">AjustoContextualMessageHelper 183 l. · ClassifyInviteChecker + Qualifier 80 l.</span>
+<span class="r">BadgeScoper 81 l. · TopClaimableBadgeFinder 33 l. · notifyContextualMessage() 45 l.</span></pre>
+
+<div class="note">
+<b>Rappel de la règle de travail.</b> Aucun fichier source existant n'est déplacé ni modifié :
+quand un fichier doit changer de place, on crée l'équivalent préfixé au bon endroit et l'original
+reste intact jusqu'à la fusion du lot. C'est ce qui permet de livrer ces neuf lots comme des
+propositions relisables, et de revenir en arrière sans rien perdre.
+</div>
+
+<h3>3.3 · Les previews qui se vérifient toutes seules <span class="pill p-new">V3</span></h3>
+
+<p>
+  La convention de l'écran est déjà posée : les jeux de données vivent dans des classes
+  <code>…MockProvider</code> du paquet <code>preview/</code>, les fonctions de preview sont
+  centralisées dans <code>AjustoSummaryScreen.kt</code>, et elles utilisent <code>@DgagPreview</code>
+  et <code>@TpicPreview</code> plutôt que <code>@Preview</code> nu. Mes previews actuelles de
+  <code>AjustoSummaryMessageBox</code> font le contraire des trois — à aligner.
+</p>
+
+<p>
+  Mais on peut aller plus loin que « ne pas oublier d'ajouter une preview ». L'idée est de
+  <b>dériver</b> les previews de la hiérarchie scellée, avec deux garde-fous complémentaires.
+</p>
+
+<div class="grid2">
+<div class="card g">
+<h5>Garde-fou 1 — le compilateur</h5>
+<p>Un <code>when</code> exhaustif <b>sans <code>else</code></b> dans le catalogue. Le jour où
+quelqu'un ajoute un 9<sup>e</sup> type au sealed, le fichier <b>cesse de compiler</b> : impossible
+de l'ignorer, il faut venir y ajouter son exemplaire.</p>
+<p>C'est exactement le même mécanisme que <code>ContextualMessageActivation</code> — deux
+fichiers, un seul principe.</p>
+</div>
+<div class="card w">
+<h5>Garde-fou 2 — la CI</h5>
+<p>Le <code>when</code> force à <em>ouvrir</em> le fichier ; il ne force pas à <em>remplir</em> la
+liste. Un test compare le catalogue à
+<code>AjustoContextualMessage::class.sealedSubclasses</code> et échoue si un type n'a pas
+d'exemplaire.</p>
+<p>Les deux ensemble donnent la garantie : <b>état déclaré ⇒ preview générée</b>.</p>
+</div>
+</div>
+
+<p>
+  Le <code>PreviewParameterProvider</code> dérive du catalogue, et Compose génère une preview par
+  valeur de la séquence. Trois familles de valeurs : la <b>liste vide</b> — l'état normal à ne pas
+  régresser —, chaque type <b>un par un</b>, et enfin l'<b>empilement réel</b> filtré par
+  <code>ContextualMessageActivation</code>, qui documente visuellement ce que la production
+  affiche aujourd'hui.
+</p>
+
+<p>
+  Bénéfice secondaire : les previews passent par le <b>vrai</b> <code>ContextualMessageMapper</code>.
+  Si une clé de traduction ou une teinte change, la preview le montre, au lieu de mentir avec des
+  chaînes écrites à la main — ce que font mes previews actuelles. Et le catalogue devient le jeu
+  d'exemples commun aux tests du use case et à ceux du mapper.
+</p>
+
+<div class="warn">
+<b>Les limites, dites franchement.</b> Compose nomme les previews <b>par index</b>, pas par type :
+le panneau affichera « … 1, 2, 3 » — les titres des <code>MessageBox</code> les rendent malgré tout
+identifiables. <code>sealedSubclasses</code> ne rend que les sous-classes <b>directes</b> :
+suffisant ici, la hiérarchie est plate, mais la garantie tomberait si on imbriquait des
+sous-<code>sealed</code>. Enfin, un exemplaire par type ne couvre pas les <em>variantes</em> d'un
+même type — badge or contre argent, 1 jour contre 30 : le catalogue peut en porter plusieurs, mais
+la garantie porte sur « au moins un par type ».
+</div>
+
+<h2 id="s4">4 · Le plan d'action</h2>
+
+<div class="mermaid">
+flowchart TD
+  L0["LOT 0 — correctifs + verifications<br/>0,5 j — un point deja fait"]:::m
+  L1["LOT 1 — SOCLE DOMAINE<br/>8 regles + group/priority<br/>+ table de verite · 3,5 j"]:::n
+  L2["LOT 2 — signaux du telephone en natif<br/>2 j"]:::k
+  L3["LOT 3 — compatibilite en Ktor<br/>2 j + 0,5 j Storage etendu"]:::n
+  L4["LOT 4 — rebrancher les badges<br/>2,5 j — DEBLOQUE"]:::k
+  L5["LOT 5 — adapter SDK CMT<br/>2 j"]:::n
+  L6["LOT 6 — data + presentation + UI<br/>4 j — point de non-retour"]:::m
+  L7["LOT 7 — suppression des ponts + parite<br/>2 j"]:::c
+  L8["LOT 8 — Bon a savoir<br/>2 j — APRES la parite"]:::n
+  H["HORIZON 2<br/>wrapper KMP du SDK CMT · iOS"]:::s
+  L0 --> L1
+  L1 --> L2 & L3 & L4 & L5
+  L2 & L3 & L4 & L5 --> L6 --> L7 --> L8 --> H
+  L2 -.->|"condition imperative"| L7
+  classDef c fill:#2b1414,stroke:#f85149,color:#ff9d94
+  classDef m fill:#241f10,stroke:#d29922,color:#ffd591
+  classDef n fill:#1d1630,stroke:#a371f7,color:#d2b8ff
+  classDef k fill:#0f2417,stroke:#3fb950,color:#7ee787
+  classDef s fill:#12202f,stroke:#58a6ff,color:#9fd4ff
+</div>
+
+<p>
+  ≈ 21 jours cumulés, ≈ 13 jours de chemin critique — l'enchaînement du doc 17 ne change pas.
+  Ce qui change, c'est que <b>deux lots n'attendent plus de réponse extérieure</b> : le lot 4
+  (décision badges) et la moitié stockage du lot 3 (D-F). Le lot 2 doit toujours être terminé
+  <b>avant</b> le lot 7, sinon les bandeaux réseau et localisation disparaissent du Summary avec
+  le shim.
+</p>
+
+<h3>4.1 · La checklist réajustée</h3>
+
+<pre><span class="c">AVANT DE COMMENCER</span>
+<span class="g">✔ DeviceInfoImpl.kt — COMPLETE (236 l.) : seuil 20 %, Huawei, 4 capteurs, receivers</span>
+<span class="g">✔ transverse/presentation — 6 des 8 fichiers bloquants sont COMPLETS</span>
+<span class="g">✔ D-F TRANCHE — sources de SharedPreferencesKeyValueStorage lues : types NATIFS,</span>
+<span class="g">  meme magasin (EncryptedPreferenceManager), meme semantique sync. Voir §2 ⑫</span>
+<span class="g">✔ BADGES TRANCHE — on reste derriere le SDK CMT, en androidMain. Voir §2 ③</span>
+<span class="g">✔ BON A SAVOIR TRANCHE — mock + patron dto/http de history, on affiche le 1er de la liste</span>
+<span class="g">✔ mode / numberOfTrips — le port existe (correction du doc 18). Voir §2 ⑤⑥</span>
+<span class="r">☐ transverse/presentation — 2 fichiers RESTANTS, toujours bloquants pour les lots 6 et 7</span>
+<span class="r">  state/icon/IconKey.kt              placeholder 75 o</span>
+<span class="r">  resources/translations-kore.json   FICHIER VIDE (0 o) — sans lui, RIEN ne compile</span>
+☐ ./gradlew build sur le VRAI depot — etablir la ligne de base
+<span class="r">☐ Retrouver la route de AuthenticationHttpService.isDeviceCompatible   (toujours absente)</span>
+<span class="y">☐ PRODUIT — dans quelle categorie vont « invitation a etiqueter » et « jours avant la police » ?</span>
+<span class="y">  Rappel : les retirer serait une REGRESSION, le Dashboard les affiche aujourd hui</span>
+<span class="y">☐ PRODUIT — le conseil passe-t-il vraiment AU-DESSUS d une alerte batterie ?</span>
+<span class="y">☐ PRODUIT / TELEMATIQUE — pourquoi Huawei est-il exclu ? Aucun commentaire dans le code</span>
+<span class="y">☐ D-H — reconfirmer la valeur exacte de CONTINUOUS_V4 ("continuous4" ?), casse comprise</span>
+☐ Question backend : l API renvoie-t-elle des badges groupIdentifier = TURN ? (D1)
+<span class="c">→ iOS : volontairement HORS PORTEE pour l instant (decision ken). A rouvrir apres Android</span>
+
+<span class="c">LOT 0 — CORRECTIFS BLOQUANTS                                        0,5 j</span>
+<span class="g">✔ contextualMessagesStateFlow -&gt; contextualMessageStateFlow — FAIT, 1 fichier, 2 occurrences</span>
+<span class="y">☐ KoreInitializer l. 82-83 : verifier ce qui alimente ajustoBadgeSource maintenant</span>
+<span class="y">  que le bridger badge n existe plus</span>
+☐ Supprimer init { startObserving() } de AjustoContextualMessageBridger
+☐ Passer subscribe() en private (aucun appelant externe)
+☐ La branche compile
+
+<span class="c">LOT 1 — SOCLE DOMAINE                                               3,5 j</span>
+<span class="g">✔ model/ · rule/ · usecase/ — ecrits, prefixes WRU-26599 (proposition)</span>
+<span class="y">☐ La cascade reste COMPLETE : 8 regles evaluees, jamais rognee (voir §1)</span>
+☐ Les 24 cas de la table de verite + les tests des 3 algorithmes
+<span class="y">☐ Nouveaux cas : Huawei+batterie+eco → UN message · conseil+batterie+badge → TROIS</span>
+<span class="y">  · rien du tout → LISTE VIDE (etat normal, pas une erreur)</span>
+<span class="y">☐ Ecarts assumes, a commenter dans le code : D-I · D-K · D-D · D-B</span>
+☐ Couverture domain/contextualmessage = 100 %
+<span class="c">  Critere de sortie : tout compile, rien n est branche, zero risque de regression</span>
+
+<span class="c">LOT 2 — SIGNAUX DU TELEPHONE EN NATIF                                 2 j</span>
+<span class="g">✔ DeviceStateDataSource + AndroidDeviceStateDataSource — ecrits (proposition)</span>
+<span class="g">  constantes reelles reprises : 20 %, EXTRA_STATUS == CHARGING, isPowerSaveMode, huawei</span>
+☐ Receivers : ACTION_BATTERY_CHANGED et ACTION_POWER_SAVE_MODE_CHANGED
+<span class="y">☐ DECISION : garder « receivers en avant-plan seulement » ou ecouter en continu ?</span>
+☐ DeviceInfoKore ne delegue plus au Core
+<span class="y">☐ TEST INSTRUMENTE : un vrai changement de batterie fait emettre le flow</span>
+<span class="c">  Critere de sortie : le test instrumente passe — sinon le message n apparaitra jamais</span>
+
+<span class="c">LOT 3 — COMPATIBILITE DE L APPAREIL                             2 j + 0,5 j</span>
+<span class="y">☐ NOUVEAU : TypedStorage + TypedStorageImpl — getBoolean/putBoolean/getInt/putInt</span>
+<span class="y">  ANDROID SEULEMENT. Delegation directe, meme semantique sync que le Core</span>
+<span class="g">✔ le cache reste un Int sous IS_DEVICE_COMPATIBLE_KEY — plus d encodage String</span>
+<span class="g">  → les installations existantes gardent leur valeur au lieu de repartir de zero</span>
+<span class="r">☐ BLOQUE : POST + DTO, en attente de la route serveur</span>
+<span class="y">☐ DECISION D-A : corriger l inversion du cache (recommande), ne pas la reproduire</span>
+☐ Test : cache present / absent / reponse serveur en retard
+
+<span class="c">LOT 4 — REBRANCHER LES BADGES                              2,5 j — DEBLOQUE</span>
+<span class="g">✔ Signature de la requete TRANCHEE : on reste derriere le SDK CMT (createPassThruRequester)</span>
+<span class="y">☐ Creer data/src/androidMain/…/ajusto/data/achievements/{http,dto,datasource}/</span>
+<span class="y">  en reprenant les 7 fichiers de androidApp/core/impl/badge/ — SANS les deplacer</span>
+☐ getAllBadges() — la liste brute, pas l agregat
+☐ Conserver le filtre level &lt;= 6 et la remise a zero a la deconnexion
+<span class="y">☐ DI Android : fournir l implementation au repository, qui vit en commonMain</span>
+
+<span class="c">LOT 5 — ADAPTER DU SDK CMT                                            2 j</span>
+<span class="y">☐ Lire CMTTripProvider / CMTTripManager — PAS TripService</span>
+<span class="r">☐ AndroidCmtTripSignalsDataSource.init est un TODO() : l abonnement reel reste a ecrire</span>
+☐ RecentTripsFilter porte en Kotlin + test de parite
+☐ Helper asFlow() avec awaitClose · relecture par un connaisseur SCRATCH
+
+<span class="c">LOT 6 — DATA + PRESENTATION + UI                                      4 j</span>
+☐ Repository : combine GROUPE (combine imbriques types), pas la variante vararg
+<span class="y">☐ Renseigner TOUS les signaux disponibles, pas seulement ceux des 4 actifs</span>
+<span class="y">☐ mode / numberOfTrips : preferer AccountPublicRepository.getAccountFlow() — c est un Flow</span>
+☐ flatMapLatest sur authStateFlow, reset uniquement sur NOT_AUTH
+☐ Valeur initiale pour la date de police · distinctUntilChanged sur la LISTE entiere
+<span class="y">☐ REFAIRE les deux V2 en recopie INTEGRALE, avec un commentaire en regard de chaque ajout</span>
+<span class="y">☐ RENOMMER ContextualMessageActivation.kt avec le prefixe WRU-26599</span>
+<span class="y">☐ Mapping : REPRODUIRE le Dashboard — « Felicitations… » pour le badge, 4 teintes + DEFAULT</span>
+☐ OnClaimBadge(badgeIdentifier) · NavigateToClaimedBadgeView(badgeIdentifier)
+☐ Analytics : un evenement par message affiche, avec sa position
+<span class="y">☐ Prevenir l equipe data AVANT : le KPI « batterie faible » va chuter</span>
+☐ MessageBox insere APRES InformationalList, AVANT les tuiles · key() stable par type
+<span class="y">☐ PREVIEWS : catalogue + provider derive + test sealedSubclasses (voir §3.3)</span>
+<span class="y">  passer aux @DgagPreview / @TpicPreview centralisees dans AjustoSummaryScreen.kt</span>
+☐ Koin : AjustoDataModule + KoreStartupInputKoinModule + KoreInitializer
+
+<span class="c">LOT 7 — SUPPRESSION DES PONTS + NON-DIVERGENCE                        2 j</span>
+<span class="r">☐ Le lot 2 DOIT etre termine — sinon les bandeaux reseau et localisation tombent</span>
+<span class="r">☐ SUPPRIMER AjustoContextualMessageBridger · AjustoContextualMessageSource</span>
+<span class="r">           AjustoSummaryShim · AjustoSummaryShimImpl</span>
+☐ Verifier qu aucun import ca.dgag.ajusto.core ne subsiste dans le chemin du message
+☐ ContextualMessageTruthTable — 24 cas, fichier de donnees versionne
+<span class="y">☐ INVARIANT : resolve(s).filterNot { it is GoodToKnow }.firstOrNull() == cascadeJava(s)</span>
+<span class="y">  → verifiable UNIQUEMENT parce que le domaine evalue les 8 regles (§1)</span>
+☐ Harnais JVM cote core-lib + harnais commonTest cote KMP · les deux en CI
+<span class="y">☐ La parite ne voit PAS les defauts de rendu (teinte, bouton, icones) — les tester a part</span>
+
+<span class="c">LOT 8 — BON A SAVOIR                                                  2 j</span>
+<span class="g">✔ Approche TRANCHEE : mock + patron dto/http de history</span>
+<span class="y">☐ TipDto + toDomain() · TipHttpService + MockTipHttpService · rebrancher le datasource</span>
+<span class="y">☐ Le port rend une LISTE ; on affiche le PREMIER (ordre serveur fait foi)</span>
+☐ 8e branche · icone LightBulb / BLUE (elle existe deja, drawable inclus)
+<span class="r">☐ La source REELLE reste inconnue — seule l implementation HTTP changera</span>
+<span class="c">  JAMAIS avant la parite</span>
+
+<span class="c">LOT iOS — REPOUSSE (decision ken, 10 septembre)</span>
+☐ Implementation iOS de Storage / TypedStorage
+☐ CmtTripSignalsAdapter.swift · DeviceStateAdapter.swift · le MessageBox SwiftUI</pre>
+
+<h3>4.2 · Le critère de succès</h3>
+<div class="good">
+  <ol style="margin-bottom:0">
+    <li>Un <code>grep</code> sur <code>ca.dgag.ajusto.core</code> dans le chemin du message —
+      du repository jusqu'au composable — ne remonte <b>rien</b>.</li>
+    <li><code>shared/</code> ne contient plus aucun fichier du package
+      <code>ajusto/domain/summary/shim</code>.</li>
+    <li>Les 24 cas de la table de vérité passent <b>des deux côtés</b>, Java et Kotlin,
+      avec l'invariant reformulé.</li>
+    <li>Les messages s'affichent sur le Summary avec la bonne icône et la bonne teinte,
+      <b>au plus un par catégorie</b>, sur les deux marques — et la zone vide est un état géré.</li>
+    <li>Il ne reste <b>aucun pont porteur de décision</b> : le seul adapter Core-dépendant
+      transporte deux booléens.</li>
+    <li><span class="pill p-new">V3</span> Activer un signal désactivé se fait en déplaçant
+      <b>une seule ligne</b> dans <code>ContextualMessageActivation</code>, sans toucher au
+      domaine, au mapper ni à la vue.</li>
+    <li><span class="pill p-new">V3</span> Ajouter un 9<sup>e</sup> type de message
+      <b>casse la compilation</b> à deux endroits — l'activation et le catalogue de previews —
+      tant que quelqu'un n'a pas décidé s'il s'affiche et à quoi il ressemble.</li>
+  </ol>
+</div>
+
+<h2 id="s5">5 · Ce qui reste à trancher</h2>
+
+<table>
+<tr><th style="width:26%">Sujet</th><th style="width:38%">État</th><th style="width:18%">Qui tranche</th><th>Lot</th></tr>
+<tr><td>Route <code>isDeviceCompatible</code></td><td>Endpoint introuvable — chemin, méthode et payload inconnus. <b>Seul blocage dur restant</b></td><td>Backend</td><td>3</td></tr>
+<tr><td><code>translations-kore.json</code></td><td>Fichier vide : sans lui, <code>generateTranslations</code> ne produit rien et le mapper ne compile pas</td><td>Lokalise</td><td>6 — préalable</td></tr>
+<tr><td><code>IconKey.kt</code></td><td>Encore un placeholder — bloque le mapping d'icônes</td><td>Équipe</td><td>6 — préalable</td></tr>
+<tr><td>Abonnement réel CMT</td><td><code>AndroidCmtTripSignalsDataSource.init</code> est un <code>TODO()</code> : l'API <code>SCRATCHObservable</code> n'a pas été relue</td><td>Relecture SCRATCH</td><td>5</td></tr>
+<tr><td>D-H — <code>CONTINUOUS_V4</code></td><td>Comparaison exacte, sensible à la casse, avec <code>"continuous4"</code> — à reconfirmer</td><td>Vérification code</td><td>1</td></tr>
+<tr><td>Rafraîchissement du profil CMT</td><td><code>fetchProfile()</code> est un <code>suspend</code> ponctuel : stratégie de cache pour l'intégrer au <code>combine()</code> non tranchée</td><td>Équipe / archi</td><td>6</td></tr>
+<tr><td>Catégorie d'ENGAGEMENT</td><td>Où vont « invitation à étiqueter » et « jours avant la police » dans l'ordre d'affichage</td><td>Produit</td><td>1</td></tr>
+<tr><td>Exclusion Huawei</td><td>Aucun commentaire dans le code d'origine. Si le motif a disparu, la règle 1 aussi</td><td>Produit / télématique</td><td>1</td></tr>
+<tr><td><code>Storage</code> côté iOS</td><td><span class="pill p-mid">REPOUSSÉ</span> On fait Android d'abord, on regarde iOS ensuite</td><td>ken — plus tard</td><td>3, 5</td></tr>
+<tr><td><span class="pill p-ok">RÉGLÉ</span> Quel Tip afficher</td><td>Le premier de la liste — l'ordre serveur fait foi</td><td>—</td><td>8</td></tr>
+<tr><td><span class="pill p-ok">RÉGLÉ</span> Signature de la requête badges</td><td>On reste derrière le SDK CMT, en androidMain</td><td>—</td><td>4</td></tr>
+<tr><td><span class="pill p-ok">RÉGLÉ</span> D-F — encodage du Storage</td><td>Types natifs, même magasin. Étendre <code>Storage</code></td><td>—</td><td>3, 5</td></tr>
+</table>
+
+<p style="color:var(--tx2);font-size:13px;margin-top:44px;border-top:1px solid var(--line);padding-top:16px">
+  <b>Document 19 · 10 septembre 2026 · ajuste le document 17.</b><br>
+  État des lieux détaillé, inventaire des 28 fichiers et raisonnements : document 18.
+  Parcours complet des 13 dépendances : document 17 §2.
+  Anatomie de <code>findContextualMessage()</code> : document 14.
+  Les deux algorithmes de la cascade : document 15.
+</p>
+
+</div>
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'dark',
+    themeVariables: { fontSize: '14px', fontFamily: 'ui-monospace,Menlo,monospace' },
+    flowchart: { useMaxWidth: false, htmlLabels: true, curve: 'basis' }
+  });
+</script>
+</body>
+</html>
