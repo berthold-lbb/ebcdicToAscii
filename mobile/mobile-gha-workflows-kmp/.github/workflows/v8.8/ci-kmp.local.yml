@@ -1,10 +1,48 @@
-name: "Reusable - CI KMP Mobile (v5.8) — LOCAL TEST (chemins relatifs)"
+# =============================================================================
+# Version: 8.8.0   (variante LOCAL de ci-kmp.yml v8.8 ; doit rester synchronisée)
+# Changelog (résumé — voir CHANGELOG.md) :
+#   8.8.0 — [2026-09-11] Canal Beta :
+#           - nouvel input androidSigningEnvMap : un env logique peut reutiliser le
+#             keystore Vault d'un autre (ex. {"Beta":"Prod"}). Motif : la Beta n'a pas
+#             de keystore propre (concourse/<product>/keystore-<brand>-beta-* absent),
+#             le job 30 Beta echouait a l'import Vault. Une seule source de verite en
+#             Vault, donc pas de derive lors d'une rotation de la signature Prod.
+#           - manualDistribution accepte `testflight-beta` : une Beta devient
+#             lancable en workflow_dispatch (avant : uniquement via release-gia/*).
+#           - resolve-context 1.7.0 (requis par les deux points ci-dessus ; une
+#             valeur manualDistribution inconnue y echoue desormais au lieu d'etre
+#             ignoree en silence).
+#   8.7.1 — synchro version avec ci-kmp.yml (fix job 42 : submodules 'false' au
+#           checkout fastlane). Sans objet fonctionnel ici : le job 42 local fait
+#           déjà un checkout simple sans submodules (actions relatives).
+#   8.7.0 — forcePublishMinPassingGates ; androidSecretsLines (ex-androidArkanaSecretsLines) ;
+#           iosSecretsLines (ex-iosArkanaSecretsLines) ; force_deploy output gates ;
+#           signing Vault : {signingVaultProfile}-file/-store-password/-password/-alias.
+#   8.6.0 — iosAppliveryPublishMode 'api'->'fastlane' ; iosAppliveryLane + rubyVersion ;
+#           job 42 : checkout + Setup Ruby + params fastlane iOS AppLivery ;
+#           resolve-context 1.6.0 (env_name/build_configuration sur dispatch).
+#   8.5.0 — matchRepos Desjardins/mobile-codesigning-* ; install-android-sdk:'true' ;
+#           input forcePublish (bypass allow_publish en run manuel).
+#   8.4.0 — businessLabel DGAG ; retrait labels PR (dispatch only) ; docs pédagogiques.
+#   8.3.0 — Summary enrichi : liens Sonar, icônes, build number, lien artefacts.
+#   8.2.0 — Épuration : retrait DIAG, GIT_PAT, Google Play, enableUpdateBuildVersion.
+#   8.1.0 — Publication depuis une PR (label publish:* OU dispatch sur la branche
+#           de la PR) — portée par le consumer ; workflow inchangé.
+#   8.0.0 — Portabilité : enableMacosOfflineWorkaround (gate mirror/setup-mirror/DIAG)
+#           + branchRulesJson (règles de branches configurables, resolve-context 1.5.0).
+#   7.1.0 — Publication de test depuis une PR via label (publish:applivery/testflight).
+#   7.0.0 — v7 = base v6 + contournement réseau macOS (DIAG, mirror, setup-mirror).
+#   6.0.0 — Base (variante chemins relatifs) : seal/unseal, job 50 supprimé,
+#           iosMatchSecretMap, ruby-version.
+# Règle : toute modif => bump Version + Changelog + synchro avec ci-kmp.yml.
+# =============================================================================
+name: "Reusable - CI KMP Mobile (v8.8) — LOCAL TEST (chemins relatifs)"
 
 # =============================================================================
 # ⚠️ VARIANTE LOCALE — NE PAS UTILISER COMME WORKFLOW RÉUTILISABLE EN PROD.
 #
 # Toutes les composite actions sont référencées en chemin RELATIF
-# (./.github/actions/...) au lieu de Desjardins/...@v5.8. Conséquence GitHub :
+# (./.github/actions/...) au lieu de Desjardins/...@v8.5. Conséquence GitHub :
 # un chemin relatif est résolu contre le workspace CHECKOUT du job — donc, en
 # usage `workflow_call` réel, contre le repo APPELANT (l'app), qui ne contient
 # PAS .github/actions/emerald-* → échec. Cette variante ne fonctionne QUE si
@@ -33,7 +71,7 @@ name: "Reusable - CI KMP Mobile (v5.8) — LOCAL TEST (chemins relatifs)"
 #
 # ci-kmp v5 — Aligné sur les conventions de ci-android v7 :
 #
-#   - Secrets GitHub réduits à ROLEID / SECRETID (+ GIT_PAT optionnel).
+#   - Secrets GitHub réduits à ROLEID / SECRETID.
 #     TOUT le reste vient de Vault via hashicorp/vault-action@v3 :
 #       concourse/<productName>/sonarqube-token      value | SONAR_TOKEN
 #       concourse/<productName>/artifactory-api-key  value | ARTIFACTORY_REF_TOKEN
@@ -65,12 +103,6 @@ on:
       SECRETID:
         description: "Vault AppRole secret_id."
         required: true
-      GIT_PAT:
-        description: >
-          DÉPRÉCIÉ — le PAT est désormais lu depuis Vault (input `gitPatSecret`).
-          Conservé optionnel pour rétro-compat ; non requis. Les checkouts
-          utilisent `env.GIT_ACCESS_TOKEN` (Vault) avec repli sur github.token.
-        required: false
 
     inputs:
       # ----------------------------------------------------------------
@@ -144,15 +176,15 @@ on:
       # Brands / schemes (configs JSON — voir resolve-context)
       # ----------------------------------------------------------------
       androidBrandsConfig:
-        description: "JSON des brands Android (brandKey, brandName, businessLabel, prodKeystorePath, packageName, appliveryTokenEnv)."
+        description: "JSON des brands Android (brandKey, brandName, businessLabel, prodKeystorePath, keyAlias, packageName, appliveryTokenEnv)."
         type: string
         required: false
-        default: '[{"brandKey":"dgag","brandName":"Dgag","businessLabel":"RAS","prodKeystorePath":"androidApp/keystore/ajusto-release-key.keystore","packageName":"ca.dgag.ajusto","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_DA"},{"brandKey":"tpic","brandName":"Tpic","businessLabel":"LP","prodKeystorePath":"androidApp/keystore/lapersonnelle-release-key.keystore","packageName":"ca.lapersonnelle.ajusto","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_LP"}]'
+        default: '[{"brandKey":"dgag","brandName":"Dgag","businessLabel":"DGAG","prodKeystorePath":"androidApp/keystore/ajusto-release-key.keystore","keyAlias":"ajustoreleasekey","packageName":"ca.dgag.ajusto","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_DA"},{"brandKey":"tpic","brandName":"Tpic","businessLabel":"LP","prodKeystorePath":"androidApp/keystore/lapersonnelle-release-key.keystore","keyAlias":"lapersonnellereleasekey","packageName":"ca.lapersonnelle.ajusto","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_LP"}]'
       iosSchemesConfig:
         description: "JSON des schemes iOS (brandKey, businessLabel, scheme, ipaNameEnterprise, ipaNameStore, matchRepoEnterprise, matchRepoStore, appliveryTokenEnv)."
         type: string
         required: false
-        default: '[{"brandKey":"dgag","businessLabel":"RAS","scheme":"DesjardinsAssurances","ipaNameEnterprise":"com.ent.dgaginno.desjardins.assurances.ipa","ipaNameStore":"com.desjardins.ajusto.ipa","matchRepoEnterprise":"mobile-support/codesigning-ios-enterprise-dgag","matchRepoStore":"mobile-support/codesigning-ios-public-desjardins","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_DA"},{"brandKey":"tpic","businessLabel":"LP","scheme":"LaPersonnelle","ipaNameEnterprise":"com.ent.dgaginno.tpic.ipa","ipaNameStore":"com.lapersonnelle.ajusto.ipa","matchRepoEnterprise":"mobile-support/codesigning-ios-enterprise-dgag","matchRepoStore":"mobile-support/codesigning-ios-public-lapersonnelle","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_LP"}]'
+        default: '[{"brandKey":"dgag","businessLabel":"DGAG","scheme":"DesjardinsAssurances","ipaNameEnterprise":"com.ent.dgaginno.desjardins.assurances.ipa","ipaNameStore":"com.desjardins.ajusto.ipa","matchRepoEnterprise":"Desjardins/mobile-codesigning-ios-enterprise-dgag","matchRepoStore":"Desjardins/mobile-codesigning-ios-public-desjardins","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_DA"},{"brandKey":"tpic","businessLabel":"LP","scheme":"LaPersonnelle","ipaNameEnterprise":"com.ent.dgaginno.tpic.ipa","ipaNameStore":"com.lapersonnelle.ajusto.ipa","matchRepoEnterprise":"Desjardins/mobile-codesigning-ios-enterprise-dgag","matchRepoStore":"Desjardins/mobile-codesigning-ios-public-lapersonnelle","appliveryTokenEnv":"APP_LIVERY_API_TOKEN_LP"}]'
       androidDefaultBrandKey:
         description: "Brand du build de validation PR."
         type: string
@@ -172,6 +204,21 @@ on:
         type: string
         required: false
         default: 'Qa'
+      branchRulesJson:
+        description: >
+          v8 — Règles de branches PERSONNALISÉES (JSON). Clé = branch_type, valeur =
+          {"env","buildConfiguration","distribution","fullMatrix"} (surcharge partielle).
+        type: string
+        required: false
+        default: '{}'
+      enableMacosOfflineWorkaround:
+        description: >
+          v8 — Gate le contournement Artifactory macOS (job mirror + setup-mirror +
+          DIAG). `false` si les runners macOS atteignent Artifactory. Le seal/unseal
+          des secrets reste toujours actif.
+        type: boolean
+        required: false
+        default: true
       enableAppLivery:
         description: "AppLivery sur main/rc/applivery-archives."
         type: boolean
@@ -182,18 +229,18 @@ on:
         type: boolean
         required: false
         default: true
-      enableGooglePlay:
-        description: "Google Play sur release/* et release-gia/* (opt-in)."
+      versionCodeOffset:
+        description: "Offset ajouté à github.run_number pour le versionCode Android (et le build number iOS). Mettre la valeur ≥ au dernier VERSION_CODE déjà publié au store, sinon l'upload est rejeté. Exemple: '1000'."
+        type: string
+        required: false
+        default: "0"
+      dryRun:
+        description: "Builds RÉELS, publications SIMULÉES (les jobs publish tournent mais loggent au lieu d'uploader). Valide la chaîne sans rien pousser."
         type: boolean
         required: false
         default: false
-      enableUpdateBuildVersion:
-        description: "UpdateBuildVersion après publication (parité Azure)."
-        type: boolean
-        required: false
-        default: true
-      dryRun:
-        description: "Builds réels, publications simulées."
+      forcePublish:
+        description: "v8.5 — Force la publication en run manuel même si allow_publish=false (gate Sonar FAILED incl.). N'outrepasse ni le build vert ni les flags de distribution."
         type: boolean
         required: false
         default: false
@@ -211,6 +258,14 @@ on:
         type: string
         required: false
         default: 'androidApp'
+      rubyVersion:
+        description: >
+          Version Ruby pour ruby/setup-ruby dans le job Publish AppLivery Android
+          (mode fastlane). OBLIGATOIRE car le repo n'a ni .ruby-version ni
+          .tool-versions. Aligné sur le défaut des actions emerald-setup-*-env.
+        type: string
+        required: false
+        default: '3.2.5'
       androidApkLane:
         description: "Lane APK (Qa). Azure: `assemble`."
         type: string
@@ -232,6 +287,19 @@ on:
           Exemple: `{"Beta":"Prod"}` si build.gradle.kts ne déclare que des
           flavors *Qa/*Prod (cas ui-ad-digital-mobile : release-gia/* construit
           assembleDgagProdRelease, l'env reste Beta pour la publication).
+        type: string
+        required: false
+        default: '{}'
+      # [2026-09-11] Ajout : androidEnvFlavorMap ne touche QUE le buildVariant
+      # Gradle, jamais le profil de signature Vault — d'ou cet input distinct.
+      androidSigningEnvMap:
+        description: >
+          Mapping env logique → env du keystore Vault, pour le SEUL profil de
+          signature (androidSigningSecretTemplate). Exemple: `{"Beta":"Prod"}` —
+          la Beta est signée avec le keystore de Prod, sans dupliquer les secrets
+          en Vault (une seule source de vérité, donc pas de dérive lors d'une
+          rotation). Ne modifie ni le buildVariant Gradle (voir
+          androidEnvFlavorMap) ni les profils Arkana.
         type: string
         required: false
         default: '{}'
@@ -321,6 +389,15 @@ on:
         type: string
         required: false
         default: 'iosApp'
+      iosJdkVersion:
+        description: >-
+          JDK utilisé par la phase Xcode « Setup Shared Modules » qui compile
+          le framework KMP shared (./gradlew :shared:embedAndSignAppleFrameworkForXcode).
+          DOIT être 21 : build-logic est compilé en bytecode Java 21, un daemon
+          Gradle en JDK < 21 lève UnsupportedClassVersionError. Parité Azure (Temurin 21).
+        type: string
+        required: false
+        default: '21'
       iosValidateLane:
         description: "Lane validation PR. Azure: `validate_build`."
         type: string
@@ -346,6 +423,11 @@ on:
         type: string
         required: false
         default: 'dgag_qa'
+      iosUnitTestsScheme:
+        description: "Scheme Xcode pour les tests unitaires (scan). Azure testing-template: `DesjardinsAssurances`."
+        type: string
+        required: false
+        default: 'DesjardinsAssurances'
       iosSwiftlintScript:
         description: "Script SwiftLint. Azure: `./swiftlint_ci.sh`."
         type: string
@@ -358,6 +440,16 @@ on:
         default: 'test_derived_data'
       iosSonarProjectKey:
         description: "Clé Sonar iOS. Vide = com.desjardins:<component>-ios."
+        type: string
+        required: false
+        default: ''
+      sharedSonarProjectKey:
+        description: "v8.3 — Clé Sonar du module shared (lien direct dans le summary). Vide = pas de lien."
+        type: string
+        required: false
+        default: ''
+      androidSonarProjectKey:
+        description: "v8.3 — Clé Sonar Android (lien direct dans le summary). Vide = pas de lien."
         type: string
         required: false
         default: ''
@@ -400,25 +492,31 @@ on:
         required: false
         default: 'applivery_deploy'
       iosAppliveryPublishMode:
-        description: "`api` (recommandé, sans rebuild) ou `fastlane`."
+        description: >-
+          `fastlane` (recommandé : plugin applivery, upload HTTP/1.1 fiable via un
+          Gemfile de publication minimal, sans rebuild - parité Android) ou `api`
+          (curl direct, sujet aux timeouts 524 sur les gros IPA).
         type: string
         required: false
-        default: 'api'
+        default: 'fastlane'
+      iosAppliveryLane:
+        description: "Lane AppLivery iOS (mode fastlane uniquement) : upload d'un IPA déjà buildé, sans rebuild."
+        type: string
+        required: false
+        default: 'applivery_upload'
+      iosAppliveryGemfile:
+        description: >-
+          Gemfile de publication iOS (mode fastlane) : environnement bundler MINIMAL
+          (fastlane + plugin applivery), distinct du Gemfile de build iOS lourd
+          (cocoapods/arkana/xcode-install) qui ne compile pas sur Linux.
+        type: string
+        required: false
+        default: 'iosApp/Gemfile.publish'
       iosTestflightPublishMode:
         description: "`altool` (recommandé, sans rebuild) ou `fastlane` (rebuild)."
         type: string
         required: false
         default: 'altool'
-      googlePlayTrack:
-        description: "Track Google Play."
-        type: string
-        required: false
-        default: 'internal'
-      googlePlayReleaseStatus:
-        description: "Statut de release Google Play."
-        type: string
-        required: false
-        default: 'draft'
 
       # ----------------------------------------------------------------
       # Quality gates
@@ -526,17 +624,17 @@ on:
         description: "Secret du token Artifactory (champ `value`). Parité v7: `artifactory-api-key`."
         type: string
         required: false
-        default: 'artifactory-api-key'
+        default: 'artifactory-maven-key'
       gitPatSecret:
         description: >
           Secret Vault (champ `value`) du PAT GitHub utilisé pour les checkouts
-          (submodule iOS privé, repos Match, push update-build-version). Récupéré
+          (submodule iOS privé, repos Match). Récupéré
           depuis Vault comme les autres secrets — plus besoin du secret GitHub
           GIT_PAT. Vide = repli sur github.token (suffisant uniquement si aucun
           submodule/repo privé externe).
         type: string
         required: false
-        default: 'git-user-access-token'
+        default: 'compte-service-github-token'
       mavenFeedUsernameSecret:
         description: >
           Secret plat (champ `value`) du username du repo Maven externe
@@ -579,7 +677,13 @@ on:
         required: false
         default: 'arkana-ios-{brandKey}-{env}'
       androidSigningSecretTemplate:
-        description: "Secret signature Prod/Beta (champs keystoreData/keystorePassword/keyAlias/keyPassword)."
+        description: >
+          Préfixe Vault du profil de signature résolu : `keystore-{brandKey}-{env}`.
+          Le workflow dérive 4 sous-secrets : `<préfixe>-file` (keystore base64),
+          `<préfixe>-store-password` (mot de passe du store), `<préfixe>-password`
+          (mot de passe de la clé) et `<préfixe>-alias` (alias).
+          Exemple résolu dgag/prod : `keystore-dgag-prod-file`, `keystore-dgag-prod-store-password`,
+          `keystore-dgag-prod-password`, `keystore-dgag-prod-alias`.
         type: string
         required: false
         default: 'keystore-{brandKey}-{env}'
@@ -591,6 +695,14 @@ on:
         type: string
         required: false
         default: 'match-password-{profileType}-{brandKey}'
+      iosMatchSecretMap:
+        description: >
+          Mapping explicite (JSON) du secret Match par `{brandKey}-{profileType}`,
+          prioritaire sur iosMatchSecretTemplate (Vault aux noms irréguliers).
+          Vide = template. Exemple: `{"dgag-enterprise":"match-password-dgag-ent"}`.
+        type: string
+        required: false
+        default: "{}"
       appliveryTokenDaSecret:
         description: "Secret plat du token AppLivery DA (champ `value`). Vault réelle: `applivery-token-da`."
         type: string
@@ -601,28 +713,24 @@ on:
         type: string
         required: false
         default: 'applivery-token-lp'
-      androidArkanaSecretsLines:
+      androidSecretsLines:
         description: >
-          Mode Vault PLAT pour les ArkanaKeys Android : une ligne par secret au
-          format `<nom-secret> <champ> | <ENV_VAR>` (sans le préfixe
-          <root>/<product>/). Si non vide, remplace le secret dotenv
-          `androidArkanaSecret`. Exemple:
+          Secrets Vault PLATS Android (clés API Arkana + mots de passe keystore),
+          une ligne par secret au format `<nom-secret> <champ> | <ENV_VAR>` (sans le
+          préfixe `<root>/<product>/`). Chaque valeur est exportée en env ET écrite dans
+          `androidApp/.env`. Alternative au dotenv `androidArkanaSecret` (mode full) :
+          si non vide, remplace ce dernier. Exemple:
           `dragon-server-api-key-qa value | DragonServerApiKeyQA`.
         type: string
         required: false
         default: ''
-      iosArkanaSecretsLines:
-        description: "Mode Vault plat pour les ArkanaKeys iOS (même format). Si non vide, remplace `iosArkanaSecret`."
+      iosSecretsLines:
+        description: "Secrets Vault plats iOS (mêmes clés que Android + keystores, format identique). Si non vide, remplace le dotenv `iosArkanaSecret`."
         type: string
         required: false
         default: ''
-      googlePlaySecret:
-        description: "Secret Google Play (champ serviceAccountJson)."
-        type: string
-        required: false
-        default: 'google-play'
       sharedQualityArkana:
-        description: "Charger les ArkanaKeys Android pour la qualité shared."
+        description: "Charger les secrets Vault Android (clés Arkana + keystores) pour la qualité shared."
         type: boolean
         required: false
         default: false
@@ -656,7 +764,8 @@ on:
         required: false
         default: ''
       manualDistribution:
-        description: "`none`, `applivery`, `testflight`."
+        # [2026-09-11] `testflight-beta` ajoute (resolve-context >= 1.7.0).
+        description: "`none`, `applivery`, `testflight`, `testflight-beta`."
         type: string
         required: false
         default: ''
@@ -724,13 +833,13 @@ jobs:
       android_matrix: ${{ steps.resolve.outputs.android-matrix }}
       ios_matrix: ${{ steps.resolve.outputs.ios-matrix }}
       android_publish_applivery: ${{ steps.resolve.outputs.android-publish-applivery }}
-      android_publish_google_play: ${{ steps.resolve.outputs.android-publish-google-play }}
       ios_publish_applivery: ${{ steps.resolve.outputs.ios-publish-applivery }}
       ios_publish_testflight: ${{ steps.resolve.outputs.ios-publish-testflight }}
-      run_update_version: ${{ steps.resolve.outputs.run-update-version }}
     steps:
       - uses: actions/checkout@v4   # requis : actions relatives lues depuis le workspace
       - id: resolve
+        # [2026-09-11] Variante LOCAL : chemin relatif, donc l'action de la RACINE —
+        # qui est la 1.7.0. Le ci-kmp.yml publie epingle .../v1.7.0@v8.8.
         uses: ./.github/actions/emerald-kmp-resolve-context
         with:
           event-name: ${{ github.event_name }}
@@ -743,13 +852,14 @@ jobs:
           android-default-brand-key: ${{ inputs.androidDefaultBrandKey }}
           ios-default-scheme-key: ${{ inputs.iosDefaultSchemeKey }}
           rc-env-name: ${{ inputs.rcEnvName }}
+          branch-rules-json: ${{ inputs.branchRulesJson }}
           enable-applivery: ${{ inputs.enableAppLivery }}
           enable-testflight: ${{ inputs.enableTestFlight }}
-          enable-google-play: ${{ inputs.enableGooglePlay }}
           android-apk-lane: ${{ inputs.androidApkLane }}
           android-aab-lane: ${{ inputs.androidAabLane }}
           android-prod-signing-mode: ${{ inputs.androidProdSigningMode }}
           android-env-flavor-map: ${{ inputs.androidEnvFlavorMap }}
+          android-signing-env-map: ${{ inputs.androidSigningEnvMap }}   # [2026-09-11]
           ios-validate-lane: ${{ inputs.iosValidateLane }}
           ios-build-lane: ${{ inputs.iosBuildLane }}
           ios-store-build-lane: ${{ inputs.iosStoreBuildLane }}
@@ -760,6 +870,7 @@ jobs:
           ios-arkana-full-profiles: ${{ inputs.iosArkanaSecret }}
           ios-arkana-profile-template: ${{ inputs.iosArkanaSecretTemplate }}
           ios-signing-profile-template: ${{ inputs.iosMatchSecretTemplate }}
+          ios-match-secret-map: ${{ inputs.iosMatchSecretMap }}
           manual-platform: ${{ inputs.manualPlatform }}
           manual-android-brand: ${{ inputs.manualAndroidBrand }}
           manual-ios-scheme: ${{ inputs.manualIosScheme }}
@@ -803,6 +914,151 @@ jobs:
           fi
 
   # ===========================================================================
+  # 04 — SEAL iOS SECRETS (Linux)
+  #      Les runners macOS ne joignent pas Vault (getaddrinfo ENOTFOUND). On lit
+  #      donc TOUT sur Linux, on scelle (base64) en un blob, et les jobs iOS
+  #      (12/31/43) descellent via l'action emerald-mobile-unseal-ios-secrets.
+  #      Tourne en parallèle de validate-inputs (~0 ajout sur le chemin critique)
+  #      et supprime tous les appels vault-action des runners macOS (plus rapide).
+  #      Pré-requis : secrets iOS en mode "flat lines" (iosSecretsLines).
+  # ===========================================================================
+  seal-ios-secrets:
+    name: 04 - Seal iOS secrets (Linux)
+    runs-on: ${{ inputs.linuxRunnerLabel }}
+    needs: [evaluate, resolve-context]
+    if: ${{ needs.resolve-context.outputs.ios_enabled == 'true' }}
+    outputs:
+      sealed: ${{ steps.seal.outputs.sealed }}
+    steps:
+      - name: Build Vault read list (union iOS matrix)
+        id: maplist
+        shell: bash
+        env:
+          PREFIX: ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}
+          IOS_MATRIX: ${{ needs.resolve-context.outputs.ios_matrix }}
+          PUBLISH_TF: ${{ needs.resolve-context.outputs.ios_publish_testflight }}
+          GIT_PAT_SECRET: ${{ inputs.gitPatSecret }}
+          ARTIFACTORY_SECRET: ${{ inputs.artifactoryTokenSecret }}
+          MAVEN_USER_SECRET: ${{ inputs.mavenFeedUsernameSecret }}
+          MAVEN_PASS_SECRET: ${{ inputs.mavenFeedPasswordSecret }}
+          IOS_SECRETS_LINES: ${{ inputs.iosSecretsLines }}
+        run: |
+          set -euo pipefail
+          sani() { printf '%s' "$1" | tr -c 'A-Za-z0-9_' '_'; }
+          secrets=""
+          names=""
+          add() { # $1=sous-chemin Vault (sous PREFIX)  $2=ENV_NAME
+            secrets+="${PREFIX}/$1 value | $2 ;"$'\n'
+            names+="$2 "
+          }
+
+          # --- Commun (git PAT, Artifactory, CMT/Maven) ---
+          add "$GIT_PAT_SECRET" GIT_ACCESS_TOKEN
+          add "$ARTIFACTORY_SECRET" ARTIFACTORY_REF_TOKEN
+          if [ -n "$MAVEN_USER_SECRET" ]; then add "$MAVEN_USER_SECRET" CMT_SDK_USERNAME; add "$MAVEN_USER_SECRET" cmtSdkUserName; fi
+          if [ -n "$MAVEN_PASS_SECRET" ]; then add "$MAVEN_PASS_SECRET" CMT_SDK_PASSWORD; add "$MAVEN_PASS_SECRET" cmtSdkPassword; fi
+
+          # --- Arkana iOS (mode flat lines : 'secret value | ENV_NAME') ---
+          if [ -n "$IOS_SECRETS_LINES" ]; then
+            while IFS= read -r l; do
+              l="${l%%;*}"
+              l="$(echo "$l" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+              [ -z "$l" ] && continue
+              env_name="${l##*| }"
+              secrets+="${PREFIX}/$l ;"$'\n'
+              names+="$env_name "
+            done <<< "$IOS_SECRETS_LINES"
+          fi
+
+          # --- MATCH_PASSWORD : un par signingVaultProfile distinct de la matrice ---
+          for prof in $(printf '%s' "$IOS_MATRIX" | jq -r '.include[].signingVaultProfile' | sort -u); do
+            { [ -z "$prof" ] || [ "$prof" = "null" ]; } && continue
+            add "$prof" "MATCH__$(sani "$prof")"
+          done
+
+          # --- ALTOOL : trio par brandKey, seulement si publish TestFlight ---
+          if [ "${PUBLISH_TF:-}" = "true" ]; then
+            for bk in $(printf '%s' "$IOS_MATRIX" | jq -r '.include[].brandKey' | sort -u); do
+              { [ -z "$bk" ] || [ "$bk" = "null" ]; } && continue
+              add "altool-api-key-$bk"    "ALTOOL_API_KEY__$(sani "$bk")"
+              add "altool-api-key-id-$bk" "ALTOOL_API_KEY_ID__$(sani "$bk")"
+              add "altool-issuer-id-$bk"  "ALTOOL_ISSUER_ID__$(sani "$bk")"
+            done
+          fi
+
+          {
+            echo "secrets<<__VEOF__"
+            printf '%s' "$secrets"
+            echo "__VEOF__"
+            echo "names=$names"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Import iOS secrets from Vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ inputs.vaultUrl }}
+          method: approle
+          roleId: ${{ secrets.ROLEID }}
+          secretId: ${{ secrets.SECRETID }}
+          path: ${{ inputs.vaultPath }}
+          exportEnv: true
+          secrets: ${{ steps.maplist.outputs.secrets }}
+
+      - name: Seal secrets (base64) into job output
+        id: seal
+        shell: bash
+        env:
+          NAMES: ${{ steps.maplist.outputs.names }}
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp)"
+          for n in $NAMES; do
+            v="${!n-}"
+            printf '%s=%s\n' "$n" "$(printf '%s' "$v" | base64 -w0)" >> "$tmp"
+          done
+          sealed="$(base64 -w0 < "$tmp")"
+          rm -f "$tmp"
+          echo "sealed=$sealed" >> "$GITHUB_OUTPUT"
+          echo "::notice::iOS secrets scellés ($(printf '%s' "$NAMES" | wc -w) clés) pour transport vers macOS."
+
+  # ===========================================================================
+  # 05 — MIRROR INTERNAL DEPS (Linux) — voir ci-kmp.yml pour le détail.
+  # ===========================================================================
+  mirror-internal-deps:
+    name: 05 - Mirror internal deps (Linux)
+    runs-on: ${{ inputs.linuxRunnerLabel }}
+    needs: [evaluate, resolve-context]
+    # v8 : gated par enableMacosOfflineWorkaround.
+    if: ${{ needs.resolve-context.outputs.ios_enabled == 'true' && inputs.enableMacosOfflineWorkaround }}
+    steps:
+      # LOCAL: checkout préalable pour résoudre l'action relative ./.github/actions/*
+      - uses: actions/checkout@v4
+
+      - name: Import Artifactory token from Vault
+        uses: hashicorp/vault-action@v3
+        with:
+          url: ${{ inputs.vaultUrl }}
+          method: approle
+          roleId: ${{ secrets.ROLEID }}
+          secretId: ${{ secrets.SECRETID }}
+          path: ${{ inputs.vaultPath }}
+          secrets: |
+            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.artifactoryTokenSecret }} value | ARTIFACTORY_REF_TOKEN ;
+
+      - name: Download internal Maven mirror
+        uses: ./.github/actions/emerald-mobile-mirror-internal-deps
+        with:
+          out-dir: internal-mirror
+
+      - name: Upload mirror artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: internal-mirror
+          path: internal-mirror
+          retention-days: 1
+          if-no-files-found: error
+
+  # ===========================================================================
   # 10 — QUALITY SHARED (Linux)
   # ===========================================================================
   quality-shared:
@@ -826,16 +1082,16 @@ jobs:
           secrets: |
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.sonarTokenSecret }} value | SONAR_TOKEN ;
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.artifactoryTokenSecret }} value | ARTIFACTORY_REF_TOKEN ;
-            ${{ inputs.sharedQualityArkana && inputs.androidArkanaSecretsLines == '' && format('{0}/{1}/{2} dotenv | ARKANA_DOTENV ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.androidArkanaSecret) || '' }}
+            ${{ inputs.sharedQualityArkana && inputs.androidSecretsLines == '' && format('{0}/{1}/{2} dotenv | ARKANA_DOTENV ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.androidArkanaSecret) || '' }}
             ${{ inputs.mavenFeedUsernameSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_USERNAME ; {0}/{1}/{2} value | cmtSdkUserName ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedUsernameSecret) || '' }}
             ${{ inputs.mavenFeedPasswordSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_PASSWORD ; {0}/{1}/{2} value | cmtSdkPassword ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedPasswordSecret) || '' }}
 
       - name: Compose flat ArkanaKeys map
-        if: ${{ inputs.sharedQualityArkana && inputs.androidArkanaSecretsLines != '' }}
+        if: ${{ inputs.sharedQualityArkana && inputs.androidSecretsLines != '' }}
         id: arkana-map
         shell: bash
         env:
-          LINES: ${{ inputs.androidArkanaSecretsLines }}
+          LINES: ${{ inputs.androidSecretsLines }}
           PREFIX: ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}
         run: |
           set -euo pipefail
@@ -849,7 +1105,7 @@ jobs:
           echo "secrets=$out" >> "$GITHUB_OUTPUT"
 
       - name: Import flat ArkanaKeys from Vault
-        if: ${{ inputs.sharedQualityArkana && inputs.androidArkanaSecretsLines != '' }}
+        if: ${{ inputs.sharedQualityArkana && inputs.androidSecretsLines != '' }}
         uses: hashicorp/vault-action@v3
         with:
           url: ${{ inputs.vaultUrl }}
@@ -860,7 +1116,7 @@ jobs:
           secrets: ${{ steps.arkana-map.outputs.secrets }}
 
       - name: Export ArkanaKeys
-        if: ${{ inputs.sharedQualityArkana && inputs.androidArkanaSecretsLines == '' }}
+        if: ${{ inputs.sharedQualityArkana && inputs.androidSecretsLines == '' }}
         uses: ./.github/actions/emerald-mobile-export-dotenv
         with:
           dotenv: ${{ env.ARKANA_DOTENV }}
@@ -869,6 +1125,7 @@ jobs:
       - name: Setup Android environment
         uses: ./.github/actions/emerald-setup-android-env
         with:
+          install-android-sdk: 'true'
           jdk-version: ${{ inputs.androidJdkVersionQuality }}
           compile-sdk-version: ${{ inputs.compileSdkVersion }}
           build-tools-version: ${{ inputs.buildToolsVersion }}
@@ -918,49 +1175,16 @@ jobs:
           secrets: |
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.sonarTokenSecret }} value | SONAR_TOKEN ;
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.artifactoryTokenSecret }} value | ARTIFACTORY_REF_TOKEN ;
-            ${{ inputs.androidArkanaSecretsLines == '' && format('{0}/{1}/{2} dotenv | ARKANA_DOTENV ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.androidArkanaSecret) || '' }}
+            ${{ inputs.androidSecretsLines == '' && format('{0}/{1}/{2} dotenv | ARKANA_DOTENV ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.androidArkanaSecret) || '' }}
             ${{ inputs.mavenFeedUsernameSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_USERNAME ; {0}/{1}/{2} value | cmtSdkUserName ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedUsernameSecret) || '' }}
             ${{ inputs.mavenFeedPasswordSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_PASSWORD ; {0}/{1}/{2} value | cmtSdkPassword ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedPasswordSecret) || '' }}
 
-      - name: "[🔍 DIAG] Verify Artifactory token from Vault"
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo "============================================="
-          echo "Vérification du token Artifactory après injection Vault"
-          echo "============================================="
-          if [ -z "${ARTIFACTORY_REF_TOKEN:-}" ]; then
-            echo "❌ ARTIFACTORY_REF_TOKEN est VIDE ou ABSENT"
-            exit 1
-          else
-            TOKEN_LENGTH=${#ARTIFACTORY_REF_TOKEN}
-            echo "✅ ARTIFACTORY_REF_TOKEN présent (longueur: $TOKEN_LENGTH car)"
-            echo "   Premiers caractères: ${ARTIFACTORY_REF_TOKEN:0:10}..."
-            echo "   Derniers caractères: ...${ARTIFACTORY_REF_TOKEN: -10}"
-          fi
-          echo ""
-          echo "Test accès à Artifactory (maven-virtual) :"
-          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer ${ARTIFACTORY_REF_TOKEN}" \
-            "https://artifacts.lc.az.nuagesdesjardins.com/artifactory/maven-virtual/com/desjardins/dsd/dsd/3.0.6/dsd-3.0.6.pom")
-          echo "   HTTP $HTTP_CODE"
-          if [ "$HTTP_CODE" = "200" ]; then
-            echo "   ✅ Accès OK au repo maven-virtual"
-          elif [ "$HTTP_CODE" = "401" ]; then
-            echo "   ⚠️  HTTP 401 — Token invalide ou sans accès"
-          elif [ "$HTTP_CODE" = "404" ]; then
-            echo "   ⚠️  HTTP 404 — Artifact non trouvé (token OK mais pas d'accès au sous-repo ?)"
-          else
-            echo "   ⚠️  HTTP $HTTP_CODE — Erreur inattendue"
-          fi
-          echo "============================================="
-
       - name: Compose flat ArkanaKeys map
-        if: ${{ inputs.androidArkanaSecretsLines != '' }}
+        if: ${{ inputs.androidSecretsLines != '' }}
         id: arkana-map
         shell: bash
         env:
-          LINES: ${{ inputs.androidArkanaSecretsLines }}
+          LINES: ${{ inputs.androidSecretsLines }}
           PREFIX: ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}
         run: |
           set -euo pipefail
@@ -977,7 +1201,7 @@ jobs:
           echo "envnames=$names" >> "$GITHUB_OUTPUT"
 
       - name: Import flat ArkanaKeys from Vault
-        if: ${{ inputs.androidArkanaSecretsLines != '' }}
+        if: ${{ inputs.androidSecretsLines != '' }}
         uses: hashicorp/vault-action@v3
         with:
           url: ${{ inputs.vaultUrl }}
@@ -988,7 +1212,7 @@ jobs:
           secrets: ${{ steps.arkana-map.outputs.secrets }}
 
       - name: Write androidApp/.env (flat)
-        if: ${{ inputs.androidArkanaSecretsLines != '' }}
+        if: ${{ inputs.androidSecretsLines != '' }}
         shell: bash
         env:
           ENV_NAMES: ${{ steps.arkana-map.outputs.envnames }}
@@ -1000,7 +1224,7 @@ jobs:
           done
 
       - name: Export ArkanaKeys (.env + env)
-        if: ${{ inputs.androidArkanaSecretsLines == '' }}
+        if: ${{ inputs.androidSecretsLines == '' }}
         uses: ./.github/actions/emerald-mobile-export-dotenv
         with:
           dotenv: ${{ env.ARKANA_DOTENV }}
@@ -1009,6 +1233,7 @@ jobs:
       - name: Setup Android environment
         uses: ./.github/actions/emerald-setup-android-env
         with:
+          install-android-sdk: 'true'
           jdk-version: ${{ inputs.androidJdkVersionQuality }}
           compile-sdk-version: ${{ inputs.compileSdkVersion }}
           build-tools-version: ${{ inputs.buildToolsVersion }}
@@ -1041,19 +1266,22 @@ jobs:
   quality-ios-reports:
     name: 12 - Quality iOS (reports)
     runs-on: ${{ inputs.macosRunnerLabel }}
-    needs: [evaluate, resolve-context, validate-inputs]
-    if: ${{ needs.resolve-context.outputs.ios_enabled == 'true' }}
+    needs: [evaluate, resolve-context, validate-inputs, seal-ios-secrets, mirror-internal-deps]
+    # v8 : tolère le skip du job mirror (enableMacosOfflineWorkaround=false).
+    if: >-
+      ${{ !cancelled()
+          && needs.resolve-context.outputs.ios_enabled == 'true'
+          && needs.validate-inputs.result == 'success'
+          && needs.seal-ios-secrets.result == 'success'
+          && (needs.mirror-internal-deps.result == 'success' || needs.mirror-internal-deps.result == 'skipped') }}
     steps:
-      - name: Import Git PAT from Vault
-        uses: hashicorp/vault-action@v3
+      # LOCAL: checkout préalable pour résoudre l'action relative ./.github/actions/*
+      - uses: actions/checkout@v4
+
+      - name: Unseal iOS secrets (no Vault on macOS)
+        uses: ./.github/actions/emerald-mobile-unseal-ios-secrets
         with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: |
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.gitPatSecret }} value | GIT_ACCESS_TOKEN ;
+          sealed: ${{ needs.seal-ios-secrets.outputs.sealed }}
 
       - uses: actions/checkout@v4
         with:
@@ -1062,59 +1290,24 @@ jobs:
           fetch-depth: 0
           token: ${{ env.GIT_ACCESS_TOKEN || github.token }}
 
-      - name: Import secrets from Vault
-        uses: hashicorp/vault-action@v3
+      # Mirror Maven interne (workaround macOS isolé) — v8 : gated par le flag.
+      - name: Download internal Maven mirror
+        if: ${{ inputs.enableMacosOfflineWorkaround }}
+        uses: actions/download-artifact@v4
         with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: |
-            ${{ inputs.iosArkanaSecretsLines == '' && format('{0}/{1}/{2} dotenv | ARKANA_DOTENV ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.iosArkanaSecret) || '' }}
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.artifactoryTokenSecret }} value | ARTIFACTORY_REF_TOKEN ;
-            ${{ inputs.mavenFeedUsernameSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_USERNAME ; {0}/{1}/{2} value | cmtSdkUserName ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedUsernameSecret) || '' }}
-            ${{ inputs.mavenFeedPasswordSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_PASSWORD ; {0}/{1}/{2} value | cmtSdkPassword ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedPasswordSecret) || '' }}
-
-      - name: Compose flat ArkanaKeys map (iOS)
-        if: ${{ inputs.iosArkanaSecretsLines != '' }}
-        id: arkana-map
-        shell: bash
-        env:
-          LINES: ${{ inputs.iosArkanaSecretsLines }}
-          PREFIX: ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}
-        run: |
-          set -euo pipefail
-          out=""
-          while IFS= read -r l; do
-            l="${l%%;*}"
-            l="$(echo "$l" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-            [ -z "$l" ] && continue
-            out+="$PREFIX/$l ; "
-          done <<< "$LINES"
-          echo "secrets=$out" >> "$GITHUB_OUTPUT"
-
-      - name: Import flat ArkanaKeys from Vault (iOS)
-        if: ${{ inputs.iosArkanaSecretsLines != '' }}
-        uses: hashicorp/vault-action@v3
+          name: internal-mirror
+          path: internal-mirror
+      - name: Setup Gradle mirror (no .lc. on macOS)
+        if: ${{ inputs.enableMacosOfflineWorkaround }}
+        uses: ./.github/actions/emerald-mobile-setup-mirror
         with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: ${{ steps.arkana-map.outputs.secrets }}
-
-      - name: Export ArkanaKeys
-        if: ${{ inputs.iosArkanaSecretsLines == '' }}
-        uses: ./.github/actions/emerald-mobile-export-dotenv
-        with:
-          dotenv: ${{ env.ARKANA_DOTENV }}
+          mirror-dir: internal-mirror
 
       - name: Setup iOS environment
         uses: ./.github/actions/emerald-setup-ios-env
         with:
           ios-working-directory: ${{ inputs.iosWorkingDirectory }}
+          jdk-version: ${{ inputs.iosJdkVersion }}
           xcode-version: ${{ inputs.xcodeVersion }}
           enable-gradle-cache: ${{ inputs.enableGradleCache }}
           enable-konan-cache: ${{ inputs.enableKonanCache }}
@@ -1134,6 +1327,10 @@ jobs:
         shell: bash
         env:
           CI: ${{ inputs.iosUnitTestsCiValue }}
+          # Scheme Xcode pour scan() (parité Azure testing-template: SCHEME).
+          # La lane unit_tests_sonarqube lit ENV["SCHEME"] ; sans lui scan échoue
+          # avec « Multiple schemes found ».
+          SCHEME: ${{ inputs.iosUnitTestsScheme }}
           # Stabilité Fastlane en CI (pattern mobile-gha-workflows-ios)
           FASTLANE_HIDE_TIMESTAMP: "true"
           FASTLANE_XCODE_LIST_TIMEOUT: "60"
@@ -1204,6 +1401,7 @@ jobs:
       allow_build: ${{ steps.policy.outputs.allow-build }}
       allow_publish: ${{ steps.policy.outputs.allow-publish }}
       status: ${{ steps.policy.outputs.status }}
+      force_deploy: ${{ steps.force.outputs.force_deploy }}
     steps:
       - uses: actions/checkout@v4   # requis : actions relatives lues depuis le workspace
       - name: Aggregate iOS results
@@ -1220,7 +1418,32 @@ jobs:
             echo "result=success" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Compute forcePublish threshold override (build + publish)
+        id: force
+        if: ${{ always() }}
+        shell: bash
+        env:
+          FORCE_PUBLISH: ${{ inputs.forcePublish }}
+          MIN_PASS: ${{ inputs.forcePublishMinPassingGates }}
+          SHARED: ${{ needs.quality-shared.result }}
+          ANDROID: ${{ needs.quality-android.result }}
+          IOS: ${{ steps.ios-agg.outputs.result }}
+        run: |
+          set -euo pipefail
+          min="${MIN_PASS:-3}"
+          pass=0
+          for r in "$SHARED" "$ANDROID" "$IOS"; do
+            [ "$r" = "success" ] && pass=$((pass + 1))
+          done
+          allowed=false
+          if [ "$FORCE_PUBLISH" = "true" ] && [ "$pass" -ge "$min" ]; then
+            allowed=true
+          fi
+          echo "force_deploy=$allowed" >> "$GITHUB_OUTPUT"
+          echo "::notice::forcePublish=$FORCE_PUBLISH - gates au vert=$pass/3 - seuil=$min -> force_deploy=$allowed (débloque build+publish)"
+
       - id: policy
+        continue-on-error: ${{ steps.force.outputs.force_deploy == 'true' }}
         uses: ./.github/actions/emerald-gate-policy
         with:
           enable-quality-gates: ${{ inputs.enableQualityGates }}
@@ -1240,12 +1463,24 @@ jobs:
     name: 30 - Android ${{ matrix.brandName }} ${{ matrix.envName }} ${{ matrix.buildConfiguration }}
     runs-on: ${{ inputs.linuxRunnerLabel }}
     needs: [evaluate, resolve-context, gates]
-    if: ${{ always() && needs.resolve-context.outputs.android_enabled == 'true' && needs.gates.outputs.allow_build == 'true' }}
+    if: ${{ always() && needs.resolve-context.outputs.android_enabled == 'true' && (needs.gates.outputs.allow_build == 'true' || needs.gates.outputs.force_deploy == 'true') }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve-context.outputs.android_matrix) }}
     steps:
       - uses: actions/checkout@v4
+
+      # versionCode = run_number + offset (remplace le job 50). GHA ne supporte
+      # pas l'arithmétique dans ${{ }}, on calcule donc en shell. Gradle mappe
+      # ensuite ORG_GRADLE_PROJECT_versionCode -> project.property("versionCode").
+      - name: Compute Android versionCode (run_number + offset)
+        shell: bash
+        env:
+          RUN_NUMBER: ${{ github.run_number }}
+          OFFSET: ${{ inputs.versionCodeOffset }}
+        run: |
+          set -euo pipefail
+          echo "ORG_GRADLE_PROJECT_versionCode=$(( RUN_NUMBER + ${OFFSET:-0} ))" >> "$GITHUB_ENV"
 
       - name: Import secrets from Vault
         uses: hashicorp/vault-action@v3
@@ -1257,17 +1492,19 @@ jobs:
           path: ${{ inputs.vaultPath }}
           secrets: |
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.artifactoryTokenSecret }} value | ARTIFACTORY_REF_TOKEN ;
-            ${{ inputs.androidArkanaSecretsLines == '' && format('{0}/{1}/{2} dotenv | ARKANA_DOTENV ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, matrix.arkanaProfiles) || '' }}
+            ${{ inputs.androidSecretsLines == '' && format('{0}/{1}/{2} dotenv | ARKANA_DOTENV ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, matrix.arkanaProfiles) || '' }}
             ${{ inputs.mavenFeedUsernameSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_USERNAME ; {0}/{1}/{2} value | cmtSdkUserName ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedUsernameSecret) || '' }}
             ${{ inputs.mavenFeedPasswordSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_PASSWORD ; {0}/{1}/{2} value | cmtSdkPassword ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedPasswordSecret) || '' }}
-            ${{ matrix.signingMode == 'vault-keystore' && format('{0}/{1}/{2} keystoreData | keystoreData ; {0}/{1}/{2} keystorePassword | keystorePassword ; {0}/{1}/{2} keyAlias | keyAlias ; {0}/{1}/{2} keyPassword | keyPassword ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, matrix.signingVaultProfile) || '' }}
+            ${{ matrix.signingMode == 'vault-keystore'
+              && format('{0}/{1}/{2}-file value | keystoreData ; {0}/{1}/{2}-store-password value | keystorePassword ; {0}/{1}/{2}-password value | keyPassword ; {0}/{1}/{2}-alias value | keystoreAlias ;',
+              inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, matrix.signingVaultProfile) || '' }}
 
       - name: Compose flat ArkanaKeys map
-        if: ${{ inputs.androidArkanaSecretsLines != '' }}
+        if: ${{ inputs.androidSecretsLines != '' }}
         id: arkana-map
         shell: bash
         env:
-          LINES: ${{ inputs.androidArkanaSecretsLines }}
+          LINES: ${{ inputs.androidSecretsLines }}
           PREFIX: ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}
         run: |
           set -euo pipefail
@@ -1284,7 +1521,7 @@ jobs:
           echo "envnames=$names" >> "$GITHUB_OUTPUT"
 
       - name: Import flat ArkanaKeys from Vault
-        if: ${{ inputs.androidArkanaSecretsLines != '' }}
+        if: ${{ inputs.androidSecretsLines != '' }}
         uses: hashicorp/vault-action@v3
         with:
           url: ${{ inputs.vaultUrl }}
@@ -1295,7 +1532,7 @@ jobs:
           secrets: ${{ steps.arkana-map.outputs.secrets }}
 
       - name: Write androidApp/.env (flat)
-        if: ${{ inputs.androidArkanaSecretsLines != '' }}
+        if: ${{ inputs.androidSecretsLines != '' }}
         shell: bash
         env:
           ENV_NAMES: ${{ steps.arkana-map.outputs.envnames }}
@@ -1307,7 +1544,7 @@ jobs:
           done
 
       - name: Export ArkanaKeys (.env + env)
-        if: ${{ inputs.androidArkanaSecretsLines == '' }}
+        if: ${{ inputs.androidSecretsLines == '' }}
         uses: ./.github/actions/emerald-mobile-export-dotenv
         with:
           dotenv: ${{ env.ARKANA_DOTENV }}
@@ -1316,6 +1553,7 @@ jobs:
       - name: Setup Android environment (JDK ${{ matrix.javaVersion }})
         uses: ./.github/actions/emerald-setup-android-env
         with:
+          install-android-sdk: 'true'
           jdk-version: ${{ matrix.javaVersion }}
           compile-sdk-version: ${{ inputs.compileSdkVersion }}
           build-tools-version: ${{ inputs.buildToolsVersion }}
@@ -1335,8 +1573,17 @@ jobs:
           # Doivent correspondre aux noms exportés par le step vault-action ci-dessus
           keystore-data-env: keystoreData
           keystore-password-env: keystorePassword
-          key-alias-env: keyAlias
           key-password-env: keyPassword
+          # Alias fourni par Vault ({signingVaultProfile}-alias → $KeystoreAlias).
+          # Repli sur matrix.keyAlias si le secret d'alias est absent de Vault.
+          key-alias-literal: ${{ env.KeystoreAlias || matrix.keyAlias }}
+          # Noms EXACTS lus par androidApp/build.gradle.kts, par marque
+          # (matrix.brandName = Dgag | Tpic). En vault-keystore, l'action décode
+          # le keystore base64 et exporte ces variables pour Gradle.
+          gradle-keystore-file-env: ${{ format('Keystore{0}File', matrix.brandName) }}
+          gradle-store-password-env: ${{ format('KeystoreStorePassword{0}', matrix.brandName) }}
+          gradle-key-alias-env: ${{ format('KeystoreAlias{0}', matrix.brandName) }}
+          gradle-key-password-env: ${{ format('KeystoreKeyPassword{0}', matrix.brandName) }}
 
       - name: Build ${{ matrix.buildVariant }}
         uses: ./.github/actions/emerald-mobile-build-android-app
@@ -1365,22 +1612,26 @@ jobs:
   build-ios:
     name: 31 - iOS ${{ matrix.scheme }} ${{ matrix.configuration }}
     runs-on: ${{ inputs.macosRunnerLabel }}
-    needs: [evaluate, resolve-context, gates]
-    if: ${{ always() && needs.resolve-context.outputs.ios_enabled == 'true' && needs.gates.outputs.allow_build == 'true' }}
+    needs: [evaluate, resolve-context, gates, seal-ios-secrets, mirror-internal-deps]
+    # v8 : tolère le skip du job mirror (enableMacosOfflineWorkaround=false).
+    if: >-
+      ${{ always()
+          && needs.resolve-context.outputs.ios_enabled == 'true'
+          && (needs.gates.outputs.allow_build == 'true' || needs.gates.outputs.force_deploy == 'true')
+          && needs.seal-ios-secrets.result == 'success'
+          && (needs.mirror-internal-deps.result == 'success' || needs.mirror-internal-deps.result == 'skipped') }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve-context.outputs.ios_matrix) }}
     steps:
-      - name: Import Git PAT from Vault
-        uses: hashicorp/vault-action@v3
+      # LOCAL: checkout préalable pour résoudre l'action relative ./.github/actions/*
+      - uses: actions/checkout@v4
+
+      - name: Unseal iOS secrets (no Vault on macOS)
+        uses: ./.github/actions/emerald-mobile-unseal-ios-secrets
         with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: |
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.gitPatSecret }} value | GIT_ACCESS_TOKEN ;
+          sealed: ${{ needs.seal-ios-secrets.outputs.sealed }}
+          match-profile: ${{ matrix.signingVaultProfile }}
 
       - uses: actions/checkout@v4
         with:
@@ -1388,60 +1639,24 @@ jobs:
           lfs: true
           token: ${{ env.GIT_ACCESS_TOKEN || github.token }}
 
-      - name: Import secrets from Vault
-        uses: hashicorp/vault-action@v3
+      # Mirror Maven interne (workaround macOS isolé) — v8 : gated par le flag.
+      - name: Download internal Maven mirror
+        if: ${{ inputs.enableMacosOfflineWorkaround }}
+        uses: actions/download-artifact@v4
         with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: |
-            ${{ inputs.iosArkanaSecretsLines == '' && format('{0}/{1}/{2} dotenv | ARKANA_DOTENV ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, matrix.arkanaProfiles) || '' }}
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ matrix.signingVaultProfile }} value | MATCH_PASSWORD ;
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.artifactoryTokenSecret }} value | ARTIFACTORY_REF_TOKEN ;
-            ${{ inputs.mavenFeedUsernameSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_USERNAME ; {0}/{1}/{2} value | cmtSdkUserName ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedUsernameSecret) || '' }}
-            ${{ inputs.mavenFeedPasswordSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_PASSWORD ; {0}/{1}/{2} value | cmtSdkPassword ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedPasswordSecret) || '' }}
-
-      - name: Compose flat ArkanaKeys map (iOS)
-        if: ${{ inputs.iosArkanaSecretsLines != '' }}
-        id: arkana-map
-        shell: bash
-        env:
-          LINES: ${{ inputs.iosArkanaSecretsLines }}
-          PREFIX: ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}
-        run: |
-          set -euo pipefail
-          out=""
-          while IFS= read -r l; do
-            l="${l%%;*}"
-            l="$(echo "$l" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-            [ -z "$l" ] && continue
-            out+="$PREFIX/$l ; "
-          done <<< "$LINES"
-          echo "secrets=$out" >> "$GITHUB_OUTPUT"
-
-      - name: Import flat ArkanaKeys from Vault (iOS)
-        if: ${{ inputs.iosArkanaSecretsLines != '' }}
-        uses: hashicorp/vault-action@v3
+          name: internal-mirror
+          path: internal-mirror
+      - name: Setup Gradle mirror (no .lc. on macOS)
+        if: ${{ inputs.enableMacosOfflineWorkaround }}
+        uses: ./.github/actions/emerald-mobile-setup-mirror
         with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: ${{ steps.arkana-map.outputs.secrets }}
-
-      - name: Export ArkanaKeys
-        if: ${{ inputs.iosArkanaSecretsLines == '' }}
-        uses: ./.github/actions/emerald-mobile-export-dotenv
-        with:
-          dotenv: ${{ env.ARKANA_DOTENV }}
+          mirror-dir: internal-mirror
 
       - name: Setup iOS environment
         uses: ./.github/actions/emerald-setup-ios-env
         with:
           ios-working-directory: ${{ inputs.iosWorkingDirectory }}
+          jdk-version: ${{ inputs.iosJdkVersion }}
           xcode-version: ${{ inputs.xcodeVersion }}
           enable-gradle-cache: ${{ inputs.enableGradleCache }}
           enable-konan-cache: ${{ inputs.enableKonanCache }}
@@ -1475,7 +1690,7 @@ jobs:
     name: 40 - Publish Android AppLivery
     runs-on: ${{ inputs.linuxRunnerLabel }}
     needs: [evaluate, resolve-context, gates, build-android]
-    if: ${{ always() && needs.resolve-context.outputs.android_publish_applivery == 'true' && needs.gates.outputs.allow_publish == 'true' && needs.build-android.result == 'success' }}
+    if: ${{ always() && needs.resolve-context.outputs.android_publish_applivery == 'true' && (needs.gates.outputs.allow_publish == 'true' || needs.gates.outputs.force_deploy == 'true') && needs.build-android.result == 'success' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -1491,10 +1706,24 @@ jobs:
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.appliveryTokenDaSecret }} value | APP_LIVERY_API_TOKEN_DA ;
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.appliveryTokenLpSecret }} value | APP_LIVERY_API_TOKEN_LP ;
 
+      - name: Install native build toolchain (gems natifs)
+        if: ${{ runner.os == 'Linux' && inputs.androidAppliveryPublishMode == 'fastlane' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends build-essential
+            echo "build-essential installé (compilation des gems natifs Fastlane)."
+          else
+            echo "::warning::apt-get indisponible — toolchain non installé (les gems natifs peuvent échouer)."
+          fi
+
       - name: Setup Ruby / Bundler
         if: ${{ inputs.androidAppliveryPublishMode == 'fastlane' }}
         uses: ruby/setup-ruby@v1
         with:
+          ruby-version: ${{ inputs.rubyVersion }}
           bundler-cache: ${{ inputs.enableBundlerCache }}
           working-directory: ${{ inputs.androidFastlaneDirectory }}
 
@@ -1506,40 +1735,10 @@ jobs:
           fastlane-working-directory: ${{ inputs.androidFastlaneDirectory }}
           fastlane-lane: ${{ inputs.androidAppliveryLane }}
           applivery-tags: 'platform:android,flavor:non-prod'
+          test-run: ${{ needs.resolve-context.outputs.branch_type == 'manual'
+            || needs.resolve-context.outputs.branch_type == 'pr'
+            || needs.resolve-context.outputs.branch_type == 'feature' }}
           branch-name: ${{ needs.evaluate.outputs.branch_name }}
-          dry-run: ${{ inputs.dryRun }}
-
-  # ===========================================================================
-  # 41 — PUBLISH ANDROID → GOOGLE PLAY (opt-in, sans rebuild)
-  # ===========================================================================
-  publish-android-google-play:
-    name: 41 - Publish Google Play ${{ matrix.brandName }}
-    runs-on: ${{ inputs.linuxRunnerLabel }}
-    needs: [evaluate, resolve-context, gates, build-android]
-    if: ${{ always() && needs.resolve-context.outputs.android_publish_google_play == 'true' && needs.gates.outputs.allow_publish == 'true' && needs.build-android.result == 'success' }}
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.resolve-context.outputs.android_matrix) }}
-    steps:
-      - uses: actions/checkout@v4   # requis : actions relatives lues depuis le workspace
-      - name: Import Google Play service account from Vault
-        uses: hashicorp/vault-action@v3
-        with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: |
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.googlePlaySecret }} serviceAccountJson | GOOGLE_PLAY_SERVICE_ACCOUNT_JSON ;
-
-      - name: Publish AAB ${{ matrix.brandName }}
-        uses: ./.github/actions/emerald-mobile-publish-google-play
-        with:
-          artifact-name: ${{ matrix.artifactName }}
-          package-name: ${{ matrix.packageName }}
-          track: ${{ inputs.googlePlayTrack }}
-          release-status: ${{ inputs.googlePlayReleaseStatus }}
           dry-run: ${{ inputs.dryRun }}
 
   # ===========================================================================
@@ -1549,7 +1748,7 @@ jobs:
     name: 42 - Publish iOS AppLivery ${{ matrix.scheme }}
     runs-on: ${{ inputs.linuxRunnerLabel }}
     needs: [evaluate, resolve-context, gates, build-ios]
-    if: ${{ always() && needs.resolve-context.outputs.ios_publish_applivery == 'true' && needs.gates.outputs.allow_publish == 'true' && needs.build-ios.result == 'success' }}
+    if: ${{ always() && needs.resolve-context.outputs.ios_publish_applivery == 'true' && (needs.gates.outputs.allow_publish == 'true' || needs.gates.outputs.force_deploy == 'true') && needs.build-ios.result == 'success' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve-context.outputs.ios_matrix) }}
@@ -1567,6 +1766,32 @@ jobs:
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.appliveryTokenDaSecret }} value | APP_LIVERY_API_TOKEN_DA ;
             ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.appliveryTokenLpSecret }} value | APP_LIVERY_API_TOKEN_LP ;
 
+      # Mode fastlane (défaut) : parité Android. On installe un environnement
+      # bundler MINIMAL (fastlane + plugin applivery) via un Gemfile dédié, puis
+      # la lane applivery_upload uploade l'IPA déjà buildé, SANS rebuild. Le plugin
+      # applivery uploade en HTTP/1.1 de façon fiable, là où le curl brut (mode api)
+      # échoue en 524 sur les gros IPA (~100 Mo).
+      - name: Install native build toolchain (gems natifs)
+        if: ${{ runner.os == 'Linux' && inputs.iosAppliveryPublishMode == 'fastlane' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if command -v apt-get >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends build-essential
+            echo "build-essential installé (filet de sécurité si un gem natif devait compiler)."
+          else
+            echo "::warning::apt-get indisponible — toolchain non installé."
+          fi
+
+      - name: Setup Ruby / Bundler (Gemfile de publication minimal)
+        if: ${{ inputs.iosAppliveryPublishMode == 'fastlane' }}
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ inputs.rubyVersion }}
+          bundler-cache: ${{ inputs.enableBundlerCache }}
+          working-directory: ${{ inputs.iosWorkingDirectory }}
+
       - name: Publish ${{ matrix.scheme }} to AppLivery
         uses: ./.github/actions/emerald-mobile-publish-applivery
         with:
@@ -1574,7 +1799,12 @@ jobs:
           artifact-pattern: ${{ matrix.artifactName }}
           app-token: ${{ env[matrix.appliveryTokenEnv] }}
           binary-glob: '*.ipa'
+          fastlane-working-directory: ${{ inputs.iosWorkingDirectory }}
+          fastlane-lane: ${{ inputs.iosAppliveryLane }}
           applivery-tags: 'platform:ios,flavor:non-prod'
+          test-run: ${{ needs.resolve-context.outputs.branch_type == 'manual'
+            || needs.resolve-context.outputs.branch_type == 'pr'
+            || needs.resolve-context.outputs.branch_type == 'feature' }}
           branch-name: ${{ needs.evaluate.outputs.branch_name }}
           dry-run: ${{ inputs.dryRun }}
 
@@ -1584,24 +1814,20 @@ jobs:
   publish-ios-testflight:
     name: 43 - Publish TestFlight ${{ matrix.scheme }}
     runs-on: ${{ inputs.macosRunnerLabel }}
-    needs: [evaluate, resolve-context, gates, build-ios]
-    if: ${{ always() && needs.resolve-context.outputs.ios_publish_testflight == 'true' && needs.gates.outputs.allow_publish == 'true' && needs.build-ios.result == 'success' }}
+    needs: [evaluate, resolve-context, gates, build-ios, seal-ios-secrets]
+    if: ${{ always() && needs.resolve-context.outputs.ios_publish_testflight == 'true' && (needs.gates.outputs.allow_publish == 'true' || needs.gates.outputs.force_deploy == 'true') && needs.build-ios.result == 'success' }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.resolve-context.outputs.ios_matrix) }}
     steps:
       - uses: actions/checkout@v4   # requis : actions relatives lues depuis le workspace
-      - name: Import Git PAT from Vault
-        if: ${{ inputs.iosTestflightPublishMode == 'fastlane' }}
-        uses: hashicorp/vault-action@v3
+
+      - name: Unseal iOS secrets (no Vault on macOS)
+        uses: ./.github/actions/emerald-mobile-unseal-ios-secrets
         with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: |
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.gitPatSecret }} value | GIT_ACCESS_TOKEN ;
+          sealed: ${{ needs.seal-ios-secrets.outputs.sealed }}
+          altool-brand: ${{ matrix.brandKey }}
+
       - name: Checkout project (mode fastlane uniquement)
         if: ${{ inputs.iosTestflightPublishMode == 'fastlane' }}
         uses: actions/checkout@v4
@@ -1609,19 +1835,6 @@ jobs:
           submodules: ${{ inputs.checkoutSubmodules }}
           lfs: true
           token: ${{ env.GIT_ACCESS_TOKEN || github.token }}
-
-      - name: Import App Store Connect secrets from Vault
-        uses: hashicorp/vault-action@v3
-        with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: |
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/altool-api-key-${{ matrix.brandKey }} value | ALTOOL_API_KEY ;
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/altool-api-key-id-${{ matrix.brandKey }} value | ALTOOL_API_KEY_ID ;
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/altool-issuer-id-${{ matrix.brandKey }} value | ALTOOL_ISSUER_ID ;
 
       - name: Publish ${{ matrix.scheme }} to TestFlight
         uses: ./.github/actions/emerald-mobile-publish-testflight
@@ -1634,156 +1847,59 @@ jobs:
           dry-run: ${{ inputs.dryRun }}
 
   # ===========================================================================
-  # 50 — UPDATE BUILD VERSION (parité Azure UpdateBuildVersion)
-  # ===========================================================================
-  update-build-version:
-    name: 50 - Update build version
-    runs-on: ${{ inputs.macosRunnerLabel }}
-    needs: [evaluate, resolve-context, gates, build-android, build-ios, publish-android-applivery, publish-android-google-play, publish-ios-applivery, publish-ios-testflight]
-    if: >-
-      ${{ always() && inputs.enableUpdateBuildVersion
-          && needs.resolve-context.outputs.run_update_version == 'true'
-          && needs.gates.outputs.allow_build == 'true'
-          && needs.build-android.result != 'failure'
-          && needs.build-ios.result != 'failure'
-          && needs.publish-android-applivery.result != 'failure'
-          && needs.publish-android-google-play.result != 'failure'
-          && needs.publish-ios-applivery.result != 'failure'
-          && needs.publish-ios-testflight.result != 'failure' }}
-    steps:
-      - name: Import Git PAT from Vault
-        uses: hashicorp/vault-action@v3
-        with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: |
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.gitPatSecret }} value | GIT_ACCESS_TOKEN ;
-
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.evaluate.outputs.branch_name }}
-          submodules: ${{ inputs.checkoutSubmodules }}
-          lfs: true
-          fetch-depth: 0
-          token: ${{ env.GIT_ACCESS_TOKEN || github.token }}
-          persist-credentials: true
-
-      - name: Import secrets from Vault
-        uses: hashicorp/vault-action@v3
-        with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: |
-            ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}/${{ inputs.artifactoryTokenSecret }} value | ARTIFACTORY_REF_TOKEN ;
-            ${{ inputs.androidArkanaSecretsLines == '' && format('{0}/{1}/{2} dotenv | ARKANA_DOTENV ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.androidArkanaSecret) || '' }}
-            ${{ inputs.mavenFeedUsernameSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_USERNAME ; {0}/{1}/{2} value | cmtSdkUserName ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedUsernameSecret) || '' }}
-            ${{ inputs.mavenFeedPasswordSecret != '' && format('{0}/{1}/{2} value | CMT_SDK_PASSWORD ; {0}/{1}/{2} value | cmtSdkPassword ;', inputs.vaultSecretsRoot, needs.evaluate.outputs.product_name, inputs.mavenFeedPasswordSecret) || '' }}
-
-      - name: Compose flat ArkanaKeys map
-        if: ${{ inputs.androidArkanaSecretsLines != '' }}
-        id: arkana-map
-        shell: bash
-        env:
-          LINES: ${{ inputs.androidArkanaSecretsLines }}
-          PREFIX: ${{ inputs.vaultSecretsRoot }}/${{ needs.evaluate.outputs.product_name }}
-        run: |
-          set -euo pipefail
-          out=""
-          names=""
-          while IFS= read -r l; do
-            l="${l%%;*}"
-            l="$(echo "$l" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
-            [ -z "$l" ] && continue
-            out+="$PREFIX/$l ; "
-            names+="${l##*| } "
-          done <<< "$LINES"
-          echo "secrets=$out" >> "$GITHUB_OUTPUT"
-          echo "envnames=$names" >> "$GITHUB_OUTPUT"
-
-      - name: Import flat ArkanaKeys from Vault
-        if: ${{ inputs.androidArkanaSecretsLines != '' }}
-        uses: hashicorp/vault-action@v3
-        with:
-          url: ${{ inputs.vaultUrl }}
-          method: approle
-          roleId: ${{ secrets.ROLEID }}
-          secretId: ${{ secrets.SECRETID }}
-          path: ${{ inputs.vaultPath }}
-          secrets: ${{ steps.arkana-map.outputs.secrets }}
-
-      - name: Write androidApp/.env (flat)
-        if: ${{ inputs.androidArkanaSecretsLines != '' }}
-        shell: bash
-        env:
-          ENV_NAMES: ${{ steps.arkana-map.outputs.envnames }}
-        run: |
-          set -euo pipefail
-          : > androidApp/.env && chmod 600 androidApp/.env
-          for n in $ENV_NAMES; do
-            printf '%s=%s\n' "$n" "${!n:-}" >> androidApp/.env
-          done
-
-      - name: Export ArkanaKeys (.env + env)
-        if: ${{ inputs.androidArkanaSecretsLines == '' }}
-        uses: ./.github/actions/emerald-mobile-export-dotenv
-        with:
-          dotenv: ${{ env.ARKANA_DOTENV }}
-          output-file: androidApp/.env
-
-      - name: Setup Android environment
-        uses: ./.github/actions/emerald-setup-android-env
-        with:
-          jdk-version: ${{ inputs.androidJdkVersionQuality }}
-          setup-bundler: 'false'
-          enable-gradle-cache: ${{ inputs.enableGradleCache }}
-          enable-konan-cache: ${{ inputs.enableKonanCache }}
-
-      - name: Increment build version
-        uses: ./.github/actions/emerald-mobile-update-build-version
-        with:
-          git-branch: ${{ needs.evaluate.outputs.branch_name }}
-          ios-working-directory: ${{ inputs.iosWorkingDirectory }}
-          dry-run: ${{ inputs.dryRun }}
-
-      - name: Cleanup secrets file
-        if: ${{ always() }}
-        shell: bash
-        run: rm -f androidApp/.env || true
-
-  # ===========================================================================
   # 60 — SUMMARY
   # ===========================================================================
   summary:
     name: 60 - Summary
     runs-on: ${{ inputs.linuxRunnerLabel }}
-    needs: [evaluate, resolve-context, gates, quality-shared, quality-android, quality-ios-reports, sonar-ios, build-android, build-ios, publish-android-applivery, publish-android-google-play, publish-ios-applivery, publish-ios-testflight, update-build-version]
+    needs: [evaluate, resolve-context, gates, quality-shared, quality-android, quality-ios-reports, sonar-ios, build-android, build-ios, publish-android-applivery, publish-ios-applivery, publish-ios-testflight]
     if: ${{ always() }}
     steps:
       - shell: bash
+        env:
+          SONAR_URL: ${{ inputs.sonarqubeUrl }}
+          KEY_SHARED: ${{ inputs.sharedSonarProjectKey }}
+          KEY_ANDROID: ${{ inputs.androidSonarProjectKey }}
+          KEY_IOS: ${{ inputs.iosSonarProjectKey }}
+          OFFSET: ${{ inputs.versionCodeOffset }}
         run: |
+          # Lien Sonar si la clé est fournie, sinon résultat brut.
+          icon() { case "$1" in success) echo "✅";; failure) echo "❌";; skipped) echo "⏭️";; *) echo "⚠️";; esac; }
+          sonar_cell() { # $1=result $2=key
+            if [ -n "$2" ] && [ -n "$SONAR_URL" ]; then
+              echo "$(icon "$1") $1 — [dashboard Sonar]($SONAR_URL/dashboard?id=$2)"
+            else
+              echo "$(icon "$1") $1"
+            fi
+          }
+          BUILD_NUMBER=$(( ${GITHUB_RUN_NUMBER:-0} + ${OFFSET:-0} ))
+          RUN_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
           {
-            echo "# CI KMP v5 — Résumé"
+            echo "# CI KMP — Résumé du run"
+            echo ""
+            echo "**Produit** : \`${{ needs.evaluate.outputs.product_name }}\` · **Branche** : \`${{ needs.evaluate.outputs.branch_name }}\` (${{ needs.resolve-context.outputs.branch_type }})"
+            echo ""
+            echo "**Contexte** : env \`${{ needs.resolve-context.outputs.env_name }}\` · config \`${{ needs.resolve-context.outputs.build_configuration }}\` · distribution \`${{ needs.resolve-context.outputs.distribution }}\` · build number \`$BUILD_NUMBER\` (run \#${GITHUB_RUN_NUMBER} + offset ${OFFSET:-0})"
+            echo ""
+            echo "## Qualité"
             echo ""
             echo "| Étape | Résultat |"
             echo "|---|---|"
-            echo "| Produit | ${{ needs.evaluate.outputs.product_name }} |"
-            echo "| Contexte | ${{ needs.resolve-context.outputs.branch_type }} / ${{ needs.resolve-context.outputs.env_name }} / ${{ needs.resolve-context.outputs.build_configuration }} / ${{ needs.resolve-context.outputs.distribution }} |"
-            echo "| Quality shared | ${{ needs.quality-shared.result }} |"
-            echo "| Quality Android | ${{ needs.quality-android.result }} |"
-            echo "| Quality iOS (reports) | ${{ needs.quality-ios-reports.result }} |"
-            echo "| Sonar iOS | ${{ needs.sonar-ios.result }} |"
-            echo "| Gates | ${{ needs.gates.outputs.status }} (build=${{ needs.gates.outputs.allow_build }}, publish=${{ needs.gates.outputs.allow_publish }}) |"
-            echo "| Build Android | ${{ needs.build-android.result }} |"
-            echo "| Build iOS | ${{ needs.build-ios.result }} |"
-            echo "| Publish Android AppLivery | ${{ needs.publish-android-applivery.result }} |"
-            echo "| Publish Google Play | ${{ needs.publish-android-google-play.result }} |"
-            echo "| Publish iOS AppLivery | ${{ needs.publish-ios-applivery.result }} |"
-            echo "| Publish TestFlight | ${{ needs.publish-ios-testflight.result }} |"
-            echo "| Update build version | ${{ needs.update-build-version.result }} |"
+            echo "| Quality shared | $(sonar_cell '${{ needs.quality-shared.result }}' "$KEY_SHARED") |"
+            echo "| Quality Android | $(sonar_cell '${{ needs.quality-android.result }}' "$KEY_ANDROID") |"
+            echo "| Quality iOS (tests+lint) | $(icon '${{ needs.quality-ios-reports.result }}') ${{ needs.quality-ios-reports.result }} |"
+            echo "| Sonar iOS (scan) | $(sonar_cell '${{ needs.sonar-ios.result }}' "$KEY_IOS") |"
+            echo "| Gates | $(icon '${{ needs.gates.result }}') ${{ needs.gates.outputs.status }} → build=${{ needs.gates.outputs.allow_build }} · publish=${{ needs.gates.outputs.allow_publish }} · force_deploy=${{ needs.gates.outputs.force_deploy }} |"
+            echo ""
+            echo "## Build & publication"
+            echo ""
+            echo "| Étape | Résultat |"
+            echo "|---|---|"
+            echo "| Build Android | $(icon '${{ needs.build-android.result }}') ${{ needs.build-android.result }} |"
+            echo "| Build iOS | $(icon '${{ needs.build-ios.result }}') ${{ needs.build-ios.result }} |"
+            echo "| Publish Android AppLivery | $(icon '${{ needs.publish-android-applivery.result }}') ${{ needs.publish-android-applivery.result }} |"
+            echo "| Publish iOS AppLivery | $(icon '${{ needs.publish-ios-applivery.result }}') ${{ needs.publish-ios-applivery.result }} |"
+            echo "| Publish TestFlight | $(icon '${{ needs.publish-ios-testflight.result }}') ${{ needs.publish-ios-testflight.result }} |"
+            echo ""
+            echo "📦 **APK/AAB/IPA** : [artefacts du run]($RUN_URL#artifacts)"
           } >> "$GITHUB_STEP_SUMMARY"

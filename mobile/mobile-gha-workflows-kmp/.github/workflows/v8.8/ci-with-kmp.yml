@@ -1,0 +1,439 @@
+name: CI ad-digital-mobile-aio (KMP)
+
+on:
+    pull_request:
+        types: [opened, synchronize, reopened]
+        branches: [main, pied,'release/**', 'release-gia/**']
+    push:
+        branches: [main,  pied,'rc/**', 'release/**', 'release-gia/**', applivery-archives]
+    workflow_dispatch:
+        inputs:
+            platform:
+                description: 'Plateformes à exécuter (all = shared + android + ios).'
+                type: choice
+                default: all
+                options: [ all, shared, android, ios ]
+            androidBrand:
+                description: 'Brand Android à builder (all = dgag + tpic).'
+                type: choice
+                default: all
+                options: [ all, dgag, tpic ]
+            iosScheme:
+                description: 'Scheme iOS à builder (all = dgag + tpic).'
+                type: choice
+                default: all
+                options: [ all, dgag, tpic ]
+            distribution:
+                description: 'Canal de distribution (none = build seul, sans publication).'
+                type: choice
+                default: none
+                # [2026-09-11] LOT 3 — 'testflight' scinde en Prod / Beta.
+                # GitHub n'a pas de couple libelle/valeur pour les `choice` :
+                # l'option affichee EST la valeur, d'ou le remappage explicite
+                # dans manualDistribution (bloc `with:` plus bas).
+                options: [ none, applivery, 'Prod (TestFlight)', 'Beta (TestFlight-beta)' ]
+            dryRun:
+                description: 'Exécution à blanc : pas de publication ni de tag, pour valider le pipeline.'
+                type: boolean
+                default: false
+            forcePublish:
+                description: 'Publier MÊME si les quality gates bloquent (Sonar FAILED). Nécessite quand même un build vert.'
+                type: boolean
+                default: false
+            forcePublishMinPassingGates:
+                description: 'Avec forcePublish : nb de gates au VERT requis pour débloquer build+publish. 3=tous (défaut), 2/1=au moins N, 0=déploie même si TOUT est rouge (tests pipeline).'
+                type: choice
+                default: '0'
+                options: [ '3', '2', '1', '0' ]
+            runSecretsDiag:
+                description: 'DIAG : identifier le secret Vault dont la valeur est un mot courant (android, ios...) qui masque les logs. Lance le job de diagnostic SEUL, sans CI.'
+                type: boolean
+                default: false
+
+permissions:
+    contents: write
+    actions: read
+    checks: write
+
+jobs:
+    ci-kmp:
+        # Skippé quand on lance uniquement le diagnostic de secrets (runSecretsDiag).
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.runSecretsDiag) }}
+        # [2026-09-11] PREREQUIS des lots 2 et 3 : le workflow appele doit etre en
+        # ci-kmp >= 8.8.0 avec resolve-context >= 1.7.0. Sans cela, l'input
+        # androidSigningEnvMap est inconnu et la valeur 'testflight-beta' est
+        # refusee. Ref laissee sur @main a dessein : adapter si la convention
+        # passe a une version epinglee (.../workflows/v8.8/ci-kmp.yml@v8.8).
+        uses: Desjardins/mobile-dgag-gha-workflows-kmp/.github/workflows/ci-kmp.yml@main
+        with:
+            # Identité — optionnel si custom_properties.product est défini sur le repo.
+            componentName: ad-digital-mobile
+            productName: ${{ github.event.repository.custom_properties.product }}
+
+            # Runner macOS pour les jobs iOS (quality-ios, build-ios, publish-ios).
+            # Sans ce label, vars.DEFAULT_MACOS_RUNNER_LABEL est vide et les jobs iOS
+            # ne démarrent pas. Parité Azure (vmImage: macos-latest-xlarge). Adapter au groupe de
+            # runners macOS self-hosted de l'org si nécessaire.
+            macosRunnerLabel: macos-latest-xlarge
+
+            # Clé Sonar iOS héritée d'Azure
+            iosSonarProjectKey: 'com.desjardins.addigitalmobile:ad-digital-mobile-ios'
+            androidSonarProjectKey: 'com.desjardins.addigitalmobile:ad-digital-mobile-android'
+            sharedSonarProjectKey: 'com.desjardins.addigitalmobile:ad-digital-mobile-shared'
+
+            # Pods/ est commité → pas de pod install ni de cache Pods.
+            iosRunPodInstall: false
+            enableCocoaPodsCache: false
+
+            # [2026-09-11] LOT 1 — marquage Beta TestFlight.
+            # Lane de build du canal store (TestFlight : Prod ET Beta).
+            # Pourquoi testflight_deploy et non le defaut validate_build : seule
+            # testflight_deploy applique le marquage attendu sur les builds Beta —
+            # CFBundleShortVersionString x.y.9999 + ConfigurationType=BETA — et force
+            # le bundle id via update_app_identifier. Depuis le correctif
+            # match_profile_prefix du Fastfile, les deux lanes signent de facon
+            # identique en appstore : le marquage est la seule difference restante.
+            # testflight_deploy ne fait QUE builder (aucun upload_to_testflight),
+            # donc iosTestflightPublishMode: altool reste bien le publieur.
+            iosStoreBuildLane: testflight_deploy
+
+            # [2026-09-11] LOT 2 — signature Android de la Beta.
+            # La Beta n'a pas de keystore propre en Vault : le job 30 Beta echouait
+            # sur « concourse/ad-digital-mobile/keystore-dgag-beta-file … not found ».
+            # Elle est donc signee avec le keystore de Prod. Une seule source de
+            # verite en Vault (keystore-<brand>-prod-*) : pas de copie a maintenir,
+            # donc pas de derive a la prochaine rotation de la signature Prod.
+            # N'affecte QUE le profil de signature : envName reste Beta et le
+            # buildVariant reste DgagBetaRelease (voir androidEnvFlavorMap, distinct).
+            # Requiert ci-kmp >= 8.8.0 / resolve-context >= 1.7.0.
+            androidSigningEnvMap: '{"Beta":"Prod"}'
+
+            # Transition Azure Artifacts (retirer quand les dépendances seront sur Artifactory)
+
+            # PAT GitHub pour les checkouts des sous-modules privés (DGAG-Ajusto-Core)
+            # et des repos Match. Lu depuis Vault : concourse/<product>/compte-service-github-token
+            gitPatSecret: compte-service-github-token-pat
+
+            # Script SwiftLint : situé dans Scripts/ et non à la racine de iosApp/
+            iosSwiftlintScript: ./Scripts/swiftlint_ci.sh
+
+            sharedQualityArkana: true
+
+            compileSdkVersion: '34'
+            buildToolsVersion: '34.0.0'
+
+            enableIosQualityGate: false
+            enableAndroidQualityGate: false
+
+            # ----------------------------------------------------------------
+            # Vault PLATE (un secret par clé, champ `value`) — correspond à la
+            # Vault existante de l'org. Format: <nom-secret> <champ> | <ENV_VAR>
+            # Le préfixe concourse/<product>/ est ajouté automatiquement.
+            # Chaque variable est exportée en env ET écrite dans androidApp/.env.
+            # ----------------------------------------------------------------
+            androidSecretsLines: |
+                dragon-api-key-dev value | DragonServerApiKeyDev
+                dragon-api-key-qa value | DragonServerApiKeyQA
+                dragon-api-key-certif value | DragonServerApiKeyCertif
+                dragon-api-key-gia002 value | DragonServerApiKeyGIA002
+                dragon-api-key-gia003 value | DragonServerApiKeyGIA003
+                dragon-api-key-prod value | DragonServerApiKeyProd
+                google-places-api-key-qa-da value | GooglePlacesApiKeyQADA
+                google-places-api-key-qa-lp value | GooglePlacesApiKeyQALP
+                google-maps-api-key-qa value | GoogleMapsApiKeyQA
+                google-maps-api-key-qa-da value | GoogleMapsApiKeyQADA
+                google-maps-api-key-qa-lp value | GoogleMapsApiKeyQALP
+                google-maps-api-key-dgag-prod value | GoogleMapsApiKeyDgagProd
+                google-maps-api-key-tpic-prod value | GoogleMapsApiKeyTpicProd
+                google-maps-api-key-prod-da value | GoogleMapsApiKeyProdDA
+                google-maps-api-key-prod-lp value | GoogleMapsApiKeyProdLP
+                cmt-api-key-accpc100-da value | CmtApiKeyAccpc100DA
+                cmt-api-key-accpc200-da value | CmtApiKeyAccpc200DA
+                cmt-api-key-accpc300-da value | CmtApiKeyAccpc300DA
+                cmt-api-key-accpc400-da value | CmtApiKeyAccpc400DA
+                cmt-api-key-certif-da value | CmtApiKeyCertifDA
+                cmt-api-key-prod-da value | CmtApiKeyProdDA
+                cmt-api-key-systc100-da value | CmtApiKeySystc100DA
+                cmt-api-key-systc200-da value | CmtApiKeySystc200DA
+                cmt-api-key-systc300-da value | CmtApiKeySystc300DA
+                cmt-api-key-systc400-da value | CmtApiKeySystc400DA
+                cmt-api-key-accpc100-lp value | CmtApiKeyAccpc100LP
+                cmt-api-key-accpc200-lp value | CmtApiKeyAccpc200LP
+                cmt-api-key-accpc300-lp value | CmtApiKeyAccpc300LP
+                cmt-api-key-accpc400-lp value | CmtApiKeyAccpc400LP
+                cmt-api-key-certif-lp value | CmtApiKeyCertifLP
+                cmt-api-key-prod-lp value | CmtApiKeyProdLP
+                cmt-api-key-systc100-lp value | CmtApiKeySystc100LP
+                cmt-api-key-systc200-lp value | CmtApiKeySystc200LP
+                cmt-api-key-systc300-lp value | CmtApiKeySystc300LP
+                cmt-api-key-systc400-lp value | CmtApiKeySystc400LP
+                onetrust-app-id-dgag-qa value | OneTrustAppIdDgagQa
+                onetrust-app-id-tpic-qa value | OneTrustAppIdTpicQa
+                onetrust-app-id-dgag-prod value | OneTrustAppIdDgagProd
+                onetrust-app-id-tpic-prod value | OneTrustAppIdTpicProd
+                onetrust-api-key-qa-da value | OneTrustApiKeyQADA
+                onetrust-api-key-qa-lp value | OneTrustApiKeyQALP
+                onetrust-api-key-certif value | OneTrustApiKeyCertif
+                onetrust-api-key-gia002 value | OneTrustApiKeyGIA002
+                onetrust-api-key-gia003 value | OneTrustApiKeyGIA003
+                onetrust-api-key-prod-da value | OneTrustApiKeyProdDA
+                onetrust-api-key-prod-lp value | OneTrustApiKeyProdLP
+                # keystore-debug-password RETIRÉ : sa valeur est `android`, une
+                # constante publique Google (cf. alias `androiddebugkey`), pas un
+                # secret. Importé depuis Vault, vault-action posait un add-mask
+                # dessus et GitHub masquait la chaîne `android` dans TOUS les logs
+                # du run (`:***App:sonar`, URL Sonar `...-mobile-***`).
+                # Valeur désormais en dur dans androidApp/build.gradle.kts.
+                keystore-dgag-qa-password value | KeystoreDgagQaPassword
+                keystore-dgag-password value | KeystoreDgagPassword
+                keystore-tpic-qa-password value | KeystoreTpicQaPassword
+                keystore-tpic-password value | KeystoreTpicPassword
+                dapi-client-id value | DapiClientId
+                dapi-client-secret value | DapiClientSecret
+                encrypted-storage-key value | EncryptedStorageKey
+
+            iosSecretsLines: |
+                dragon-api-key-dev value | DragonServerApiKeyDev
+                dragon-api-key-qa value | DragonServerApiKeyQA
+                dragon-api-key-certif value | DragonServerApiKeyCertif
+                dragon-api-key-gia002 value | DragonServerApiKeyGIA002
+                dragon-api-key-gia003 value | DragonServerApiKeyGIA003
+                dragon-api-key-prod value | DragonServerApiKeyProd
+                onetrust-app-id-dgag-qa value | OneTrustAppIdDgagQa
+                onetrust-app-id-tpic-qa value | OneTrustAppIdTpicQa
+                onetrust-app-id-dgag-prod value | OneTrustAppIdDgagProd
+                onetrust-app-id-tpic-prod value | OneTrustAppIdTpicProd
+                onetrust-api-key-qa-da value | OneTrustApiKeyQADA
+                onetrust-api-key-qa-lp value | OneTrustApiKeyQALP
+                onetrust-api-key-certif value | OneTrustApiKeyCertif
+                onetrust-api-key-gia002 value | OneTrustApiKeyGIA002
+                onetrust-api-key-gia003 value | OneTrustApiKeyGIA003
+                onetrust-api-key-prod-da value | OneTrustApiKeyProdDA
+                onetrust-api-key-prod-lp value | OneTrustApiKeyProdLP
+                cmt-api-key-systc100-da value | CmtApiKeySystc100DA
+                cmt-api-key-systc200-da value | CmtApiKeySystc200DA
+                cmt-api-key-systc300-da value | CmtApiKeySystc300DA
+                cmt-api-key-systc400-da value | CmtApiKeySystc400DA
+                cmt-api-key-accpc100-da value | CmtApiKeyAccpc100DA
+                cmt-api-key-accpc200-da value | CmtApiKeyAccpc200DA
+                cmt-api-key-accpc300-da value | CmtApiKeyAccpc300DA
+                cmt-api-key-accpc400-da value | CmtApiKeyAccpc400DA
+                cmt-api-key-certif-da value | CmtApiKeyCertifDA
+                cmt-api-key-prod-da value | CmtApiKeyProdDA
+                cmt-api-key-systc100-lp value | CmtApiKeySystc100LP
+                cmt-api-key-systc200-lp value | CmtApiKeySystc200LP
+                cmt-api-key-systc300-lp value | CmtApiKeySystc300LP
+                cmt-api-key-systc400-lp value | CmtApiKeySystc400LP
+                cmt-api-key-accpc100-lp value | CmtApiKeyAccpc100LP
+                cmt-api-key-accpc200-lp value | CmtApiKeyAccpc200LP
+                cmt-api-key-accpc300-lp value | CmtApiKeyAccpc300LP
+                cmt-api-key-accpc400-lp value | CmtApiKeyAccpc400LP
+                cmt-api-key-certif-lp value | CmtApiKeyCertifLP
+                cmt-api-key-prod-lp value | CmtApiKeyProdLP
+                google-places-api-key-qa-da value | GooglePlacesApiKeyQADA
+                google-places-api-key-qa-lp value | GooglePlacesApiKeyQALP
+                google-maps-api-key-dgag-prod value | GoogleMapsApiKeyDgagProd
+                google-maps-api-key-tpic-prod value | GoogleMapsApiKeyTpicProd
+                google-maps-api-key-qa value | GoogleMapsApiKeyQA
+                google-maps-api-key-qa-da value | GoogleMapsApiKeyQADA
+                google-maps-api-key-qa-lp value | GoogleMapsApiKeyQALP
+                google-maps-api-key-prod-da value | GoogleMapsApiKeyProdDA
+                google-maps-api-key-prod-lp value | GoogleMapsApiKeyProdLP
+                # keystore-debug-password RETIRÉ (idem bloc Android) : valeur
+                # `android` = constante publique, masquait tous les logs.
+                keystore-dgag-qa-password value | KeystoreDgagQaPassword
+                keystore-dgag-password value | KeystoreDgagPassword
+                keystore-tpic-qa-password value | KeystoreTpicQaPassword
+                keystore-tpic-password value | KeystoreTpicPassword
+                dapi-client-id value | DapiClientId
+                dapi-client-secret value | DapiClientSecret
+                encrypted-storage-key value | EncryptedStorageKey
+
+            # iOS Match (signature) — noms Vault IRRÉGULIERS, donc mapping explicite
+            # (le template régulier ne marche pas : dgag→fede en appstore, tpic→lp).
+            # Parité Azure : en enterprise/applivery, dgag ET tpic partagent le cert
+            # enterprise dgag (MATCH_PASSWORD_DGAG_ENT). Le job seal lit ces secrets.
+            iosMatchSecretMap: >-
+                {
+                    "dgag-enterprise": "match-password-dgag-ent",
+                    "tpic-enterprise": "match-password-dgag-ent",
+                    "dgag-appstore": "match-password-fede-public",
+                    "tpic-appstore": "match-password-lp-public"
+                }
+
+            # Overrides manuels
+            manualPlatform: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || '' }}
+            manualAndroidBrand: ${{ github.event_name == 'workflow_dispatch' && inputs.androidBrand || '' }}
+            manualIosScheme: ${{ github.event_name == 'workflow_dispatch' && inputs.iosScheme || '' }}
+            # [2026-09-11] LOT 3 — remappage libelle du menu -> valeur attendue par
+            # resolve-context 1.7.0. Une valeur non reconnue y fait desormais echouer
+            # l'action (avant : ignoree en silence, donc aucune publication et aucun
+            # message). Requiert ci-kmp >= 8.8.0 / resolve-context >= 1.7.0.
+            manualDistribution: >-
+                ${{ github.event_name != 'workflow_dispatch' && ''
+                 || inputs.distribution == 'Prod (TestFlight)' && 'testflight'
+                 || inputs.distribution == 'Beta (TestFlight-beta)' && 'testflight-beta'
+                 || inputs.distribution }}
+            dryRun: ${{ github.event_name == 'workflow_dispatch' && inputs.dryRun || false }}
+            forcePublish: ${{ github.event_name == 'workflow_dispatch' && inputs.forcePublish || false }}
+            forcePublishMinPassingGates: ${{ github.event_name == 'workflow_dispatch' && inputs.forcePublishMinPassingGates || '3' }}
+        secrets:
+            ROLEID: ${{ secrets.ROLEID }}
+            SECRETID: ${{ secrets.SECRETID }}
+
+    # =========================================================================
+    # DIAG (à la demande) — Quel secret Vault masque les logs ?
+    #
+    # hashicorp/vault-action pose un ::add-mask:: sur la VALEUR de chaque secret
+    # importé ; GitHub remplace ensuite CHAQUE occurrence de cette valeur dans
+    # les logs du run. Si un secret vaut littéralement `android`, alors
+    # `:androidApp:sonar` s'affiche `:***App:sonar` et l'URL Sonar
+    # `...-android` devient `...-***` (constaté sur le job 11).
+    #
+    # Ce job réimporte les mêmes secrets et compare chaque valeur à une liste de
+    # mots à risque. Il n'affiche JAMAIS de valeur : seulement le NOM, la
+    # LONGUEUR et le mot détecté (écrit lettre par lettre, sinon il serait
+    # masqué à son tour et le rapport afficherait "***").
+    #
+    # Ne tourne QUE sur workflow_dispatch avec runSecretsDiag=true.
+    # =========================================================================
+    diag-secrets:
+        name: DIAG - Secrets qui masquent les logs
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.runSecretsDiag }}
+        runs-on: ${{ vars.DEFAULT_RUNNER_LABEL }}
+        steps:
+            - uses: actions/checkout@v4
+
+            # La liste des secrets est EXTRAITE DE CE FICHIER (blocs
+            # androidSecretsLines / iosSecretsLines ci-dessus) : aucune
+            # duplication à maintenir, le diag suit automatiquement les ajouts.
+            - name: Compose Vault read list (depuis ce workflow)
+              id: map
+              shell: bash
+              env:
+                  PREFIX: concourse/${{ github.event.repository.custom_properties.product }}
+                  SELF: .github/workflows/ci-with-kmp.yml
+                  KEY: ${{ inputs.platform == 'ios' && 'iosSecretsLines' || 'androidSecretsLines' }}
+              run: |
+                  set -euo pipefail
+
+                  # Extrait le bloc littéral YAML `<KEY>: |` : on garde les lignes
+                  # dont l'indentation est STRICTEMENT supérieure à celle de la clé.
+                  block="$(awk -v key="$KEY" '
+                    function indent(s) { match(s, /^[ ]*/); return RLENGTH }
+                    $0 ~ "^[ ]*" key ":[ ]*\\|" { base = indent($0); inblock = 1; next }
+                    inblock {
+                      if ($0 ~ /^[ ]*$/) next
+                      if (indent($0) <= base) { inblock = 0; next }
+                      print
+                    }
+                  ' "$SELF")"
+
+                  if [ -z "$block" ]; then
+                    echo "::error::Bloc $KEY introuvable dans $SELF"
+                    exit 1
+                  fi
+
+                  secrets=""
+                  names=""
+                  while IFS= read -r l; do
+                    l="${l%%;*}"
+                    l="$(echo "$l" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
+                    [ -z "$l" ] && continue
+                    # Ignorer les lignes de commentaire du bloc YAML littéral
+                    # (ex. le `# keystore-debug-password RETIRÉ ...` ci-dessus) :
+                    # sans ça elles partiraient dans la liste Vault et feraient
+                    # échouer vault-action sur un chemin inexistant.
+                    case "$l" in \#*) continue ;; esac
+                    secrets+="${PREFIX}/$l ;"$'\n'
+                    names+="${l##*| } "
+                  done <<< "$block"
+
+                  {
+                    echo "secrets<<__VEOF__"
+                    printf '%s' "$secrets"
+                    echo "__VEOF__"
+                    echo "names=$names"
+                  } >> "$GITHUB_OUTPUT"
+
+                  echo "$(printf '%s' "$names" | wc -w) secrets à analyser (bloc $KEY)."
+
+            - name: Import secrets from Vault
+              uses: hashicorp/vault-action@v3
+              with:
+                  url: ${{ vars.VAULT_URL_NPROD }}
+                  method: approle
+                  roleId: ${{ secrets.ROLEID }}
+                  secretId: ${{ secrets.SECRETID }}
+                  path: ${{ vars.VAULT_PATH_NPROD }}
+                  exportEnv: true
+                  secrets: ${{ steps.map.outputs.secrets }}
+
+            - name: Analyse (noms uniquement, jamais les valeurs)
+              shell: bash
+              env:
+                  NAMES: ${{ steps.map.outputs.names }}
+              run: |
+                  set -uo pipefail
+
+                  # Mots qui, s'ils sont la valeur EXACTE d'un secret, cassent les
+                  # logs : ils apparaissent partout (tâches Gradle, chemins, URLs).
+                  TOKENS="android ios shared main sdk java home debug release test
+                          dgag tpic qa prod dev value true false none all sonar
+                          gradle kotlin swift runner build app core mobile"
+
+                  # Affichage lettre-par-lettre : la chaîne imprimée diffère de la
+                  # valeur du secret, elle échappe donc au masquage.
+                  obf() { printf '%s' "$1" | sed 's/./&·/g; s/·$//'; }
+
+                  found=0
+                  short=0
+                  {
+                    echo "## 🔍 Diagnostic masquage des logs"
+                    echo ""
+                    echo "| Secret (ENV) | Long. | Verdict |"
+                    echo "|---|---|---|"
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+                  for n in $NAMES; do
+                    v="${!n-}"
+
+                    if [ -z "$v" ]; then
+                      echo "| \`$n\` | 0 | ⚪ absent de Vault |" >> "$GITHUB_STEP_SUMMARY"
+                      continue
+                    fi
+
+                    len=${#v}
+                    lower="$(printf '%s' "$v" | tr '[:upper:]' '[:lower:]')"
+
+                    hit=""
+                    for t in $TOKENS; do
+                      # valeur mono-ligne strictement égale au mot
+                      if [ "$lower" = "$t" ]; then hit="$t"; break; fi
+                      # valeur multi-ligne dont UNE ligne vaut le mot (GitHub
+                      # masque chaque ligne d'un secret multi-ligne séparément)
+                      if printf '%s\n' "$lower" | grep -qx -- "$t" 2>/dev/null; then hit="$t"; break; fi
+                    done
+
+                    if [ -n "$hit" ]; then
+                      found=$((found + 1))
+                      echo "| \`$n\` | $len | ❌ **COUPABLE** — vaut le mot \`$(obf "$hit")\` |" >> "$GITHUB_STEP_SUMMARY"
+                      echo "::error::$n a pour valeur un mot courant ($(obf "$hit")) — il masque ce mot dans TOUS les logs du run."
+                    elif [ "$len" -le 12 ] && printf '%s' "$lower" | grep -qE '^[a-z0-9._-]+$' 2>/dev/null; then
+                      short=$((short + 1))
+                      echo "| \`$n\` | $len | ⚠️ court et alphanumérique — risque de collision |" >> "$GITHUB_STEP_SUMMARY"
+                    else
+                      echo "| \`$n\` | $len | ✅ ok |" >> "$GITHUB_STEP_SUMMARY"
+                    fi
+                  done
+
+                  {
+                    echo ""
+                    echo "**Résultat** : $found coupable(s), $short à surveiller."
+                    echo ""
+                    echo "> Correctif : sortir le secret coupable de \`androidSecretsLines\`/\`iosSecretsLines\`"
+                    echo "> s'il n'est pas réellement sensible (identifiant public, alias...), ou changer"
+                    echo "> sa valeur dans Vault pour quelque chose de non générique."
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+                  echo "Terminé : $found coupable(s), $short à surveiller. Voir le résumé du run."
