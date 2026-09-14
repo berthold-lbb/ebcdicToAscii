@@ -1,0 +1,14 @@
+flowchart TD
+    IN["<b>badges bruts</b> — signal ③<br/>List&lt;AjustoBadge&gt;, dans l'ordre du serveur"]
+    F["<b>Filtre</b> — famille connue, et 0 ≤ level ≤ borne<br/>tout le reste est ignoré, dont la famille TURN"]
+    SORT["<b>BadgeScopeResolver</b><br/>7 listes, une par famille · niveau CROISSANT<br/>previousBadge / nextBadge renseignés<br/><i>sans muter la liste reçue</i>"]
+    SEL["<b>TopClaimableBadgeSelector</b><br/>familles parcourues dans l'ordre déclaré ;<br/>dans la première qui en contient un, retient le premier<br/>badge réclamable dont le SUIVANT ne l'est pas"]
+    OUT["une médaille, ou aucune"]
+
+    IN --> F --> SORT --> SEL --> OUT
+
+    classDef base fill:#f5f5f4,stroke:#a8a29e,color:#1c1917
+    classDef accent fill:#e6edf5,stroke:#2c5282,color:#1a365d,stroke-width:2px
+
+    class IN,F,SORT,OUT base
+    class SEL accent

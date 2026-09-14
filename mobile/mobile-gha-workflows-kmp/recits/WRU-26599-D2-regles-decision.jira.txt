@@ -1,0 +1,357 @@
+h1. WRU-26599-D2 — Les quatre règles de décision des messages contextuels
+
+||Champ||Valeur||
+|Type de ticket|Tâche technique|
+|Epic|WRU-26599 — Migration des messages contextuels Ajusto hors du Core Java|
+|Composants|ajusto-kmp, domain|
+|Étiquettes|wru-26599, kmp, domain, commonMain, migration-core|
+|Estimation|1 j|
+|Priorité|Haute — bloque D3|
+|Dépend de|WRU-26599-D1 (le modèle de domaine)|
+|Bloque|WRU-26599-D3|
+|Module Gradle|{{:modules:feature:ajusto:domain}} — source set {{commonMain}}|
+
+----
+
+h2. Contexte
+
+Quatre des huit règles qui décident d'afficher un message contextuel ne sont pas de simples conditions sur un booléen : ce sont de véritables algorithmes, aujourd'hui écrits en Java dans le dépôt {{ad-digital-mobile-core-lib}}.
+
+Deux d'entre elles décident si un message s'applique — l'invitation à étiqueter un trajet, et le décompte avant l'entrée en vigueur de la police. Les deux autres forment une chaîne qui, à partir de la liste brute des médailles renvoyée par le serveur, désigne *la* médaille à proposer.
+
+Ce ticket les porte en Kotlin pur, sous forme d'objets sans état : ils reçoivent des signaux, ils rendent un booléen ou une sélection. Aucun accès réseau, aucun stockage, aucun effet de bord. C'est ce qui les rend intégralement testables hors appareil, ce que le Java d'origine ne permettait pas.
+
+Le ticket D3 les assemblera dans le use case de résolution ; ce ticket-ci ne fait que les écrire et les prouver.
+
+h2. Objectif
+
+Livrer quatre objets de règle, chacun testé isolément, dans le module {{domain}}.
+
+h2. Périmètre
+
+*Dans le périmètre*
+* Les quatre fichiers du paquet {{contextualmessage/rule/}}
+* Leurs tests unitaires, cas limites compris
+
+*Hors périmètre*
+* Les règles 1, 2, 3 et 4 (marque, appareil, batterie, économie d'énergie) : ce sont de simples conjonctions de booléens, elles seront écrites directement dans le use case — WRU-26599-D3
+* L'assemblage des règles et l'ordre d'affichage — WRU-26599-D3
+* L'obtention des signaux — WRU-26599-D4 et les tickets de la couche data
+
+----
+
+h2. Schéma
+
+!WRU-26599-D2-schema.png|thumbnail!
+
+Le schéma ne couvre que la chaîne des médailles, la seule partie du ticket qui n'est pas une conjonction lisible d'un coup d'œil. Les deux règles booléennes sont spécifiées en toutes lettres plus bas. La source Mermaid est jointe ({{WRU-26599-D2-schema.mmd}}).
+
+----
+
+h2. Ce qu'il faut livrer
+
+Emplacement : {{domain/src/commonMain/kotlin/com/desjardins/assurancedommages/mobile/ajusto/domain/contextualmessage/rule/}}
+
+||Fichier||Rend||Rôle||
+|{{ClassifyInviteRule.kt}}|{{Boolean}}|Règle 5 — faut-il inviter la personne à étiqueter ses trajets|
+|{{RemainingDaysUntilPolicyRule.kt}}|{{Int?}}|Règle 6 — combien de jours avant l'entrée en vigueur, ou {{null}}|
+|{{BadgeScopeResolver.kt}}|{{Map<AjustoBadgeScope, List<AjustoBadge>>}}|Règle 7, étape 1 — classe et trie les médailles par famille|
+|{{TopClaimableBadgeSelector.kt}}|{{AjustoBadge?}}|Règle 7, étape 2 — désigne la médaille à proposer|
+
+----
+
+h2. Spécification — ClassifyInviteRule (règle 5)
+
+*Intention métier.* Une personne qui vient de commencer, qui a roulé assez pour avoir des trajets à étiqueter mais qui n'en a encore étiqueté aucun, voit un bandeau l'invitant à le faire. Le bandeau reste visible jusqu'à son vingtième trajet, puis disparaît. Il réapparaît si la personne recommence un cycle.
+
+*La règle rend vrai si et seulement si les cinq conditions sont vraies ensemble.*
+
+||#||Condition||Signal||
+|1|Le mode du compte vaut exactement {{"continuous4"}}|⑤ {{mode}}|
+|2|{{numberOfTrips > 5}} *ou* {{recentTrips.size > 5}}|⑥ et ①|
+|3|{{numberOfTrips <= 20}}|⑥|
+|4|Aucun des trajets récents n'est étiqueté par la personne|① {{recentTrips}}|
+|5|L'invitation n'a pas été écartée|⑫ {{isClassifyInviteQualified}}|
+
+{panel:title=(!) Les conditions 4 et 5 sont deux choses différentes|borderStyle=solid|borderColor=#2c5282|titleBGColor=#e6edf5|bgColor=#ffffff}
+Elles se ressemblent en français et se confondent facilement à l'écriture. Ce n'est pas la même donnée, et remplacer l'une par l'autre change le comportement sans faire échouer la compilation.
+
+*Condition 4* est un *calcul sur la liste des trajets récents* : {{!recentTrips.any { it.isUserLabeled \}}}. Elle regarde uniquement la fenêtre des trajets récents, celle que le filtre des 90 jours aura constituée. Une personne ayant étiqueté un trajet il y a plus de 90 jours sort de cette fenêtre et redevient éligible à l'invitation — c'est le « le processus se répète » de l'intention métier.
+
+*Condition 5* est la lecture d'un *drapeau persistant*, celui qui mémorise que l'invitation a été écartée. Il ne dit rien des trajets.
+
+Un test doit échouer si l'une est utilisée à la place de l'autre : donner une liste contenant un trajet étiqueté *et* un drapeau permettant l'invitation, puis l'inverse, et vérifier que les deux cas rendent faux pour des raisons distinctes.
+{panel}
+
+*La valeur du mode est confirmée.* Côté Java, {{AjustoParameters.Mode}} associe {{CONTINUOUS_V4}} à la chaîne littérale {{"continuous4"}} — minuscules, sans séparateur, et c'est cette chaîne qui circule dans le JSON ({{settings/AjustoParameters.java}}, l. 92). Le signal ⑤ étant une {{String?}} côté KMP, la comparaison doit être *exacte et sensible à la casse* : pas de {{equalsIgnoreCase}}, pas de normalisation. Les deux seules valeurs connues sont {{"none"}} et {{"continuous4"}}.
+
+Les seuils 5 et 20 sont des constantes nommées, déclarées {{private const}} dans l'objet.
+
+----
+
+h2. Spécification — RemainingDaysUntilPolicyRule (règle 6)
+
+*Intention métier.* Tant que la police n'est pas entrée en vigueur, la personne voit combien de jours il reste.
+
+*La règle rend le nombre de jours restants s'il est strictement supérieur à zéro, et {{null}} sinon* — {{null}} signifiant « pas de message ». Le signal ⑪ étant lui-même nullable, une valeur absente rend {{null}} sans autre traitement.
+
+h3. Le calcul des jours restants — à situer avant de coder
+
+Côté Java, ce nombre n'est pas une donnée reçue : il est calculé par {{CMTProfile.getRemainingDaysUntilPolicyTakesEffect()}}, et le calcul n'est pas trivial.
+
+* La référence est *aujourd'hui à minuit* et non l'instant courant, ce qui rend le résultat stable au cours d'une même journée
+* Une correction de changement d'heure est appliquée entre les deux dates, pour qu'un passage à l'heure d'été ou d'hiver ne fasse pas gagner ou perdre un jour
+* Le résultat est tronqué *vers zéro* : plancher pour une valeur positive, plafond pour une valeur négative
+* En l'absence de date d'entrée en vigueur, la valeur rendue est {{-1}}, qui ne déclenche donc pas le message
+
+Le modèle de domaine livré en D1 expose ce nombre comme un {{Int?}} déjà calculé, ce qui laisse la conversion date vers jours sans propriétaire dans le découpage actuel des tickets.
+
+*Décision attendue au démarrage de ce ticket, à écrire en commentaire :* soit la conversion est écrite ici, comme une seconde fonction pure du même objet prenant la date d'entrée en vigueur et l'instant de référence, et la couche data s'en sert pour alimenter le signal ⑪ ; soit elle est confiée à la couche data et fait l'objet d'un ticket dédié. La première option est recommandée — le calcul est une règle métier, il est pur, et il est bien plus facile à prouver ici qu'au milieu d'un adaptateur. Elle n'oblige à aucun changement du modèle livré en D1.
+
+Si la conversion est écrite ici, ses tests doivent couvrir le passage à l'heure d'été et à l'heure d'hiver, la date du jour même, une date passée, et l'absence de date.
+
+----
+
+h2. Spécification — BadgeScopeResolver (règle 7, étape 1)
+
+Reçoit la liste brute des médailles telle que le serveur l'a renvoyée. Rend une liste par famille, triée, avec les chaînons renseignés.
+
+{code:none}
+pour chaque badge de la liste reçue, dans l'ordre :
+
+    famille = famille correspondant à badge.groupIdentifier
+    si la famille est inconnue                     -> ignorer ce badge
+    si badge.level < 0 ou badge.level > borne      -> ignorer ce badge
+
+    dans la liste de cette famille :
+        chercher le premier élément "existant" tel que
+            NON (badge.level > existant.level)
+        s'il existe -> insérer le badge à cet index
+        sinon       -> ajouter le badge en fin de liste
+
+puis, pour chaque famille :
+    chaque badge reçoit
+        previousBadge = l'élément d'index - 1   (null s'il est le premier)
+        nextBadge     = l'élément d'index + 1   (null s'il est le dernier)
+{code}
+
+*Ce que produit cet algorithme :* une liste triée par niveau *croissant*. Le premier élément est le niveau le plus bas, le dernier le plus haut. C'est cette orientation qui donne son sens à {{nextBadge}} — le niveau immédiatement supérieur — et qui sera exploitée par le sélecteur.
+
+*Cas des niveaux égaux :* la condition d'insertion étant « non strictement supérieur », un badge arrivant au même niveau qu'un badge déjà placé s'insère *avant* lui. Comportement à reproduire tel quel et à couvrir par un test, sinon un futur changement de comparateur passera inaperçu.
+
+*Familles inconnues :* tout {{groupIdentifier}} qui ne correspond à aucune des sept familles est ignoré, y compris {{TURN}}, qui existe côté serveur mais n'est volontairement pas classé. Voir D1.
+
+----
+
+h2. Spécification — TopClaimableBadgeSelector (règle 7, étape 2)
+
+{code:none}
+pour chaque famille, dans l'ordre de déclaration de l'énumération :
+
+    liste = les badges de cette famille (triée par niveau croissant)
+
+    parcourir la liste depuis le début :
+        si le badge est réclamable
+           ET (c'est le dernier de la liste
+               OU le badge suivant n'est PAS réclamable)
+        alors c'est celui-là : on le retient et on s'arrête
+
+    si un badge a été retenu -> ne plus examiner les familles suivantes
+
+si aucune famille n'a fourni de badge -> rendre null
+{code}
+
+*Ce que la règle cherche vraiment :* le sommet de la chaîne réclamable. Dans une famille où les niveaux 1, 2 et 3 sont tous réclamables, la règle rend le niveau 3 — le plus haut de la série continue — et non le niveau 1.
+
+*La première famille l'emporte.* Dès qu'une famille fournit un badge, les suivantes ne sont pas examinées, même si elles contiennent une médaille plus avancée. L'ordre de déclaration de l'énumération est donc un choix fonctionnel, pas un détail de présentation.
+
+*Le caractère réclamable est une donnée d'entrée*, pas un calcul de ce ticket : le modèle {{AjustoBadge}} porte déjà {{isClaimable}}. Côté Java il se déduit d'une médaille complétée mais pas encore réclamée ; ce ticket se contente de lire le booléen.
+
+----
+
+h2. Dépendances de code à connaître avant de commencer
+
+h3. Fournis par D1
+
+{{AjustoContextualSignals}} (les signaux en entrée), {{AjustoBadgeScope}} (les sept familles, leur ordre, {{fromIdentifier}} et la borne de niveau).
+
+h3. AjustoBadge — existe déjà
+
+{{domain/.../ajusto/domain/achievements/model/AjustoBadge.kt}}. Propriétés utiles ici : {{groupIdentifier: String?}}, {{level: Int}} (défaut {{-1}}), {{isClaimable: Boolean}}, {{previousBadge}} et {{nextBadge}}.
+
+*Piège à l'écriture des tests* : {{previousBadge}} et {{nextBadge}} n'ont pas de valeur par défaut. Toute construction d'un {{AjustoBadge}} en test doit les passer explicitement, {{null}} compris. Écrire une fonction de fabrication dans les tests plutôt que de répéter la liste complète des paramètres — ce ticket en construira beaucoup.
+
+h3. AjustoRecentTrip — à situer
+
+La condition 4 de {{ClassifyInviteRule}} lit {{isUserLabeled}} sur les éléments de {{recentTrips}}. Le type attendu est {{data class AjustoRecentTrip(val startDate: Instant, val isUserLabeled: Boolean, val isMulligan: Boolean)}}, dont la déclaration est prévue au titre du ticket D4. Le même arbitrage que pour {{AjustoTip}} en D1 se pose ici : déclarer ce modèle dans le paquet {{model/}} du domaine, ou attendre D4. Trancher au démarrage et le noter en commentaire — les deux tickets doivent retenir la même réponse.
+
+----
+
+h2. Conventions à respecter
+
+Le module ne contient *aucun objet de règle* à ce jour : c'est un motif nouveau, et ce ticket fixe la convention pour ceux qui suivront.
+
+Convention retenue : un {{object}} Kotlin par règle, une seule fonction publique, les constantes en {{private const}} à l'intérieur de l'objet. Aucune injection, aucun paramètre de configuration, aucune dépendance autre que le modèle de domaine.
+
+Pour la forme générale d'un objet de domaine sans état, se calquer sur {{domain/.../ajusto/domain/score/AjustoScoreProgressStatus.kt}}. Pour la structure et le nommage des tests, sur {{domain/src/commonTest/.../history/model/AjustoHistoryPeriodTest.kt}}.
+
+Chaque objet doit documenter en en-tête la règle métier qu'il porte et le fichier Java dont il est issu, pour que la correspondance reste vérifiable après la suppression du Core.
+
+----
+
+h2. Points de vigilance
+
+{panel:title=(!) Trois pièges|borderStyle=solid|borderColor=#c1c7d0|titleBGColor=#f4f5f7|bgColor=#ffffff}
+*1. La borne de niveau n'est pas une constante côté Java.* Le filtre d'origine compare le niveau du badge à {{badge.supportedBadgeLevels()}}, qui rend la taille de la liste des libellés de niveaux *reçue pour ce badge précis*. La borne dépend donc de la donnée, badge par badge. Le modèle {{AjustoBadge}} du KMP ne porte pas cette liste — il expose un {{badgeLevelText}} au singulier. Reproduire le comportement à l'identique demanderait donc d'enrichir le modèle. Voir le risque n°1.
+
+*2. Ne pas muter la liste reçue.* Le code Java d'origine écrit les chaînons directement dans les objets qu'il a reçus. Une implémentation Kotlin propre reconstruit des copies — mais alors le chaînage n'est plus récursif : les voisins d'une copie sont les objets d'origine, non chaînés, donc {{badge.nextBadge?.nextBadge}} vaut {{null}} là où le Java le renseignait. Sans conséquence pour ce chantier, où la sélection travaille par index et non par chaînage, mais à vérifier avant de supposer que l'écart est sans effet ailleurs.
+
+*3. Comparaison de chaînes exacte.* Le mode et les identifiants de famille se comparent sans normalisation de casse ni d'espaces, comme le fait le Java.
+{panel}
+
+----
+
+h2. Critères d'acceptation
+
+h3. CA-1 — ClassifyInviteRule : les cinq conditions
+
+*Étant donné* un jeu de signaux où les cinq conditions sont vraies
+*Quand* on invalide une seule condition à la fois, cinq fois de suite
+*Alors* la règle rend faux dans les cinq cas, et vrai dans le cas de référence
+
+h3. CA-2 — ClassifyInviteRule : les conditions 4 et 5 sont indépendantes
+
+*Étant donné* d'une part des signaux où un trajet récent est étiqueté mais où l'invitation n'a pas été écartée, d'autre part des signaux où aucun trajet n'est étiqueté mais où l'invitation a été écartée
+*Quand* on évalue la règle sur chacun
+*Alors* elle rend faux dans les deux cas, et le test échoue si l'une des deux conditions est utilisée à la place de l'autre
+
+h3. CA-3 — ClassifyInviteRule : la comparaison du mode
+
+*Étant donné* les valeurs {{null}}, {{""}}, {{"none"}}, {{"CONTINUOUS4"}}, {{"continuous_v4"}} et {{"continuous4"}}
+*Quand* on évalue la règle en gardant toutes les autres conditions vraies
+*Alors* seule la dernière valeur rend vrai
+
+h3. CA-4 — ClassifyInviteRule : les bornes de trajets
+
+*Étant donné* les valeurs de {{numberOfTrips}} 5, 6, 20 et 21, toutes autres conditions vraies et {{recentTrips}} vide
+*Quand* on évalue la règle
+*Alors* elle rend faux, vrai, vrai, faux — et un cas supplémentaire vérifie qu'une liste de plus de cinq trajets récents suffit à satisfaire la condition 2 même avec {{numberOfTrips}} à 0
+
+h3. CA-5 — RemainingDaysUntilPolicyRule
+
+*Étant donné* les valeurs {{null}}, {{-1}}, {{0}} et {{3}}
+*Quand* on évalue la règle
+*Alors* elle rend {{null}}, {{null}}, {{null}} et {{3}} — le seuil est strictement supérieur à zéro
+
+h3. CA-6 — BadgeScopeResolver : classement et tri
+
+*Étant donné* une liste de médailles mêlant plusieurs familles et plusieurs niveaux, dans le désordre
+*Quand* on la passe au résolveur
+*Alors* chaque famille contient ses médailles triées par niveau croissant, et deux médailles de même niveau apparaissent dans l'ordre imposé par l'algorithme d'insertion
+
+h3. CA-7 — BadgeScopeResolver : chaînage
+
+*Étant donné* une famille contenant trois médailles de niveaux différents
+*Quand* on lit les chaînons du résultat
+*Alors* la première a {{previousBadge}} à {{null}}, la dernière a {{nextBadge}} à {{null}}, et celle du milieu pointe vers ses deux voisines immédiates
+
+h3. CA-8 — BadgeScopeResolver : filtrage
+
+*Étant donné* une liste contenant une médaille de famille inconnue, une de famille {{TURN}}, une de niveau négatif et une de niveau au-delà de la borne
+*Quand* on la passe au résolveur
+*Alors* aucune des quatre n'apparaît dans le résultat
+
+h3. CA-9 — BadgeScopeResolver : la liste reçue n'est pas modifiée
+
+*Étant donné* une liste de médailles dont on conserve une image avant appel
+*Quand* on la passe au résolveur
+*Alors* la liste d'origine et ses éléments sont inchangés après l'appel
+
+h3. CA-10 — TopClaimableBadgeSelector : le sommet de la chaîne réclamable
+
+*Étant donné* une famille dont les niveaux 1, 2 et 3 sont réclamables et le niveau 4 ne l'est pas
+*Quand* on appelle le sélecteur
+*Alors* il rend le niveau 3
+
+h3. CA-11 — TopClaimableBadgeSelector : la première famille l'emporte
+
+*Étant donné* deux familles contenant chacune une médaille réclamable, la seconde étant d'un niveau plus élevé
+*Quand* on appelle le sélecteur
+*Alors* il rend celle de la famille déclarée en premier dans l'énumération
+
+h3. CA-12 — Cas limites
+
+*Étant donné* une liste de médailles vide, puis une liste où aucune médaille n'est réclamable, puis une liste de trajets récents vide
+*Quand* on appelle les règles concernées
+*Alors* aucune ne lève d'exception, le sélecteur rend {{null}} et {{ClassifyInviteRule}} se prononce sur les seules autres conditions
+
+h3. CA-13 — Isolation et couverture
+
+*Étant donné* la campagne de tests du module
+*Quand* on l'exécute
+*Alors* chaque règle est testée sans dépendre du use case ni d'aucune autre règle, {{./gradlew :modules:feature:ajusto:domain:build}} réussit, et le paquet {{contextualmessage/rule}} est couvert à 100 %
+
+----
+
+h2. Definition of Done
+
+* (/) Les quatre objets de règle sont livrés dans le bon paquet
+* (/) Les treize critères d'acceptation sont vérifiés
+* (/) Les tests unitaires passent en intégration continue
+* (/) La décision sur le calcul des jours restants est prise et écrite en commentaire de ce ticket
+* (/) La décision sur l'emplacement d'{{AjustoRecentTrip}} est prise, et elle est la même qu'en D1
+* (/) Le risque n°1 (borne de niveau) est soit levé, soit remonté en commentaire avec ce qui a été constaté
+* (/) Chaque objet documente en en-tête sa règle métier et son fichier Java d'origine
+* (/) La revue de code est approuvée par un pair
+* (/) Le ticket D3 est notifié que les règles sont disponibles
+
+----
+
+h2. Sous-tâches proposées
+
+# Lire les quatre sources Java d'origine et noter les écarts assumés — 1 h
+# Écrire {{ClassifyInviteRule}} et {{RemainingDaysUntilPolicyRule}}, trancher le calcul des jours — 2 h
+# Écrire {{BadgeScopeResolver}} et {{TopClaimableBadgeSelector}} — 2 h
+# Écrire la fonction de fabrication de médailles pour les tests, puis les tests des quatre règles — 3 h
+# Vérifier la compilation et le rapport de couverture — 30 min
+
+----
+
+h2. Risques et questions ouvertes
+
+||#||Sujet||Impact si la réponse est défavorable||Qui tranche||
+|1|La borne de niveau Java dépend des données reçues pour chaque badge, alors que le modèle KMP ne porte pas l'information nécessaire|Une médaille dont le niveau dépasse une borne mal estimée est ignorée, et la règle 7 ne se déclenche jamais pour sa famille|Vérification dans le code du Core, puis équipe|
+|2|Où vit le calcul des jours restants avant l'entrée en vigueur|Si personne ne le reprend, le signal ⑪ n'a pas de producteur et la règle 6 ne se déclenche jamais|Équipe, dans ce ticket|
+|3|Emplacement de la déclaration d'{{AjustoRecentTrip}}|Divergence entre D1, D2 et D4 si la réponse n'est pas la même partout|Équipe, au démarrage|
+|4|Le chaînage non récursif des copies est-il lu ailleurs dans l'application ?|Un écran qui remonterait la chaîne de médailles au-delà du voisin immédiat afficherait autre chose qu'aujourd'hui|Vérification dans le code|
+
+Aucun de ces points ne bloque la livraison : les quatre règles s'écrivent et se testent avec les hypothèses ci-dessus, et chacune est portée par un test qui échouera si la réponse change.
+
+----
+
+h2. Vérifier localement
+
+{code:bash}
+# compilation du module
+./gradlew :modules:feature:ajusto:domain:build
+
+# tests du module, toutes plateformes
+./gradlew :modules:feature:ajusto:domain:allTests
+{code}
+
+----
+
+h2. Références
+
+* {{analyse/AjustoContextualMessage/19-Parcours-des-dependances-et-plan-daction-v3.html}} — parcours des 13 dépendances et plan par lots
+* {{analyse/AjustoContextualMessage/18-WRU-26599-etat-des-lieux-et-decisions.html}} — état des lieux et raisonnements derrière les décisions
+* {{analyse/AjustoContextualMessage/tickets/README.md}} — ordre et dépendances des neuf tickets du chantier
+* Sources Java, dépôt {{ad-digital-mobile-core-lib}}, sous {{src/main/java/ca/dgag/ajusto/core/}} :
+** {{classifyinvite/ClassifyInviteChecker.java}} — les cinq conditions de la règle 5
+** {{classifyinvite/ClassifyInviteQualifier.java}} — le drapeau de la condition 5
+** {{settings/AjustoParameters.java}} — l'énumération des modes et leurs valeurs sérialisées
+** {{badge/BadgeScoper.java}} — le classement par famille
+** {{badge/TopClaimableBadgeFinder.java}} — la sélection de la médaille
+** {{badge/Badge.java}} — la comparaison de niveaux, la borne de niveaux, le caractère réclamable
+** {{telematics/CMTProfile.java}} — le calcul des jours restants
+** {{trip/AjustoContextualMessageHelper.java}} — la cascade complète, pour situer les règles les unes par rapport aux autres

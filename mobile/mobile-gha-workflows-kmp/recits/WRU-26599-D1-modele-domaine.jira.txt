@@ -1,0 +1,319 @@
+h1. WRU-26599-D1 — Modèle de domaine des messages contextuels Ajusto
+
+||Champ||Valeur||
+|Type de ticket|Tâche technique|
+|Epic|WRU-26599 — Migration des messages contextuels Ajusto hors du Core Java|
+|Composants|ajusto-kmp, domain|
+|Étiquettes|wru-26599, kmp, domain, commonMain, migration-core|
+|Estimation|0,5 j|
+|Priorité|Haute — premier ticket du chantier, bloque quatre autres|
+|Dépend de|aucun|
+|Bloque|WRU-26599-D2, WRU-26599-D3, WRU-26599-D4, WRU-26599-A5|
+|Module Gradle|{{:modules:feature:ajusto:domain}} — source set {{commonMain}}|
+
+----
+
+h2. Contexte
+
+Sur l'écran Ajusto, une zone affiche des messages contextuels : batterie faible, appareil non compatible, médaille à réclamer, etc. La décision d'afficher l'un ou l'autre vit aujourd'hui en Java, dans {{AjustoContextualMessageHelper.findContextualMessage()}} (183 lignes, dépôt {{ad-digital-mobile-core-lib}}).
+
+Cette méthode fait deux choses à la fois : elle décide *quel* cas s'applique, et elle rend du texte *déjà traduit* accompagné d'une clé d'icône. Les deux responsabilités sont soudées, et c'est précisément ce qui rend la dépendance au Core impossible à couper.
+
+Le chantier WRU-26599 les sépare, selon un principe simple : *on déplace la décision, pas les données*. Le domaine KMP dira seulement quel cas s'applique ; la traduction, l'icône et la teinte descendront dans la couche présentation.
+
+Ce ticket pose la première brique — le vocabulaire commun. Tant qu'il n'est pas livré, aucun autre ticket du chantier ne peut démarrer : D2 écrit les règles qui consomment ce modèle, D3 le use case qui l'assemble, D4 les ports qui le transportent, A5 le repository qui le produit.
+
+h2. Objectif
+
+Livrer quatre fichiers de modèle de domaine, compilables et testés, dans le module {{domain}}. À l'issue de ce ticket le module compile et personne ne consomme encore ce modèle : c'est un livrable inerte, volontairement.
+
+h2. Périmètre
+
+*Dans le périmètre*
+* Les quatre fichiers du paquet {{contextualmessage/model/}}
+* Leurs tests unitaires
+
+*Hors périmètre*
+* Les règles de décision (les algorithmes) — WRU-26599-D2
+* Le use case de résolution et la table de vérité — WRU-26599-D3
+* Les ports vers la couche data — WRU-26599-D4
+* Tout libellé, clé de traduction, icône ou teinte — lot présentation
+* Le branchement dans le graphe d'injection — WRU-26599-A5
+
+----
+
+h2. Schéma
+
+!WRU-26599-D1-schema.png|thumbnail!
+
+La source Mermaid est jointe au ticket ({{WRU-26599-D1-schema.mmd}}) pour pouvoir régénérer l'image après modification.
+
+----
+
+h2. Ce qu'il faut livrer
+
+Emplacement : {{domain/src/commonMain/kotlin/com/desjardins/assurancedommages/mobile/ajusto/domain/contextualmessage/model/}}
+
+||Fichier||Forme||Rôle||
+|{{AjustoContextualMessage.kt}}|{{sealed class}}|Le modèle central — 8 variantes, chacune portant {{group}} et {{priority}}|
+|{{AjustoContextualSignals.kt}}|{{data class}}|Les entrées de la décision — 13 signaux, tous avec valeur par défaut|
+|{{AjustoMessageGroup.kt}}|{{enum}}|L'apparence — trois valeurs : {{ADVICE}}, {{NOTICE}}, {{BADGE}}|
+|{{AjustoBadgeScope.kt}}|{{enum}}|Les 7 familles de médailles — l'ordre de déclaration est significatif|
+
+h3. AjustoContextualMessage — les 8 variantes
+
+Les variantes sans charge utile sont des {{data object}}, celles qui portent une donnée des {{data class}}. {{group}} et {{priority}} sont déclarés sur la classe scellée, pas redéfinis dans chaque variante.
+
+||Variante||Règle||{{group}}||{{priority}}||Charge utile||
+|{{DeviceBrandNotCompatible}}|1|{{NOTICE}}|1|aucune|
+|{{DeviceNotCompatible}}|2|{{NOTICE}}|2|{{drivingProgramName: String}}|
+|{{LowBattery}}|3|{{NOTICE}}|3|aucune|
+|{{PowerSaving}}|4|{{NOTICE}}|4|aucune|
+|{{ClassifyInvite}}|5|{{NOTICE}}|5|aucune|
+|{{PolicyEffective}}|6|{{NOTICE}}|6|{{remainingDays: Int}}|
+|{{Badge}}|7|{{BADGE}}|7|{{badge: AjustoBadge}}|
+|{{GoodToKnow}}|8|{{ADVICE}}|8|{{tip: AjustoTip}}|
+
+*{{priority}} n'est pas décoratif.* Il reproduit l'ordre exact du {{if / else if}} de la cascade Java, et c'est lui qui permettra de vérifier au lot 7 que la nouvelle implémentation choisit le même message que l'ancienne. Un {{priority}} faux ne casse rien à la compilation et casse tout à la parité.
+
+h3. AjustoContextualSignals — les 13 signaux
+
+||#||Champ||Type||Défaut||Sert à la règle||
+|①|{{recentTrips}}|{{List<AjustoRecentTrip>}}|{{emptyList()}}|5|
+|②|{{isRecording}}|{{Boolean}}|{{false}}|4|
+|③|{{badges}}|{{List<AjustoBadge>}}|{{emptyList()}}|7|
+|④|{{isDeviceCompatible}}|{{Boolean}}|{{true}}|2|
+|⑤|{{mode}}|{{String?}}|{{null}}|5|
+|⑥|{{numberOfTrips}}|{{Int}}|{{0}}|5|
+|⑦|{{isBatteryLow}}|{{Boolean}}|{{false}}|3|
+|⑧|{{isBatteryChargeSustained}}|{{Boolean}}|{{false}}|3|
+|⑨|{{isPowerSavingModeEnabled}}|{{Boolean}}|{{false}}|4|
+|⑩|{{isDeviceBrandCompatible}}|{{Boolean}}|{{true}}|1|
+|⑪|{{remainingDaysUntilPolicyTakesEffect}}|{{Int?}}|{{null}}|6|
+|⑫|{{hasEverLabeledATrip}} et {{isClassifyInviteQualified}}|{{Boolean}}|{{false}} / {{true}}|5|
+|⑬|{{drivingProgramName}}|{{String}}|{{""}}|interpolation du message de la règle 2|
+
+Le signal ⑫ occupe deux champs et ⑬ est une donnée d'interpolation plutôt qu'un signal de décision : la classe compte donc 14 propriétés pour 13 signaux.
+
+{panel:title=Pourquoi toutes les valeurs par défaut sont obligatoires|borderStyle=solid|borderColor=#2c5282|titleBGColor=#e6edf5|bgColor=#ffffff}
+Ce n'est pas de la commodité d'écriture. Côté Java, {{notifyContextualMessage()}} assemble ses entrées par un {{combineLatest}} de six flux, et ce {{combineLatest}} ne bat *jamais* tant que {{profile.subscribeOnce}} n'a pas répondu. Résultat : au premier lancement, aucun message ne s'affiche — pas même ceux dont tous les signaux sont déjà disponibles.
+
+Les valeurs par défaut sont ce qui empêche de reproduire ce défaut : une règle doit pouvoir se prononcer dès que *ses* signaux sont connus, sans attendre les autres. Le choix de chaque défaut suit la même logique : *l'état qui ne déclenche pas d'alerte*. D'où {{true}} pour les deux compatibilités et {{false}} pour les trois signaux de batterie.
+{panel}
+
+h3. AjustoMessageGroup — les trois groupes
+
+Cet enum correspond exactement à ce que la personne voit : le libellé affiché en haut de chaque boîte.
+
+||Valeur||Libellé à l'écran||Règles concernées||
+|{{ADVICE}}|« Bon à savoir »|8|
+|{{NOTICE}}|« Avis »|1 à 6|
+|{{BADGE}}|rendu à part, sans libellé ni bordure colorée|7|
+
+*Il ne porte que l'apparence.* L'ordre de déclaration de cet enum n'est ni l'ordre d'affichage à l'écran (qui vivra dans le use case, D3), ni l'ordre de la cascade Java (qui vit dans {{priority}}). Trois notions distinctes qu'il est facile de confondre.
+
+h3. AjustoBadgeScope — les sept familles
+
+Une valeur par famille, chacune portant son identifiant serveur. L'ordre de déclaration est *l'ordre de recherche* du badge réclamable : c'est lui qui détermine quelle famille l'emporte quand plusieurs contiennent une médaille à réclamer (utilisé en D2).
+
+||Ordre||Valeur||{{identifier}}||
+|0|{{SNAP}}|{{"SNAP"}}|
+|1|{{FIRSTSCORE}}|{{"FIRSTSCORE"}}|
+|2|{{TOTAL}}|{{"TOTAL"}}|
+|3|{{BRAKE}}|{{"BRAKE"}}|
+|4|{{DISTRACTION}}|{{"DISTRACTION"}}|
+|5|{{SPEEDING}}|{{"SPEEDING"}}|
+|6|{{ACCEL}}|{{"ACCEL"}}|
+
+Cet ordre est celui de la map statique {{badgeScopeMap}} de {{BadgeScoper.java}} — il doit être reproduit à l'identique.
+
+L'enum doit aussi exposer :
+* {{MAX_SUPPORTED_LEVEL = 6}} — le niveau maximum de médaille pris en charge, toutes familles confondues
+* {{fromIdentifier(identifier: String?): AjustoBadgeScope?}} — rend {{null}} pour tout identifiant inconnu
+
+*La famille {{TURN}} existe côté Java et ne doit PAS être reprise.* {{Badge.java}} déclare une constante {{BADGE_SCOPE_TURN}}, mais la map de {{BadgeScoper}} ne la contient pas : un badge de cette famille est donc ignoré par le classement Java. Le comportement doit être reproduit tel quel, et l'exclusion documentée par un test, sinon un futur relecteur la prendra pour un oubli et l'ajoutera.
+
+----
+
+h2. Ce que chaque variante signifie
+
+Ce tableau n'est pas à implémenter dans ce ticket — les algorithmes sont en D2 — mais il est nécessaire pour nommer et documenter correctement les variantes, et pour repérer une erreur de {{priority}}.
+
+||Règle||Variante||Condition métier||Source Java||
+|1|{{DeviceBrandNotCompatible}}|Le fabricant de l'appareil est sur liste noire — veto local, hors ligne|{{DeviceInfo.isAjustoDeviceBrandCompatible()}}|
+|2|{{DeviceNotCompatible}}|L'appareil n'est pas sur liste blanche serveur, ou il manque un capteur (GPS, cellulaire, gyroscope, accéléromètre)|{{AjustoDeviceCompatible}} + {{DeviceInfo.isHardwareCompatible()}}|
+|3|{{LowBattery}}|Batterie faible et l'appareil n'est pas en charge soutenue|{{DeviceInfo.isBatteryLow()}}|
+|4|{{PowerSaving}}|Mode économie d'énergie actif et aucun trajet en cours d'enregistrement|{{DeviceInfo.isPowerSavingModeEnabled()}}|
+|5|{{ClassifyInvite}}|Nouvel utilisateur invité à étiqueter ses trajets — cinq conditions combinées|{{classifyinvite/ClassifyInviteChecker.java}}|
+|6|{{PolicyEffective}}|Il reste des jours avant l'entrée en vigueur de la police|{{AjustoContextualMessageHelper.showPolicyEffectiveContextualMessage()}}|
+|7|{{Badge}}|Une médaille est réclamable — la plus avancée de la première famille qui en contient une|{{badge/TopClaimableBadgeFinder.java}} + {{badge/BadgeScoper.java}}|
+|8|{{GoodToKnow}}|Un conseil est disponible pour cette personne — ce n'est pas une alerte|aucune, règle nouvelle|
+
+----
+
+h2. Dépendances de code à connaître avant de commencer
+
+h3. AjustoBadge — existe déjà
+
+{{domain/.../ajusto/domain/achievements/model/AjustoBadge.kt}}. C'est le type porté par la variante {{Badge}}. Les propriétés qui comptent pour ce chantier : {{identifier}}, {{groupIdentifier: String?}}, {{level: Int}} (défaut {{-1}}), {{isClaimable: Boolean}}, {{previousBadge}} et {{nextBadge}}.
+
+*Piège à l'écriture des tests* : {{previousBadge}} et {{nextBadge}} n'ont pas de valeur par défaut dans la {{data class}}. Toute construction d'un {{AjustoBadge}} en test doit les passer explicitement, {{null}} compris. Prévoir une fonction utilitaire de fabrication dans les tests plutôt que de répéter la liste complète des paramètres.
+
+h3. AjustoTip et AjustoRecentTrip — n'existent pas encore
+
+Deux types référencés par ce ticket ont leur déclaration prévue dans le paquet {{contextualmessage/datasource/}} au titre du ticket D4. La variante {{GoodToKnow}} porte un {{AjustoTip}}, et le signal ① est une liste d'{{AjustoRecentTrip}}. Ce ticket ne peut donc pas compiler sans eux, alors qu'il est censé précéder D4.
+
+Deux issues, à trancher au démarrage et à noter en commentaire du ticket :
+# Déclarer les deux types ici, dans le paquet {{model/}}, et laisser D4 ne déclarer que les ports et leurs enveloppes de réponse. C'est l'option cohérente avec le principe qu'un modèle de domaine vit dans {{model/}}.
+# Les sortir de D4 vers ce ticket dans le backlog, et ajuster le périmètre des deux tickets en conséquence.
+
+La même réponse doit valoir pour D2, qui lit {{AjustoRecentTrip}} dans sa règle 5.
+
+Forme attendue quelle que soit l'option retenue :
+
+{code:kotlin}
+data class AjustoTip(
+    val identifier: String,      // clé de traduction, jamais un libellé — voir CA-4
+    val linkUrl: String? = null
+)
+
+data class AjustoRecentTrip(
+    val startDate: Instant,
+    val isUserLabeled: Boolean,
+    val isMulligan: Boolean
+)
+{code}
+
+----
+
+h2. Conventions du module à respecter
+
+Le module a déjà ses habitudes. Lire ces fichiers avant d'écrire évite une revue de code qui ne parle que de forme.
+
+||Ce qu'on écrit||Se calquer sur||
+|Modèle de données du domaine|{{domain/.../ajusto/domain/achievements/model/AjustoBadge.kt}}|
+|Enum de domaine porteur de logique|{{domain/.../ajusto/domain/score/AjustoScoreProgressStatus.kt}}|
+|Modèle avec valeurs par défaut|{{domain/.../ajusto/domain/history/model/AjustoHistoryPeriod.kt}}|
+|Structure et nommage des tests|{{domain/src/commonTest/.../history/model/AjustoHistoryPeriodTest.kt}}|
+
+Points de forme attendus : tout en {{commonMain}}, aucun {{expect}}/{{actual}}, aucune dépendance de plateforme, aucune annotation de sérialisation (la sérialisation vit dans la couche data, sur des DTO distincts).
+
+----
+
+h2. Critères d'acceptation
+
+h3. CA-1 — Les huit variantes portent le bon couple (groupe, priorité)
+
+*Étant donné* le module {{domain}} compilé
+*Quand* on instancie chacune des huit variantes de {{AjustoContextualMessage}}
+*Alors* chaque variante rend le {{group}} et le {{priority}} du tableau « Les 8 variantes » ci-dessus, sans exception
+
+h3. CA-2 — priority reproduit l'ordre exact de la cascade Java
+
+*Étant donné* les huit variantes instanciées
+*Quand* on les trie par {{priority}} croissant
+*Alors* l'ordre obtenu est marque non compatible, appareil non compatible, batterie faible, économie d'énergie, invitation à étiqueter, entrée en vigueur, médaille, conseil — soit l'ordre du {{if / else if}} de {{AjustoContextualMessageHelper.findContextualMessage()}}, la huitième variante étant nouvelle et placée en fin
+
+h3. CA-3 — Les six premières variantes portent NOTICE
+
+*Étant donné* les variantes de priorité 1 à 6
+*Quand* on lit leur {{group}}
+*Alors* toutes rendent {{AjustoMessageGroup.NOTICE}}
+
+h3. CA-4 — Le domaine ne porte aucun élément de rendu
+
+*Étant donné* les quatre fichiers du paquet {{contextualmessage/model}}
+*Quand* on les inspecte
+*Alors* ils ne contiennent aucun libellé traduit, aucune référence à une icône, aucune couleur ni teinte, et aucun import de la couche présentation ou de la couche data
+
+h3. CA-5 — Tous les signaux ont une valeur par défaut
+
+*Étant donné* {{AjustoContextualSignals}}
+*Quand* on l'instancie sans passer aucun argument
+*Alors* la construction réussit, et les valeurs obtenues correspondent à l'état « aucune alerte » du tableau des 13 signaux
+
+h3. CA-6 — L'ordre des familles de médailles est celui du Java
+
+*Étant donné* {{AjustoBadgeScope.entries}}
+*Quand* on lit les identifiants dans l'ordre
+*Alors* on obtient {{SNAP}}, {{FIRSTSCORE}}, {{TOTAL}}, {{BRAKE}}, {{DISTRACTION}}, {{SPEEDING}}, {{ACCEL}}, identique à {{badgeScopeMap}} de {{BadgeScoper.java}}
+
+h3. CA-7 — L'exclusion de TURN est verrouillée par un test
+
+*Étant donné* un identifiant de famille valant {{"TURN"}}
+*Quand* on appelle {{AjustoBadgeScope.fromIdentifier("TURN")}}
+*Alors* le résultat est {{null}}, et un test nommé explicitement documente que cette exclusion reproduit le comportement Java et n'est pas un oubli
+
+h3. CA-8 — fromIdentifier est robuste
+
+*Étant donné* {{AjustoBadgeScope.fromIdentifier}}
+*Quand* on lui passe {{null}}, une chaîne vide, un identifiant inconnu, ou un identifiant valide dans une casse différente
+*Alors* elle rend {{null}} dans les quatre cas et ne lève jamais d'exception — la correspondance est exacte et sensible à la casse, comme la map Java
+
+h3. CA-9 — Le modèle compile sans être branché
+
+*Étant donné* la branche de ce ticket
+*Quand* on lance {{./gradlew :modules:feature:ajusto:domain:build}}
+*Alors* la compilation réussit et aucun fichier hors du paquet {{contextualmessage/model}} n'est modifié
+
+h3. CA-10 — Couverture
+
+*Étant donné* la campagne de tests du module
+*Quand* on lit le rapport de couverture
+*Alors* le paquet {{contextualmessage/model}} est couvert à 100 %
+
+----
+
+h2. Definition of Done
+
+* (/) Les quatre fichiers sont livrés dans le bon paquet
+* (/) Les dix critères d'acceptation sont vérifiés
+* (/) Les tests unitaires passent en intégration continue
+* (/) La question {{AjustoTip}} (section « Dépendances de code ») est tranchée, et la décision est écrite en commentaire de ce ticket
+* (/) Le risque n°1 ({{supportedBadgeLevels()}}) est soit levé, soit remonté en commentaire avec ce qui a été constaté
+* (/) La revue de code est approuvée par un pair
+* (/) Les tickets D2, D3 et D4 sont notifiés que le modèle est disponible
+
+----
+
+h2. Sous-tâches proposées
+
+# Lire les quatre fichiers de référence du module et la cascade Java {{findContextualMessage()}} — 1 h
+# Écrire {{AjustoMessageGroup}} et {{AjustoBadgeScope}}, et vérifier l'ordre des sept familles contre {{BadgeScoper.java}} — 1 h
+# Écrire {{AjustoContextualMessage}} et {{AjustoContextualSignals}}, trancher la question {{AjustoTip}} — 1 h 30
+# Écrire les tests du paquet, dont l'exclusion de {{TURN}} et la robustesse de {{fromIdentifier}} — 2 h
+# Vérifier la compilation du module et le rapport de couverture — 30 min
+
+----
+
+h2. Risques et questions ouvertes
+
+||#||Sujet||Impact si la réponse est défavorable||Qui tranche||
+|1|Le Java borne le niveau de médaille avec {{badge.supportedBadgeLevels()}}, qui rend la taille de la liste des libellés de niveaux *reçue pour ce badge précis* — la borne dépend donc de la donnée, badge par badge. Ce ticket fige une constante {{MAX_SUPPORTED_LEVEL = 6}} valable pour toutes les familles, et le modèle {{AjustoBadge}} ne porte pas l'information qui permettrait de faire autrement|Une médaille dont le niveau dépasse une borne mal estimée est ignorée, et la règle 7 ne se déclenche jamais pour sa famille|Équipe, après vérification des données renvoyées par l'API|
+|2|L'API renvoie-t-elle réellement des badges de famille {{TURN}} ?|Si oui, l'exclusion est visible en production et doit être assumée côté produit ; si non, elle reste théorique|Backend|
+|3|Pourquoi la marque du fabricant est-elle utilisée comme veto (règle 1) ? Aucun commentaire n'accompagne la règle dans le code source|Si le motif d'origine a disparu, la règle 1 disparaît avec lui et la variante {{DeviceBrandNotCompatible}} devient morte|Produit / Télématique|
+|4|Quelle valeur initiale pour ⑪ tant que le profil n'a pas répondu ?|Détermine si la règle 6 peut s'afficher à tort au premier lancement. Ce ticket pose {{null}} ; la décision définitive appartient à D2/D3|Équipe, en D2|
+
+Aucun de ces quatre points ne bloque la livraison : le modèle se livre avec les valeurs ci-dessus, et chacun est porté par un test qui échouera si la réponse change.
+
+----
+
+h2. Vérifier localement
+
+{code:bash}
+# compilation du module
+./gradlew :modules:feature:ajusto:domain:build
+
+# tests du module, toutes plateformes
+./gradlew :modules:feature:ajusto:domain:allTests
+{code}
+
+----
+
+h2. Références
+
+* {{analyse/AjustoContextualMessage/19-Parcours-des-dependances-et-plan-daction-v3.html}} — parcours des 13 dépendances, plan par lots, arborescence fichier par fichier
+* {{analyse/AjustoContextualMessage/18-WRU-26599-etat-des-lieux-et-decisions.html}} — état des lieux et raisonnements derrière les décisions
+* {{analyse/AjustoContextualMessage/20-*.html}} et {{21-*.html}} — spécification fonctionnelle des messages, pour le produit et le design
+* {{analyse/AjustoContextualMessage/tickets/README.md}} — ordre et dépendances des neuf tickets du chantier
+* Sources Java, dépôt {{ad-digital-mobile-core-lib}}, sous {{src/main/java/ca/dgag/ajusto/core/}} : {{badge/BadgeScoper.java}}, {{badge/Badge.java}}, {{badge/TopClaimableBadgeFinder.java}}, {{classifyinvite/ClassifyInviteChecker.java}}
