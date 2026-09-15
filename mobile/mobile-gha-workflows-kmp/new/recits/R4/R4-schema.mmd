@@ -1,0 +1,14 @@
+flowchart LR
+  SDK["<b>UserManager</b> — SDK télématique<br/>Profile.effectiveDate<br/><i>aucun appel HTTP direct</i>"]
+  MAP["<b>CMTProfileMapper</b><br/>androidApp<br/>lit la date d'entrée en vigueur"]
+  CALC["<b>Calcul des jours restants</b><br/>référence = aujourd'hui à minuit<br/>correction de changement d'heure<br/>troncature vers zéro"]
+  SIG["<b>signal ⑪</b><br/>jours avant l'entrée en vigueur<br/><i>null tant que le profil n'a pas répondu</i>"]
+  R6["<b>règle 6</b><br/>jours restants &gt; 0<br/>priority 6"]
+  FAM["<b>famille engagement</b><br/>après l'invitation à étiqueter<br/>↓<br/><b>groupe NOTICE</b> · « Avis »"]
+
+  SDK --> MAP --> CALC --> SIG --> R6 --> FAM
+
+  classDef base fill:#f5f5f4,stroke:#a8a29e,color:#1c1917
+  classDef accent fill:#e6edf5,stroke:#2c5282,color:#1a365d,stroke-width:2px
+  class SDK,MAP,SIG,R6,FAM base
+  class CALC accent

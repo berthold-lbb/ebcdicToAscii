@@ -1,0 +1,21 @@
+flowchart LR
+  SDK["<b>CMTTripProvider</b><br/>SDK télématique<br/>liste brute des trajets"]
+  CPT["<b>Compte Ajusto</b><br/>déjà en KMP<br/>⑤ mode · ⑥ nb trajets"]
+  STO["<b>Stockage</b><br/>CLASSIFY_INVITE_DISMISSED<br/><i>booléen, via TypedStorage</i>"]
+
+  FIL["<b>RecentTripsFilter</b><br/>après la date de police<br/>· moins de 90 jours<br/>· hors Mulligan"]
+  S1["<b>signal ①</b><br/>trajets récents<br/><i>taille ET trajets étiquetés</i>"]
+  S12["<b>signal ⑫</b><br/>invitation écartée ?"]
+
+  R5["<b>règle 5</b> — cinq conditions<br/>mode continu · plus de 5 trajets<br/>au plus 20 · aucun trajet récent étiqueté<br/>invitation jamais écartée"]
+  FAM["<b>famille engagement</b><br/>créée par ce récit<br/>↓<br/><b>groupe NOTICE</b> · « Avis »"]
+
+  SDK --> FIL --> S1 --> R5
+  CPT --> R5
+  STO --> S12 --> R5
+  R5 --> FAM
+
+  classDef base fill:#f5f5f4,stroke:#a8a29e,color:#1c1917
+  classDef accent fill:#e6edf5,stroke:#2c5282,color:#1a365d,stroke-width:2px
+  class SDK,CPT,STO,FIL,S1,S12,FAM base
+  class R5 accent

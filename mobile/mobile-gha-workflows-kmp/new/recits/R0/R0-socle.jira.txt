@@ -1,0 +1,489 @@
+h1. WRU-26599-R0 — Socle : modèle, use case et mécanique de preview
+
+||Champ||Valeur||
+|Type de ticket|Tâche technique|
+|Epic|WRU-26599 — Migration des messages contextuels Ajusto hors du Core Java|
+|Composants|ajusto-kmp, domain, presentation|
+|Étiquettes|wru-26599, kmp, socle, migration-core|
+|Estimation|2 j|
+|Priorité|Haute — premier récit, bloque tous les autres|
+|Dépend de|aucun|
+|Bloque|R1 à R9|
+|Modules Gradle|{{:modules:feature:ajusto:domain}}, {{:modules:feature:ajusto:presentation}}, {{androidApp}}|
+
+----
+
+h2. Contexte
+
+Sur l'écran Ajusto, une zone affiche des messages contextuels : batterie faible, appareil non
+compatible, médaille à réclamer, et quelques autres. La décision d'afficher l'un ou l'autre vit
+aujourd'hui en Java, dans {{AjustoContextualMessageHelper.findContextualMessage()}} (183 lignes,
+dépôt {{ad-digital-mobile-core-lib}}).
+
+Cette méthode fait deux choses à la fois : elle décide *quel* cas s'applique, et elle rend du
+texte *déjà traduit* accompagné d'une clé d'icône. Les deux responsabilités sont soudées, et c'est
+ce qui rend la dépendance au Core impossible à couper.
+
+Le chantier les sépare, selon un principe simple : *on déplace la décision, pas les données*.
+
+Les récits suivants livrent chacun **un message**, de sa source jusqu'à l'écran. Pour que cela soit
+possible, il faut d'abord poser le vocabulaire commun et la tuyauterie : c'est l'objet de ce
+récit. À l'issue de R0, aucun message ne s'affiche encore — mais tout est prêt pour que R1 n'ait
+plus qu'à brancher le sien.
+
+h2. Objectif
+
+Livrer le squelette complet et inerte : le modèle de domaine avec ses huit types de message
+déclarés, le use case avec sa mécanique de tri mais aucune règle branchée, et le dispositif qui
+garantit qu'un type de message déclaré produit automatiquement une preview.
+
+----
+
+h2. L'architecture, en une image
+
+!R0-architecture.png|thumbnail!
+
+Quatre emplacements, et une règle de dépendance qui ne souffre pas d'exception.
+
+*{{modules/feature/ajusto/domain}}* — le cœur. Il contient le modèle, les règles, le use case et
+les *ports*, c'est-à-dire les interfaces que la couche data devra implémenter. Il ne dépend de
+rien : ni d'Android, ni du SDK télématique, ni du Core, ni du réseau. C'est ce qui le rend
+intégralement testable sans appareil, et c'est la propriété à protéger en priorité.
+
+*{{modules/feature/ajusto/data}}* — les implémentations des ports. Découpage en {{dto/}},
+{{http/}}, {{datasource/}}, {{repository/}}. L'essentiel vit en {{commonMain}} ; seul ce qui a
+besoin du SDK Android descend en {{androidMain}}.
+
+*{{modules/feature/ajusto/presentation}}* — c'est ici, et seulement ici, que vivent les libellés
+traduits, les icônes et les teintes. Le domaine n'en connaît aucun.
+
+*{{androidApp}}* — les écrans Compose, les adaptateurs du SDK télématique, le graphe d'injection
+et les previews. C'est aussi le seul endroit qui garde encore des ponts vers le Core Java ; ils
+disparaissent au récit R9.
+
+La règle : *les flèches vont toujours vers le domaine*. Si un jour le domaine a besoin d'importer
+quelque chose de la couche data ou de la présentation, c'est le signe qu'une décision s'est
+échappée du domaine.
+
+----
+
+h2. Comment un signal devient un message
+
+!R0-signaux-vers-messages.png|thumbnail!
+
+Le parcours est le même pour les treize signaux, et c'est ce qui rend le découpage en récits
+possible.
+
+Une *source* — l'état du téléphone, le SDK télématique, une requête HTTP, le stockage local —
+produit un ou plusieurs *signaux*. Le repository combine toutes les sources et assemble un objet
+unique, {{AjustoContextualSignals}}, qui porte les treize signaux avec une valeur par défaut
+chacun. Le use case reçoit cet objet, évalue quatre familles de règles indépendamment, et rend de
+zéro à quatre *messages de domaine* — sans texte ni icône, uniquement l'information « ce cas
+s'applique ». La présentation décide ensuite quels types sortent réellement à l'écran, les traduit
+et les affiche.
+
+Chacun des récits R1 à R8 parcourt cette chaîne de bout en bout pour un seul message.
+
+||Source||Signaux produits||Récit qui la branche||
+|État du téléphone (OS)|⑦ batterie faible · ⑧ charge soutenue · ⑨ économie d'énergie · ⑩ marque|R1, R2, R3|
+|SDK télématique — trajets|① trajets récents · ② enregistrement en cours|R3, R5|
+|SDK télématique — profil|⑪ jours avant l'entrée en vigueur|R6|
+|Requête HTTP signée par le SDK|③ médailles brutes|R7|
+|Requête HTTP + cache local|④ appareil compatible|R4|
+|Compte Ajusto — déjà en KMP|⑤ mode · ⑥ nombre de trajets · ⑬ nom du programme|R5|
+|Stockage clé-valeur|⑫ invitation écartée|R5|
+|Source du conseil — non tranchée|règle 8|R8|
+
+----
+
+h2. Arborescence — où vont les fichiers
+
+Ce que R0 crée, replacé dans l'arborescence cible. Les lignes grisées sont créées par les récits
+suivants : elles figurent ici pour que la place soit visible dès le départ et que personne
+n'invente un autre découpage en chemin.
+
+{code:none}
+modules/feature/ajusto/domain/src/commonMain/…/ajusto/domain/
+└── contextualmessage/
+    ├── model/
+    │   ├── AjustoContextualMessage.kt            ← R0   sealed, 8 variantes
+    │   ├── AjustoContextualSignals.kt            ← R0   13 signaux
+    │   ├── AjustoMessageGroup.kt                 ← R0   ADVICE · NOTICE · BADGE
+    │   ├── AjustoBadgeScope.kt                   ← R0   7 familles, TURN exclu
+    │   ├── AjustoTip.kt                          ← R0   déclaré, alimenté en R8
+    │   └── AjustoRecentTrip.kt                   ← R0   déclaré, alimenté en R5
+    ├── usecase/
+    │   └── ResolveContextualMessagesUseCase.kt   ← R0   squelette + tri complet
+    ├── repository/
+    │   └── AjustoContextualMessageRepository.kt  ← R0   le port
+    ├── rule/                                       (vide — R5, R6, R7)
+    └── datasource/                                 (vide — R1, R3, R4, R6, R8)
+
+modules/feature/ajusto/domain/src/commonTest/…/contextualmessage/
+├── AjustoBadgeFactory.kt                         ← R0   fabrication pour les tests
+└── usecase/
+    └── ResolveContextualMessagesUseCaseTest.kt   ← R0   tests du tri
+
+modules/feature/ajusto/data/src/commonMain/…/ajusto/data/contextualmessage/
+└── repository/
+    └── AjustoContextualMessageRepositoryImpl.kt  ← R0   squelette, étendu par chaque récit
+
+modules/feature/ajusto/presentation/src/commonMain/…/presentation/summary/
+├── ContextualMessageActivation.kt                ← R0   8 types à false
+└── ContextualMessageMapper.kt                    ← R0   une branche par type, à compléter
+
+androidApp/src/main/…/feature/ajusto/presentation/summary/
+├── view/AjustoSummaryMessageBox.kt               ← R0   la boîte
+└── preview/ContextualMessageMockCatalog.kt       ← R0   un exemplaire par type
+
+androidApp/src/test/…/presentation/summary/preview/
+└── ContextualMessageMockCatalogTest.kt           ← R0   garde-fou d'intégration continue
+{code}
+
+L'arborescence complète du chantier, avec le récit responsable de chaque fichier, est dans le
+document 22.
+
+----
+
+h2. Ce qu'il faut livrer
+
+h3. Le modèle de domaine
+
+Dans {{domain/src/commonMain/.../ajusto/domain/contextualmessage/model/}} :
+
+||Fichier||Contenu||
+|{{AjustoContextualMessage.kt}}|{{sealed class}}, les 8 variantes, chacune portant {{group}} et {{priority}}|
+|{{AjustoContextualSignals.kt}}|{{data class}}, les 13 signaux, tous avec valeur par défaut|
+|{{AjustoMessageGroup.kt}}|{{enum}} à trois valeurs : {{ADVICE}}, {{NOTICE}}, {{BADGE}}|
+|{{AjustoBadgeScope.kt}}|{{enum}} à 7 valeurs, ordre significatif|
+
+*Les huit variantes sont déclarées dès maintenant*, même si aucune n'est encore produite. Ce sont
+de simples déclarations, elles ne coûtent presque rien, et les déclarer ensemble est ce qui évite
+un modèle taillé pour le premier message et inadapté au septième.
+
+||Variante||Règle||{{group}}||{{priority}}||Charge utile||Récit qui la branche||
+|{{DeviceBrandNotCompatible}}|1|{{NOTICE}}|1|aucune|R1|
+|{{DeviceNotCompatible}}|2|{{NOTICE}}|2|{{drivingProgramName: String}}|R4|
+|{{LowBattery}}|3|{{NOTICE}}|3|aucune|R2|
+|{{PowerSaving}}|4|{{NOTICE}}|4|aucune|R3|
+|{{ClassifyInvite}}|5|{{NOTICE}}|5|aucune|R5|
+|{{PolicyEffective}}|6|{{NOTICE}}|6|{{remainingDays: Int}}|R6|
+|{{Badge}}|7|{{BADGE}}|7|{{badge: AjustoBadge}}|R7|
+|{{GoodToKnow}}|8|{{ADVICE}}|8|{{tip: AjustoTip}}|R8|
+
+{{priority}} reproduit l'ordre exact du {{if / else if}} de la cascade Java. Ce n'est pas un champ
+décoratif : c'est lui qui permettra, au récit R9, de vérifier que la nouvelle implémentation
+choisit le même message que l'ancienne. Un {{priority}} faux ne casse rien à la compilation et
+casse tout à la vérification finale.
+
+h3. Les 13 signaux
+
+||#||Champ||Type||Défaut||Récit||
+|①|{{recentTrips}}|{{List<AjustoRecentTrip>}}|{{emptyList()}}|R5|
+|②|{{isRecording}}|{{Boolean}}|{{false}}|R3|
+|③|{{badges}}|{{List<AjustoBadge>}}|{{emptyList()}}|R7|
+|④|{{isDeviceCompatible}}|{{Boolean}}|{{true}}|R4|
+|⑤|{{mode}}|{{String?}}|{{null}}|R5|
+|⑥|{{numberOfTrips}}|{{Int}}|{{0}}|R5|
+|⑦|{{isBatteryLow}}|{{Boolean}}|{{false}}|R2|
+|⑧|{{isBatteryChargeSustained}}|{{Boolean}}|{{false}}|R2|
+|⑨|{{isPowerSavingModeEnabled}}|{{Boolean}}|{{false}}|R3|
+|⑩|{{isDeviceBrandCompatible}}|{{Boolean}}|{{true}}|R1|
+|⑪|{{remainingDaysUntilPolicyTakesEffect}}|{{Int?}}|{{null}}|R6|
+|⑫|{{hasEverLabeledATrip}} et {{isClassifyInviteQualified}}|{{Boolean}}|{{false}} / {{true}}|R5|
+|⑬|{{drivingProgramName}}|{{String}}|{{""}}|R4|
+
+Le signal ⑫ occupe deux champs et ⑬ est une donnée d'interpolation : la classe compte donc 14
+propriétés pour 13 signaux.
+
+{panel:title=Pourquoi toutes les valeurs par défaut sont obligatoires|borderStyle=solid|borderColor=#2c5282|titleBGColor=#e6edf5|bgColor=#ffffff}
+Ce n'est pas de la commodité d'écriture, et ce n'est pas non plus seulement pour permettre le
+découpage en récits.
+
+Côté Java, {{notifyContextualMessage()}} assemble ses entrées par un {{combineLatest}} de six
+flux, et ce {{combineLatest}} ne bat *jamais* tant que {{profile.subscribeOnce}} n'a pas répondu.
+Au premier lancement, aucun message ne s'affiche — pas même ceux dont tous les signaux sont déjà
+disponibles. Les valeurs par défaut sont ce qui empêche de reproduire ce défaut.
+
+Le choix de chaque défaut suit une seule logique : *l'état qui ne déclenche aucune alerte*. D'où
+{{true}} pour les deux compatibilités et {{false}} pour les signaux de batterie.
+
+Effet secondaire utile pour ce chantier : un récit peut brancher son signal sans que les douze
+autres existent.
+{panel}
+
+h3. Le use case
+
+Dans {{domain/src/commonMain/.../contextualmessage/usecase/ResolveContextualMessagesUseCase.kt}}.
+
+Il reçoit les signaux et le conseil éventuel, évalue quatre familles indépendamment, et rend une
+liste ordonnée de 0 à 4 messages.
+
+||Famille de résolution||Règles||Groupe d'affichage||Comportement interne||
+|le conseil|8|{{ADVICE}}|fourni en paramètre|
+|appareil|1 à 4|{{NOTICE}}|en cascade : au plus un message|
+|engagement|5 et 6|{{NOTICE}}|en cascade : au plus un message|
+|médaille|7|{{BADGE}}|au plus un message|
+
+*Deux niveaux à ne pas confondre.* Les *familles* sont internes au use case : quatre blocs évalués
+indépendamment. Les *groupes* sont portés par le modèle et correspondent au libellé affiché. Deux
+familles aboutissent au même groupe {{NOTICE}}, et c'est important pour la suite.
+
+Le tri final porte sur deux clés : d'abord le *groupe*, dans l'ordre {{ADVICE}}, {{NOTICE}},
+{{BADGE}} ; ensuite {{priority}}, à l'intérieur d'un même groupe. Les messages des familles
+appareil et engagement se départagent donc entre eux par {{priority}}, ce qui range mécaniquement
+les règles 1 à 4 avant les règles 5 et 6.
+
+*À la livraison de R0, les quatre fonctions de résolution rendent {{null}}.* Le tri, lui, est
+complet et testé. Chaque récit R1 à R8 remplit ensuite sa branche.
+
+{panel:title=(!) Il ne doit jamais y avoir de regroupement après coup|borderStyle=solid|borderColor=#c1c7d0|titleBGColor=#f4f5f7|bgColor=#ffffff}
+La tentation, pour garantir « au plus un message par famille », est de regrouper les candidats par
+groupe puis de ne garder que le plus prioritaire de chaque groupe. *Ne pas le faire.*
+
+Les règles 1 à 6 partagent toutes le groupe {{NOTICE}}. Un regroupement par groupe supprimerait
+*silencieusement* une alerte d'appareil ou une invitation à étiqueter dès que les deux
+s'appliquent en même temps, et rien dans le code ne signalerait que c'était voulu.
+
+C'est inutile de toute façon : chaque fonction de résolution rend déjà au plus un message, et elle
+le fait explicitement. Il ne doit rester qu'un tri.
+{panel}
+
+h3. La mécanique de preview
+
+C'est la partie qui rend les récits suivants rapides à vérifier, et elle mérite d'être installée
+dès maintenant.
+
+Dans {{androidApp/.../presentation/summary/preview/ContextualMessageMockCatalog.kt}} : un
+exemplaire de chaque type de message. Aucune preview n'écrit ses données à la main — toutes
+dérivent de cette liste et passent par le vrai mapper.
+
+Deux garde-fous complémentaires assurent que *tout type déclaré produit une preview* :
+
+# *Le compilateur.* Une fonction privée contenant un {{when}} exhaustif sans branche {{else}} sur
+la {{sealed class}}. Ajouter un neuvième type de message fait échouer la compilation de ce
+fichier : impossible de l'ignorer. Ne jamais ajouter de branche {{else}} — ce serait supprimer la
+garantie.
+# *L'intégration continue.* Le {{when}} force à ouvrir le fichier, il ne force pas à remplir la
+liste. Un test compare la liste aux sous-classes déclarées de la {{sealed class}} et échoue tant
+qu'un type n'a pas son exemplaire.
+
+Dans {{presentation/.../summary/ContextualMessageActivation.kt}} : le même mécanisme de {{when}}
+exhaustif, mais pour décider quels types sortent réellement à l'écran. *À la livraison de R0, tous
+les types sont à {{false}}.* Chaque récit bascule le sien à {{true}} quand son message est prêt.
+
+Cette séparation est volontaire : le domaine résout toujours les huit règles, on ne coupe rien en
+amont. Seul l'affichage est filtré. Un message désactivé reste visible en preview, ce qui permet
+de le montrer à l'équipe sans l'exposer en production.
+
+----
+
+h2. Ce qu'on reprend du Core
+
+Ce récit ne déplace aucun fichier. Il porte en Kotlin la partie décisionnelle d'un seul fichier
+Java, et prépare la place pour les autres.
+
+||Élément Java||Ce qu'on en prend dans R0||Ce qui attend un autre récit||
+|{{trip/AjustoContextualMessageHelper.java}}|La structure de la cascade : l'ordre des huit règles, qui devient {{priority}} ; et le fait que la règle 7 soit évaluée en dernier|Les conditions de chaque règle, reprises par le récit du message concerné|
+|{{badge/Badge.java}}|Les sept identifiants de famille et leur ordre, repris dans {{AjustoBadgeScope}} ; la borne de niveau|Le classement et la sélection des médailles — R7|
+
+*La famille {{TURN}} ne doit pas être reprise.* {{Badge.java}} déclare bien une constante
+{{BADGE_SCOPE_TURN}}, mais la table de classement de {{BadgeScoper.java}} ne la contient pas : un
+badge de cette famille est donc ignoré côté Java. Le comportement doit être reproduit tel quel, et
+l'exclusion documentée par un test, sinon un futur relecteur la prendra pour un oubli et
+l'ajoutera.
+
+----
+
+h2. Dépendances de code
+
+*{{AjustoBadge}} existe déjà* — {{domain/.../ajusto/domain/achievements/model/AjustoBadge.kt}}.
+C'est le type porté par la variante {{Badge}}. Propriétés utiles au chantier : {{groupIdentifier}},
+{{level}}, {{isClaimable}}, {{previousBadge}}, {{nextBadge}}.
+
+*Piège à l'écriture des tests* : {{previousBadge}} et {{nextBadge}} n'ont pas de valeur par
+défaut. Toute construction d'un {{AjustoBadge}} en test doit les passer explicitement, {{null}}
+compris. Écrire une fonction de fabrication dès ce récit — tous les suivants s'en serviront.
+
+*{{AjustoTip}} et {{AjustoRecentTrip}} n'existent pas encore.* Ils sont portés respectivement par
+les variantes {{GoodToKnow}} et par le signal ①. Comme les huit variantes sont déclarées dès R0,
+ces deux types doivent l'être aussi. Les déclarer dans le paquet {{model/}} du domaine, sous la
+forme suivante ; les récits R5 et R8 n'auront plus qu'à les alimenter.
+
+{code:kotlin}
+data class AjustoTip(
+    val identifier: String,      // clé de traduction, jamais un libellé
+    val linkUrl: String? = null
+)
+
+data class AjustoRecentTrip(
+    val startDate: Instant,
+    val isUserLabeled: Boolean,
+    val isMulligan: Boolean
+)
+{code}
+
+----
+
+h2. Conventions
+
+Tout le domaine en {{commonMain}} : aucun {{expect}}/{{actual}}, aucune dépendance de plateforme,
+aucune annotation de sérialisation — la sérialisation vit dans la couche data, sur des DTO
+distincts.
+
+Un {{object}} Kotlin pour le use case, une fonction publique, les fonctions de résolution en
+{{private}}. Le module ne contient aucun use case à ce jour : ce récit fixe la convention.
+
+||Ce qu'on écrit||Se calquer sur||
+|Modèle de données du domaine|{{domain/.../ajusto/domain/achievements/model/AjustoBadge.kt}}|
+|Enum de domaine porteur de logique|{{domain/.../ajusto/domain/score/AjustoScoreProgressStatus.kt}}|
+|Modèle avec valeurs par défaut|{{domain/.../ajusto/domain/history/model/AjustoHistoryPeriod.kt}}|
+|Structure et nommage des tests|{{domain/src/commonTest/.../history/model/AjustoHistoryPeriodTest.kt}}|
+
+----
+
+h2. Critères d'acceptation
+
+h3. CA-1 — Les huit variantes portent le bon couple (groupe, priorité)
+
+*Étant donné* le module {{domain}} compilé
+*Quand* on instancie chacune des huit variantes
+*Alors* chaque variante rend le {{group}} et le {{priority}} du tableau ci-dessus, sans exception
+
+h3. CA-2 — priority reproduit l'ordre de la cascade Java
+
+*Étant donné* les huit variantes instanciées
+*Quand* on les trie par {{priority}} croissant
+*Alors* l'ordre obtenu est marque non compatible, appareil non compatible, batterie faible,
+économie d'énergie, invitation à étiqueter, entrée en vigueur, médaille, conseil
+
+h3. CA-3 — Le domaine ne porte aucun élément de rendu
+
+*Étant donné* les fichiers du paquet {{contextualmessage}}
+*Quand* on les inspecte
+*Alors* ils ne contiennent aucun libellé traduit, aucune référence à une icône, aucune couleur, et
+aucun import de la couche data ou de la présentation
+
+h3. CA-4 — Tous les signaux ont une valeur par défaut
+
+*Étant donné* {{AjustoContextualSignals}}
+*Quand* on l'instancie sans passer aucun argument
+*Alors* la construction réussit et les valeurs obtenues correspondent à l'état « aucune alerte »
+
+h3. CA-5 — Le use case rend une liste vide
+
+*Étant donné* des signaux par défaut et aucun conseil
+*Quand* on appelle le use case
+*Alors* il rend une liste vide, sans lever d'exception
+
+h3. CA-6 — Le tri est complet et testé malgré l'absence de règles
+
+*Étant donné* une liste de messages construits à la main, un par groupe
+*Quand* on la passe à la fonction de tri
+*Alors* le conseil est en tête, la médaille en dernier, et deux messages du groupe {{NOTICE}} sont
+ordonnés par {{priority}} croissant
+
+h3. CA-7 — L'ordre des familles de médailles est celui du Java
+
+*Étant donné* {{AjustoBadgeScope.entries}}
+*Quand* on lit les identifiants dans l'ordre
+*Alors* on obtient {{SNAP}}, {{FIRSTSCORE}}, {{TOTAL}}, {{BRAKE}}, {{DISTRACTION}}, {{SPEEDING}},
+{{ACCEL}}, et {{fromIdentifier("TURN")}} rend {{null}}, documenté par un test explicite
+
+h3. CA-8 — Le garde-fou de compilation fonctionne
+
+*Étant donné* le catalogue de previews livré
+*Quand* on ajoute temporairement une neuvième variante à la {{sealed class}}
+*Alors* la compilation du catalogue échoue, et elle échoue aussi pour
+{{ContextualMessageActivation}}
+
+h3. CA-9 — Le garde-fou d'intégration continue fonctionne
+
+*Étant donné* le catalogue de previews livré
+*Quand* on retire temporairement un exemplaire de la liste
+*Alors* le test du catalogue échoue en nommant le type manquant
+
+h3. CA-10 — Aucun message ne sort à l'écran
+
+*Étant donné* {{ContextualMessageActivation}} livré
+*Quand* on l'interroge pour chacun des huit types
+*Alors* il rend {{false}} pour les huit — R0 ne livre aucun message visible
+
+h3. CA-11 — Les huit previews existent
+
+*Étant donné* le catalogue livré
+*Quand* on ouvre l'aperçu de la zone de messages
+*Alors* les huit types s'affichent, y compris ceux dont l'activation est à {{false}}
+
+h3. CA-12 — Compilation et couverture
+
+*Étant donné* la campagne de tests
+*Quand* on l'exécute
+*Alors* {{./gradlew :modules:feature:ajusto:domain:build}} réussit et le paquet
+{{contextualmessage}} du domaine est couvert à 100 %
+
+----
+
+h2. Definition of Done
+
+* (/) Le modèle, le use case et la mécanique de preview sont livrés
+* (/) Les douze critères d'acceptation sont vérifiés
+* (/) Les tests passent en intégration continue
+* (/) Le framework de test unitaire d'{{androidApp}} est confirmé, ou le test du catalogue est
+déplacé vers un module qui en a un
+* (/) Une capture des huit previews est jointe au ticket — c'est la démonstration la plus directe
+que le socle fonctionne
+* (/) La revue de code est approuvée par un pair
+* (/) Les récits R1 à R8 sont notifiés que le socle est disponible
+
+----
+
+h2. Sous-tâches proposées
+
+# Écrire les quatre fichiers de modèle et la fonction de fabrication de médailles pour les tests — 3 h
+# Écrire le use case : les quatre fonctions de résolution vides et le tri complet — 2 h
+# Installer le catalogue de previews, son {{when}} exhaustif et son test — 3 h
+# Installer l'activation avec les huit types à {{false}} — 1 h
+# Écrire les tests du modèle et du tri — 3 h
+# Vérifier les deux garde-fous en cassant volontairement chacun — 1 h
+
+----
+
+h2. Risques et questions ouvertes
+
+||#||Sujet||Impact si la réponse est défavorable||Qui tranche||
+|1|Le Java borne le niveau de médaille par une valeur qui dépend des données reçues pour chaque badge ; ce récit fige une constante valable pour toutes les familles|Une médaille dont le niveau dépasse une borne mal estimée est ignorée, et la règle 7 ne se déclenche jamais pour sa famille|Équipe, après vérification des données de l'API — porté par R7|
+|2|{{androidApp/src/test}} est vide : le framework de test unitaire de ce module n'est pas confirmé|Le test du catalogue n'a pas où vivre, et le second garde-fou tombe|Équipe, dans ce récit|
+|3|L'API renvoie-t-elle réellement des badges de famille {{TURN}} ?|Si oui, l'exclusion est visible en production et doit être assumée côté produit|Backend|
+|4|Pourquoi la marque du fabricant sert-elle de veto ? Aucun commentaire n'accompagne la règle dans le code source|Si le motif a disparu, la règle 1 disparaît avec elle et la variante devient morte|Produit — porté par R1|
+
+Aucun ne bloque la livraison de R0 : le socle se livre avec les valeurs ci-dessus, et chacun est
+porté par un test qui échouera si la réponse change.
+
+----
+
+h2. Vérifier localement
+
+{code:bash}
+# compilation du module domaine
+./gradlew :modules:feature:ajusto:domain:build
+
+# tests du domaine, toutes plateformes
+./gradlew :modules:feature:ajusto:domain:allTests
+
+# test du catalogue de previews
+./gradlew :androidApp:testDebugUnitTest --tests "*ContextualMessageMockCatalogTest*"
+{code}
+
+----
+
+h2. Références
+
+* *{{analyse/AjustoContextualMessage/22-WRU-26599-modele-et-arborescence-a-jour.html}}* — le modèle de groupes et l'arborescence cible complète. *C'est la référence à jour.*
+* {{analyse/AjustoContextualMessage/recits/README.md}} — l'index des dix récits, la règle des fichiers partagés, et la correspondance complète entre classes du Core et récits
+* {{analyse/AjustoContextualMessage/19-*.html}} — parcours des 13 dépendances et verdict sur les bridgers. Sur le modèle et l'arborescence, c'est le document 22 qui fait foi
+* {{analyse/AjustoContextualMessage/18-*.html}} — état des lieux et raisonnements derrière les décisions
+* {{analyse/AjustoContextualMessage/20-*.html}} et {{21-*.html}} — spécification fonctionnelle des messages, pour le produit et le design
+* Sources Java, dépôt {{ad-digital-mobile-core-lib}}, sous {{src/main/java/ca/dgag/ajusto/core/}} :
+** {{trip/AjustoContextualMessageHelper.java}} — la cascade complète, référence pour l'ordre des règles
+** {{badge/Badge.java}} — les identifiants de famille et la borne de niveau

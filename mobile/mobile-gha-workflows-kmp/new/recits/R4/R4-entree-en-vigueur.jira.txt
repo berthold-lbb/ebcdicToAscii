@@ -1,0 +1,272 @@
+h1. WRU-26599-R4 — Le message « jours avant l'entrée en vigueur »
+
+||Champ||Valeur||
+|Type de ticket|Tâche technique|
+|Epic|WRU-26599 — Migration des messages contextuels Ajusto hors du Core Java|
+|Composants|ajusto-kmp, domain, data|
+|Étiquettes|wru-26599, kmp, androidMain, migration-core|
+|Estimation|1,5 j|
+|Priorité|Moyenne — à considérer avant R3, voir le contexte|
+|Dépend de|WRU-26599-R0 (le socle)|
+|Bloque|partiellement R3 — il fournit la date que le filtre des trajets utilise|
+|Modules Gradle|{{:modules:feature:ajusto:domain}}, {{:modules:feature:ajusto:data}}|
+
+----
+
+h2. Contexte
+
+Tant que la police d'assurance n'est pas entrée en vigueur, la personne voit combien de jours il
+reste avant qu'elle le soit.
+
+C'est le message le plus simple des six en apparence — une comparaison à zéro — et celui dont la
+donnée d'entrée demande le plus de soin. Le nombre de jours n'est pas reçu du serveur : il est
+calculé, et le calcul d'origine tient compte de l'heure de référence et des changements d'heure.
+
+*Une raison de le faire tôt.* La date d'entrée en vigueur que ce récit va chercher est aussi celle
+dont le filtre des trajets récents a besoin, dans le récit de l'invitation à étiqueter. Livrer
+celui-ci d'abord évite de livrer l'autre avec une date manquante.
+
+h2. Objectif
+
+Brancher la date d'entrée en vigueur depuis le profil du SDK, porter le calcul des jours restants,
+activer la règle 6, afficher le message.
+
+h2. Périmètre
+
+*Dans le périmètre*
+* Le port de profil et son implémentation Android
+* Le calcul des jours restants, en Kotlin pur
+* La règle 6, ajoutée à la famille engagement
+* Le mapping et l'activation du message
+
+*Hors périmètre*
+* Le premier message de la famille engagement, l'invitation à étiqueter — récit R3. Si ce récit
+est livré en premier, il crée la famille ; sinon il s'insère dans celle que R3 a créée.
+* Les autres champs du profil : seule la date d'entrée en vigueur intéresse ce récit
+
+----
+
+h2. Schéma
+
+!R4-schema.png|thumbnail!
+
+La source Mermaid est jointe ({{R4-schema.mmd}}).
+
+----
+
+h2. Arborescence — où vont les fichiers
+
+{code:none}
+modules/feature/ajusto/domain/src/commonMain/…/ajusto/domain/contextualmessage/
+├── datasource/
+│   └── CmtProfileDataSource.kt                   ← CRÉÉ ICI   la date, rien d'autre
+├── rule/
+│   └── RemainingDaysUntilPolicyRule.kt           ← CRÉÉ ICI   le calcul + la comparaison
+└── usecase/
+    └── ResolveContextualMessagesUseCase.kt       ← MODIFIÉ    règle 6 dans la famille engagement
+
+modules/feature/ajusto/data/src/androidMain/…/ajusto/data/contextualmessage/datasource/
+└── AndroidCmtProfileDataSource.kt                ← CRÉÉ ICI   lit le profil du SDK
+
+modules/feature/ajusto/data/src/commonMain/…/ajusto/data/contextualmessage/
+└── repository/AjustoContextualMessageRepositoryImpl.kt ← MODIFIÉ
+
+modules/feature/ajusto/presentation/src/commonMain/…/presentation/summary/
+├── ContextualMessageMapper.kt                    ← MODIFIÉ    1 branche, avec le nombre de jours
+└── ContextualMessageActivation.kt                ← MODIFIÉ    1 ligne à true
+{code}
+
+----
+
+h2. Ce qu'on reprend de l'existant
+
+h3. À porter — la logique vient du Core Java
+
+||Fichier Java||Ce qu'il donne||
+|{{ca/dgag/ajusto/core/telematics/CMTProfile.java}}|*Le calcul des jours restants*, qui est le cœur de ce récit|
+|{{ca/dgag/ajusto/core/telematics/CMTProfileService.java}}|Le contrat : un signal de date d'entrée en vigueur, et un rafraîchissement au retour en avant-plan|
+|{{ca/dgag/ajusto/core/trip/AjustoContextualMessageHelper.java}}|La condition de la règle 6 : un profil présent, une date présente, et un nombre de jours strictement positif|
+
+h3. À déplacer — le code existe déjà en Kotlin
+
+||Fichier androidApp||Ce qu'il donne||
+|{{ca/dgag/ajusto/core/impl/profile/CMTProfileMapper.kt}}|La lecture du profil du SDK et l'endroit exact où la date d'entrée en vigueur est extraite. C'est une correspondance directe entre le champ du SDK et le champ du modèle.|
+
+h3. Le point d'attention sur la source
+
+La date *ne vient pas d'un appel HTTP*. Elle vient du gestionnaire d'utilisateur du SDK
+télématique, qui expose un profil dont un champ porte la date. C'est une erreur fréquente de
+chercher une route serveur pour cette donnée : il n'y en a pas.
+
+----
+
+h2. Le calcul des jours restants
+
+À porter en Kotlin pur, dans le même objet que la règle. Le comportement d'origine, dans l'ordre :
+
+# La valeur par défaut est moins un — c'est ce qui est rendu quand aucune date n'est connue, et
+elle ne déclenche donc aucun message.
+# La référence n'est pas l'instant courant mais *aujourd'hui à minuit*. C'est ce qui rend le
+résultat stable au cours d'une même journée : le compteur ne change pas entre le matin et le soir.
+# Une correction de changement d'heure est appliquée entre les deux dates, dans un sens ou dans
+l'autre selon laquelle est la plus tardive. Sans elle, un passage à l'heure d'été ou d'hiver ferait
+gagner ou perdre un jour.
+# Le résultat est tronqué *vers zéro* : plancher pour une valeur positive, plafond pour une
+valeur négative.
+
+La règle rend le nombre de jours s'il est *strictement supérieur à zéro*, et rien sinon. Un
+compte à rebours arrivé à zéro n'affiche pas de message.
+
+*Pourquoi ce calcul vit dans le domaine et non dans la couche data.* C'est une règle métier :
+elle décide de ce qui s'affiche, elle est pure, et elle se prouve par des tests sans appareil ni
+réseau. Placée dans un adaptateur, elle deviendrait beaucoup plus coûteuse à vérifier. La couche
+data se contente donc de fournir la date brute.
+
+----
+
+h2. Points de vigilance
+
+{panel:title=(!) Le défaut d'origine à ne surtout pas reproduire|borderStyle=solid|borderColor=#2c5282|titleBGColor=#e6edf5|bgColor=#ffffff}
+Côté Java, l'assemblage des signaux attend que *toutes* les sources aient répondu avant de se
+prononcer, et le profil du SDK fait partie de ces sources. Tant qu'il n'a pas répondu, *aucun
+message contextuel ne s'affiche* — pas même ceux dont les signaux sont déjà disponibles, comme la
+batterie.
+
+Au premier lancement, cela veut dire une zone vide jusqu'à la réponse du SDK.
+
+Le socle a déjà posé la parade : tous les signaux ont une valeur par défaut, et le signal de ce
+récit vaut « inconnu » tant que le profil n'a pas répondu. Il faut *ne pas défaire cette
+protection* en rendant l'assemblage suspendu à la réponse du profil. Un test doit le vérifier : le
+use case se prononce avant que la source de profil n'ait émis quoi que ce soit.
+{panel}
+
+{panel:title=(!) Deux autres points|borderStyle=solid|borderColor=#c1c7d0|titleBGColor=#f4f5f7|bgColor=#ffffff}
+*Le rafraîchissement au retour en avant-plan fait partie du comportement.* Le service de profil
+d'origine expose explicitement une opération pour cela. Sans elle, le compteur ne se met pas à
+jour quand la personne rouvre l'application le lendemain.
+
+*La date arrive du SDK, pas du serveur.* Elle n'a donc ni le même délai ni les mêmes échecs qu'un
+appel réseau : elle peut rester absente longtemps sans que rien ne soit en erreur. Le signal doit
+supporter cet état sans le transformer en message.
+{panel}
+
+----
+
+h2. Critères d'acceptation
+
+h3. CA-1 — Le calcul est stable au cours d'une journée
+
+*Étant donné* une date d'entrée en vigueur fixée et deux instants de référence dans la même
+journée, l'un le matin, l'autre le soir
+*Quand* on calcule les jours restants
+*Alors* les deux résultats sont identiques
+
+h3. CA-2 — Le changement d'heure ne fait ni gagner ni perdre un jour
+
+*Étant donné* un intervalle qui traverse un passage à l'heure d'été, puis un qui traverse un
+passage à l'heure d'hiver
+*Quand* on calcule les jours restants
+*Alors* le résultat est le même que pour un intervalle équivalent sans changement d'heure
+
+h3. CA-3 — La troncature va vers zéro
+
+*Étant donné* un intervalle positif non entier, puis un intervalle négatif non entier
+*Quand* on calcule les jours restants
+*Alors* le premier est arrondi vers le bas et le second vers le haut
+
+h3. CA-4 — Le seuil est strictement supérieur à zéro
+
+*Étant donné* les valeurs de jours restants inconnue, négative, zéro et trois
+*Quand* on évalue la règle
+*Alors* seules les trois premières ne rendent rien, et la dernière rend le message avec la valeur
+
+h3. CA-5 — La date absente ne bloque rien
+
+*Étant donné* une source de profil qui n'a pas encore émis
+*Quand* on appelle le use case avec une batterie faible
+*Alors* le message de batterie s'affiche sans attendre
+
+h3. CA-6 — La règle 6 se place après l'invitation
+
+*Étant donné* les conditions de l'invitation à étiqueter réunies *et* une entrée en vigueur à
+venir
+*Quand* on appelle le use case
+*Alors* il rend le message de l'invitation, et lui seul
+
+h3. CA-7 — Le message porte le nombre de jours
+
+*Étant donné* le message rendu avec trois jours restants
+*Quand* on le traduit en présentation
+*Alors* le nombre apparaît à la place prévue dans le texte
+
+h3. CA-8 — Le rafraîchissement au retour en avant-plan
+
+*Étant donné* l'application ramenée au premier plan le lendemain
+*Quand* l'écran se réaffiche
+*Alors* le compteur a diminué d'un jour
+
+h3. CA-9 — Le message s'affiche réellement
+
+*Étant donné* l'activation mise à jour
+*Quand* on ouvre l'écran avec une entrée en vigueur à venir
+*Alors* la boîte apparaît avec son libellé, son icône et sa teinte, et sa preview affiche le rendu
+définitif
+
+h3. CA-10 — Compilation et couverture
+
+*Étant donné* la campagne de tests
+*Quand* on l'exécute
+*Alors* les modules compilent et le code livré ici est couvert à 100 %
+
+----
+
+h2. Definition of Done
+
+* (/) Le port, l'implémentation Android, le calcul et la règle sont livrés
+* (/) La règle 6 est active et le message s'affiche
+* (/) Les dix critères d'acceptation sont vérifiés
+* (/) Le test qui vérifie qu'une source de profil silencieuse ne bloque aucun autre message est
+écrit et passe
+* (/) Le récit de l'invitation à étiqueter est notifié que la date d'entrée en vigueur est
+disponible pour son filtre
+* (/) Une capture du message à l'écran est jointe au ticket
+* (/) La revue de code est approuvée par un pair
+
+----
+
+h2. Sous-tâches proposées
+
+# Écrire le port de profil et son implémentation Android — 3 h
+# Porter le calcul des jours restants et la règle — 3 h
+# Ajouter la règle 6 à la famille engagement — 1 h
+# Compléter le mapping et l'activation — 1 h 30
+# Écrire les tests, dont les changements d'heure et la source silencieuse — 3 h
+
+----
+
+h2. Risques et questions ouvertes
+
+||#||Sujet||Impact||Qui tranche||
+|1|Le calcul d'origine s'appuie sur des utilitaires de date de la bibliothèque du Core. Leur équivalent en Kotlin multiplateforme est à confirmer, en particulier pour la correction de changement d'heure|Si l'équivalent n'existe pas, il faut l'écrire — ce qui change l'estimation. À vérifier au démarrage|Équipe, au démarrage|
+|2|La date peut rester absente longtemps sans qu'il y ait d'erreur|Le message ne s'affiche jamais dans ce cas, ce qui est correct mais peut ressembler à une panne pour qui ne le sait pas. À documenter|Équipe|
+|3|Le récit de l'invitation à étiqueter dépend de cette date pour son filtre|S'il est livré avant celui-ci, son filtre tourne sans borne inférieure. Voir le risque n°1 de ce récit-là|Équipe, à l'ordonnancement|
+
+----
+
+h2. Vérifier localement
+
+{code:bash}
+./gradlew :modules:feature:ajusto:domain:build :modules:feature:ajusto:data:build
+./gradlew :modules:feature:ajusto:domain:allTests :modules:feature:ajusto:data:allTests
+{code}
+
+----
+
+h2. Références
+
+* *{{analyse/AjustoContextualMessage/22-WRU-26599-modele-et-arborescence-a-jour.html}}* — le modèle de groupes et l'arborescence cible. Référence à jour.
+* {{analyse/AjustoContextualMessage/recits/README.md}} — l'index des récits et la règle des fichiers partagés
+* {{analyse/AjustoContextualMessage/recits/R0/R0-socle.jira.txt}} — le socle, à lire avant celui-ci
+* {{analyse/AjustoContextualMessage/21-*.html}} — spécification fonctionnelle : la fiche « Jours avant l'entrée en vigueur »
+* Sources, dépôt {{ad-digital-mobile-core-lib}} : {{…/core/telematics/CMTProfile.java}}, {{…/core/telematics/CMTProfileService.java}}, {{…/core/trip/AjustoContextualMessageHelper.java}}
+* Sources, dépôt {{ad-digital-mobile-aio}} : {{androidApp/…/ca/dgag/ajusto/core/impl/profile/CMTProfileMapper.kt}}

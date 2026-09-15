@@ -1,0 +1,299 @@
+h1. WRU-26599-R3 — Le message « invitation à étiqueter un trajet »
+
+||Champ||Valeur||
+|Type de ticket|Tâche technique|
+|Epic|WRU-26599 — Migration des messages contextuels Ajusto hors du Core Java|
+|Composants|ajusto-kmp, domain, data|
+|Étiquettes|wru-26599, kmp, androidMain, migration-core|
+|Estimation|2,5 j|
+|Priorité|Moyenne|
+|Dépend de|WRU-26599-R0 (le socle) · WRU-26599-R1 (l'adaptateur de trajets) · WRU-26599-R2 (le stockage typé)|
+|Bloque|—|
+|Modules Gradle|{{:modules:feature:ajusto:domain}}, {{:modules:feature:ajusto:data}}|
+
+----
+
+h2. Contexte
+
+Quelqu'un qui vient de commencer, qui a roulé assez pour avoir des trajets à étiqueter mais qui
+n'en a encore étiqueté aucun, voit un bandeau l'invitant à le faire. Le bandeau reste visible
+jusqu'à son vingtième trajet, puis disparaît. Il réapparaît si la personne recommence un cycle.
+
+C'est le message le plus lourd des six : il a besoin de trois sources différentes et porte la
+règle la plus fine du chantier — cinq conditions, dont deux qui se ressemblent en français et ne
+sont pas la même donnée. C'est aussi lui qui crée la *famille engagement* dans le use case, une
+seconde cascade indépendante de celle de l'appareil.
+
+h2. Objectif
+
+Brancher la liste des trajets récents et le drapeau d'invitation, porter le filtre des trajets et
+les cinq conditions, activer la règle 5, afficher le message.
+
+h2. Périmètre
+
+*Dans le périmètre*
+* L'extension de l'adaptateur de trajets créé en R1 : la liste, en plus de l'état d'enregistrement
+* Le filtre des trajets récents
+* La règle des cinq conditions
+* La famille engagement dans le use case
+* Le mapping et l'activation du message
+
+*Hors périmètre*
+* Le second message de la famille engagement, l'entrée en vigueur — récit R4
+* La fermeture du message par une croix : aujourd'hui aucune fonction ne l'appelle, et la
+généraliser demande un identifiant stable, un port de persistance, un filtre et une décision
+produit. Sujet à part entière, hors de ce récit.
+
+----
+
+h2. Schéma
+
+!R3-schema.png|thumbnail!
+
+La source Mermaid est jointe ({{R3-schema.mmd}}).
+
+----
+
+h2. Arborescence — où vont les fichiers
+
+{code:none}
+modules/feature/ajusto/domain/src/commonMain/…/ajusto/domain/contextualmessage/
+├── datasource/
+│   └── CmtTripSignalsDataSource.kt               ← MODIFIÉ    + la liste des trajets récents
+├── rule/
+│   └── ClassifyInviteRule.kt                     ← CRÉÉ ICI   les cinq conditions
+└── usecase/
+    └── ResolveContextualMessagesUseCase.kt       ← MODIFIÉ    crée la famille engagement
+
+modules/feature/ajusto/data/src/commonMain/…/ajusto/data/contextualmessage/
+├── datasource/RecentTripsFilter.kt               ← CRÉÉ ICI   ~12 lignes, testable seul
+└── repository/AjustoContextualMessageRepositoryImpl.kt ← MODIFIÉ
+
+modules/feature/ajusto/data/src/androidMain/…/ajusto/data/contextualmessage/datasource/
+└── AndroidCmtTripSignalsDataSource.kt            ← MODIFIÉ    + l'abonnement à la liste
+
+shared/src/commonMain/…/kore/data/repository/
+└── TypedStorage.kt                               ← MODIFIÉ    + getBoolean / putBoolean
+
+modules/feature/ajusto/presentation/src/commonMain/…/presentation/summary/
+├── ContextualMessageMapper.kt                    ← MODIFIÉ    1 branche
+└── ContextualMessageActivation.kt                ← MODIFIÉ    1 ligne à true
+{code}
+
+----
+
+h2. Ce qu'on reprend de l'existant
+
+h3. À porter — la logique vient du Core Java
+
+||Fichier Java||Ce qu'il donne||
+|{{ca/dgag/ajusto/core/classifyinvite/ClassifyInviteChecker.java}}|Les cinq conditions, à reproduire exactement. Le commentaire du fichier donne l'intention métier en clair.|
+|{{ca/dgag/ajusto/core/classifyinvite/ClassifyInviteQualifier.java}}|Le drapeau persistant : la clé, et le fait que « qualifié » signifie « le drapeau est faux »|
+|{{ca/dgag/ajusto/core/trip/TripServiceImpl.java}}|*Uniquement la méthode qui filtre les trajets récents.* Le reste de ce fichier ne concerne pas ce récit.|
+|{{ca/dgag/ajusto/core/settings/AjustoParameters.java}}|La valeur exacte du mode continu|
+
+h3. À déplacer — le code existe déjà en Kotlin
+
+||Fichier androidApp||Ce qu'il donne||
+|{{com/mirego/cmt/wrapper/trips/CMTTripManagerImpl.kt}}|Déjà utilisé par R1 pour l'état d'enregistrement. Le même adaptateur s'étend ici.|
+
+h3. À lire, ne pas toucher
+
+{{com/mirego/cmt/wrapper/trips/CMTTripProviderImpl.java}} — l'enveloppe du SDK qui publie la liste
+brute des trajets. On s'y abonne, on ne la modifie pas. Elle ne publie que si la personne est
+authentifiée, recharge au retour en avant-plan, et vide son dernier résultat à la déconnexion.
+
+----
+
+h2. Le filtre des trajets récents
+
+Un objet pur d'une douzaine de lignes, testable isolément. Il ne garde un trajet que si les trois
+conditions sont vraies.
+
+||#||Condition||Détail||
+|1|Le trajet commence après la date d'entrée en vigueur de la police|Si cette date est inconnue, la condition est réputée vraie — il n'y a pas de borne inférieure|
+|2|Le trajet commence il y a moins de quatre-vingt-dix jours|Fenêtre glissante, calculée depuis l'instant courant|
+|3|Le trajet n'est pas un rattrapage|Reconnu par une note de service portant la mention correspondante ; une note absente signifie que ce n'en est pas un|
+
+*La règle ne consomme que deux choses de cette liste* : son nombre d'éléments, et le fait qu'au
+moins un trajet y soit étiqueté par la personne. Rien d'autre. C'est ce qui permet au modèle de
+trajet du domaine de ne porter que trois champs et aucun type du SDK.
+
+----
+
+h2. La règle — cinq conditions
+
+La règle rend vrai si et seulement si les cinq sont vraies ensemble.
+
+||#||Condition||Signal||
+|1|Le mode du compte vaut exactement {{"continuous4"}}|⑤|
+|2|{{numberOfTrips > 5}} *ou* la liste filtrée compte plus de 5 trajets|⑥ et ①|
+|3|{{numberOfTrips <= 20}}|⑥|
+|4|Aucun trajet de la liste filtrée n'est étiqueté par la personne|①|
+|5|L'invitation n'a pas été écartée|⑫|
+
+*La valeur du mode est confirmée.* L'énumération des modes du Core associe le mode continu à la
+chaîne littérale {{"continuous4"}} — minuscules, sans séparateur — et c'est cette chaîne qui
+circule dans le JSON. Le signal étant une chaîne nullable côté KMP, la comparaison doit être
+*exacte et sensible à la casse* : pas de comparaison insensible, pas de normalisation. Les deux
+seules valeurs connues sont {{"none"}} et {{"continuous4"}}.
+
+Les seuils 5 et 20 sont des constantes nommées, déclarées à l'intérieur de l'objet de règle.
+
+{panel:title=(!) Les conditions 4 et 5 ne sont PAS la même donnée|borderStyle=solid|borderColor=#2c5282|titleBGColor=#e6edf5|bgColor=#ffffff}
+Elles se ressemblent en français et se confondent à l'écriture. Remplacer l'une par l'autre change
+le comportement sans faire échouer la compilation.
+
+*La condition 4 est un calcul sur la liste des trajets récents* : aucun trajet de la fenêtre
+filtrée n'est étiqueté. Elle ne regarde que cette fenêtre. Quelqu'un qui a étiqueté un trajet il y
+a plus de quatre-vingt-dix jours en sort, et redevient éligible à l'invitation — c'est
+exactement le « le processus se répète » de l'intention métier.
+
+*La condition 5 est la lecture d'un drapeau persistant*, celui qui mémorise que l'invitation a été
+écartée. Il ne dit rien des trajets.
+
+Un test doit échouer si l'une est utilisée à la place de l'autre : poser une liste contenant un
+trajet étiqueté avec un drapeau permettant l'invitation, puis l'inverse, et vérifier que les deux
+cas rendent faux pour des raisons distinctes.
+{panel}
+
+----
+
+h2. La famille engagement
+
+Ce récit crée la seconde cascade du use case. Elle fonctionne comme celle de l'appareil : les
+règles s'y départagent entre elles, et il n'en sort qu'un message.
+
+À ce stade elle ne contient qu'une règle. Le récit R4 y ajoutera l'entrée en vigueur, *après*
+l'invitation dans l'ordre des priorités.
+
+Point important pour la lecture du résultat : cette famille et celle de l'appareil aboutissent au
+*même groupe d'affichage*, celui qui porte le libellé « Avis ». Elles restent pourtant deux
+familles distinctes, donc une alerte d'appareil et une invitation peuvent s'afficher *ensemble*.
+C'est voulu, et c'est la raison pour laquelle la déduplication se fait dans chaque fonction de
+résolution et jamais par groupe après coup.
+
+----
+
+h2. Critères d'acceptation
+
+h3. CA-1 — Le filtre écarte ce qu'il doit écarter
+
+*Étant donné* une liste contenant un trajet d'il y a cent jours, un trajet antérieur à la date
+d'entrée en vigueur, un rattrapage, et un trajet valide
+*Quand* on applique le filtre
+*Alors* seul le dernier subsiste
+
+h3. CA-2 — Le filtre sans date d'entrée en vigueur
+
+*Étant donné* une date d'entrée en vigueur inconnue
+*Quand* on applique le filtre
+*Alors* la première condition ne rejette rien, et seules les deux autres s'appliquent
+
+h3. CA-3 — Les cinq conditions
+
+*Étant donné* un jeu de signaux où les cinq conditions sont vraies
+*Quand* on invalide une seule condition à la fois, cinq fois de suite
+*Alors* la règle rend faux dans les cinq cas, et vrai dans le cas de référence
+
+h3. CA-4 — Les conditions 4 et 5 sont indépendantes
+
+*Étant donné* d'une part un trajet récent étiqueté avec une invitation non écartée, d'autre part
+aucun trajet étiqueté avec une invitation écartée
+*Quand* on évalue la règle
+*Alors* elle rend faux dans les deux cas, et le test échoue si l'une des conditions est utilisée à
+la place de l'autre
+
+h3. CA-5 — La comparaison du mode
+
+*Étant donné* les valeurs absente, vide, {{"none"}}, {{"CONTINUOUS4"}}, {{"continuous_v4"}} et
+{{"continuous4"}}
+*Quand* on évalue la règle en gardant les autres conditions vraies
+*Alors* seule la dernière rend vrai
+
+h3. CA-6 — Les bornes de trajets
+
+*Étant donné* les valeurs 5, 6, 20 et 21 pour le nombre de trajets, liste filtrée vide
+*Quand* on évalue la règle
+*Alors* elle rend faux, vrai, vrai, faux — et un cas supplémentaire vérifie qu'une liste de plus de
+cinq trajets suffit à satisfaire la deuxième condition même avec un nombre de trajets à zéro
+
+h3. CA-7 — L'invitation s'empile avec une alerte d'appareil
+
+*Étant donné* une batterie faible *et* les conditions de l'invitation réunies
+*Quand* on appelle le use case
+*Alors* il rend deux messages, la batterie d'abord, l'invitation ensuite
+
+h3. CA-8 — Aucun type du SDK ne traverse la frontière
+
+*Étant donné* le port et le modèle de trajet du domaine
+*Quand* on inspecte leurs signatures
+*Alors* aucun type du SDK télématique n'y figure, et le modèle de trajet ne porte que ses trois
+champs
+
+h3. CA-9 — Le message s'affiche réellement
+
+*Étant donné* l'activation mise à jour
+*Quand* on ouvre l'écran avec les conditions réunies
+*Alors* la boîte apparaît avec son libellé, son icône et sa teinte, et sa preview affiche le rendu
+définitif
+
+h3. CA-10 — Compilation et couverture
+
+*Étant donné* la campagne de tests
+*Quand* on l'exécute
+*Alors* les modules compilent et le code livré ici est couvert à 100 %
+
+----
+
+h2. Definition of Done
+
+* (/) Le filtre, la règle, l'extension de l'adaptateur et le branchement sont livrés
+* (/) La règle 5 est active et le message s'affiche
+* (/) Les dix critères d'acceptation sont vérifiés
+* (/) La décision sur la date d'entrée en vigueur du filtre est prise — voir le risque n°1
+* (/) L'absence de fonction de fermeture est notée, sans être traitée ici
+* (/) Une capture du message à l'écran est jointe au ticket
+* (/) La revue de code est approuvée par un pair
+
+----
+
+h2. Sous-tâches proposées
+
+# Écrire le filtre des trajets récents et son test de parité avec le Java — 3 h
+# Étendre l'adaptateur de trajets pour publier la liste — 4 h
+# Étendre le stockage typé aux booléens et brancher le drapeau d'invitation — 2 h
+# Écrire la règle des cinq conditions — 2 h
+# Créer la famille engagement dans le use case — 1 h 30
+# Compléter le mapping et l'activation — 1 h 30
+# Écrire les tests, dont celui qui distingue les conditions 4 et 5 — 4 h
+
+----
+
+h2. Risques et questions ouvertes
+
+||#||Sujet||Impact||Qui tranche||
+|1|*Le filtre a besoin de la date d'entrée en vigueur*, qui est la source du récit R4|Si R4 n'est pas livré, la date est inconnue et la première condition du filtre ne rejette rien : des trajets antérieurs à la police sont comptés, et l'invitation peut se déclencher trop tôt. Deux issues — faire R4 d'abord, ou livrer avec la date inconnue et le documenter|Équipe, au démarrage|
+|2|L'abonnement aux observables du SDK n'a pas été relu en détail|Ce ne sont pas des flux Kotlin. Faire relire l'abonnement par quelqu'un qui connaît cette bibliothèque avant de l'écrire, et prévoir la conversion avec fermeture propre|Équipe télématique|
+|3|Aucune fonction n'écarte l'invitation aujourd'hui : la fonction qui écrirait le drapeau n'a aucun appelant|La cinquième condition est donc toujours vraie en pratique. Ce n'est pas bloquant, mais il faut le savoir avant de conclure que la règle « ne s'arrête jamais »|Produit|
+|4|Le modèle de trajet du domaine doit exister — il est déclaré par le socle|Si le socle a été livré sans lui, le récit commence par le déclarer|Vérification au démarrage|
+
+----
+
+h2. Vérifier localement
+
+{code:bash}
+./gradlew :modules:feature:ajusto:domain:build :modules:feature:ajusto:data:build
+./gradlew :modules:feature:ajusto:domain:allTests :modules:feature:ajusto:data:allTests
+{code}
+
+----
+
+h2. Références
+
+* *{{analyse/AjustoContextualMessage/22-WRU-26599-modele-et-arborescence-a-jour.html}}* — le modèle de groupes et l'arborescence cible. Référence à jour.
+* {{analyse/AjustoContextualMessage/recits/README.md}} — l'index des récits et la règle des fichiers partagés
+* {{analyse/AjustoContextualMessage/recits/R0/R0-socle.jira.txt}} — le socle, à lire avant celui-ci
+* {{analyse/AjustoContextualMessage/21-*.html}} — spécification fonctionnelle : la fiche « Invitation à identifier un trajet »
+* Sources, dépôt {{ad-digital-mobile-core-lib}} : {{…/core/classifyinvite/ClassifyInviteChecker.java}}, {{…/core/classifyinvite/ClassifyInviteQualifier.java}}, {{…/core/trip/TripServiceImpl.java}}, {{…/core/settings/AjustoParameters.java}}
+* Sources, dépôt {{ad-digital-mobile-aio}} : {{androidApp/…/com/mirego/cmt/wrapper/trips/CMTTripProviderImpl.java}}, {{…/CMTTripManagerImpl.kt}}
