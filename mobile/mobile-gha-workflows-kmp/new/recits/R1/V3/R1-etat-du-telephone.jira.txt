@@ -1,0 +1,202 @@
+h1. WRU-26599-R1 — Les trois messages liés à l'état du téléphone
+
+h2. Contexte
+
+Trois des huit messages contextuels dépendent de l'état du téléphone : la marque de l'appareil, le
+niveau de batterie, et le mode économie d'énergie. Ce sont les trois premiers messages que le
+chantier rend visibles.
+
+*Pourquoi un seul récit pour trois messages.* Les trois sortent du même adaptateur : un seul objet
+lit les quatre signaux que l'OS expose. Découpés en trois récits, trois personnes écriraient tour à
+tour dans le même fichier neuf, pour un gain nul — le port, l'adaptateur, l'injection et le
+branchement sont un travail unique. Les règles elles-mêmes tiennent chacune en une ligne.
+
+*Une exception à signaler.* La règle de l'économie d'énergie a besoin d'un quatrième signal qui ne
+vient pas de l'OS mais du SDK télématique : savoir si un trajet est en cours d'enregistrement. Ce
+récit crée donc aussi un adaptateur pour le SDK, *réduit à ce seul booléen*. La liste des trajets
+récents appartient au récit R3, qui étendra cet adaptateur.
+
+h2. Objectif
+
+Brancher les quatre signaux de l'état du téléphone plus l'état d'enregistrement, activer les trois
+règles dans le use case, et afficher les trois messages correspondants.
+
+----
+
+h2. Schéma
+
+!R1-schema.png|thumbnail!
+
+Les trois sources viennent toutes d'Android, mais par trois mécanismes différents — et c'est ce qui
+explique les deux pièges plus bas. La batterie arrive par une *diffusion système* poussée vers
+l'application. Le mode économie se *lit à la demande* sur un service système. Le fabricant est une
+*constante* inscrite dans le système.
+
+----
+
+h2. Les trois règles
+
+||Message||Condition||
+|Marque non compatible|le fabricant est sur liste d'exclusion — comparaison insensible à la casse, fabricant inconnu réputé compatible|
+|Batterie faible|niveau inférieur ou égal à 20 % *et* appareil pas en charge|
+|Mode économie d'énergie|le mode est actif *et* aucun trajet en cours d'enregistrement|
+
+Elles sont *en cascade entre elles* : deux problèmes simultanés ne donnent qu'un message, le
+premier de cette liste. Le message « Appareil non compatible » s'insérera entre la marque et la
+batterie au récit R2, sans rien changer ici.
+
+Côté Java, ces trois règles reçoivent le mode du compte en paramètre et ne s'en servent jamais. Ne
+pas reporter ce paramètre mort.
+
+----
+
+h2. Arborescence — proposition de solution
+
+*Tout ce qui suit est une proposition — sans exception.* Les noms, les emplacements et le découpage
+en deux ports sont des choix à valider en revue, pas des décisions déjà prises. Chaque entrée est
+justifiée plus bas, et un emplacement reste ouvert : voir « Un point à trancher » en fin de récit.
+
+*Le code d'abord.*
+
+{code:none}
+modules/feature/ajusto/domain/src/commonMain/…/contextualmessage/
+├── datasource/
+│   ├── DeviceStateDataSource.kt              CRÉÉ     le port, 4 signaux de l'OS
+│   └── CmtTripSignalsDataSource.kt           CRÉÉ     l'enregistrement seul, étendu par R3
+└── usecase/
+    └── ResolveContextualMessagesUseCase.kt   MODIFIÉ  la première famille reçoit ses 3 branches
+
+modules/feature/ajusto/data/src/androidMain/…/contextualmessage/datasource/
+├── AndroidDeviceStateDataSource.kt           CRÉÉ     lit la batterie, l'économie, le fabricant
+└── AndroidCmtTripSignalsDataSource.kt        CRÉÉ     lit le SDK télématique
+
+modules/feature/ajusto/data/src/commonMain/…/ajusto/data/
+├── contextualmessage/repository/
+│   └── AjustoContextualMessageRepositoryImpl.kt  MODIFIÉ  combine les deux sources
+└── AjustoDataModule.kt                       MODIFIÉ  enregistre les deux adaptateurs
+
+modules/feature/ajusto/presentation/src/commonMain/…/summary/
+├── ContextualMessageMapper.kt                MODIFIÉ  3 branches complétées
+└── ContextualMessageActivation.kt            MODIFIÉ  3 lignes passent de false à true
+
+modules/feature/ajusto/data/build.gradle.kts  MODIFIÉ  dépendance SDK dans androidMain
+{code}
+
+*Les tests ensuite.*
+
+{code:none}
+modules/feature/ajusto/domain/src/commonTest/…/contextualmessage/usecase/
+└── ResolveContextualMessagesUseCaseTest.kt   ÉTENDU   les 3 règles et leur cascade
+
+modules/feature/ajusto/data/src/androidUnitTest/…/contextualmessage/datasource/
+└── AndroidDeviceStateDataSourceTest.kt       CRÉÉ     lecture des 4 signaux, valeurs limites
+
+modules/feature/ajusto/data/src/androidInstrumentedTest/…/contextualmessage/datasource/
+└── DeviceStateForegroundTest.kt              CRÉÉ     le retour d'avant-plan relit la batterie
+{code}
+
+Le résultat attendu, fichier par fichier, est dans le dossier {{code-attendu/}} à côté de ce récit.
+
+----
+
+h2. Où s'inspirer pour chaque fichier
+
+Rien ici ne s'invente : chaque adaptateur a une contrepartie déjà écrite, côté Core Java ou côté
+{{androidApp}}. La colonne de droite dit *quoi y lire* — on reprend la lecture du signal, jamais le
+texte ni la décision d'affichage.
+
+||Fichier à écrire||Où le lire avant de l'écrire||Ce qu'on y prend||
+|{{DeviceStateDataSource}} (le port)|{{core-lib}} {{ajusto/core/DeviceInfo.java}}|la liste des signaux d'appareil réellement consommés — le Java en expose dix-sept, quatre nous concernent|
+|{{AndroidDeviceStateDataSource}}|{{aio}} {{androidApp/…/core/impl/legacy/DeviceInfoImpl.kt}}|les lectures Android exactes : le seuil de batterie, le champ « en charge », le service système, la liste d'exclusion de fabricants|
+|{{CmtTripSignalsDataSource}} (le port)|{{aio}} {{androidApp/…/com/mirego/cmt/wrapper/trips/CMTTripManagerImpl.kt}}|le seul booléen dont R1 a besoin, et la façon dont il est rafraîchi|
+|{{AndroidCmtTripSignalsDataSource}}|même fichier, {{l. 52}} et {{l. 80}}|l'appel réel au SDK et son observable — *à relire avec quelqu'un qui connaît cette bibliothèque*|
+|les 3 règles du use case|{{core-lib}} {{ajusto/core/trip/AjustoContextualMessageHelper.java}}|les conditions exactes et leur ordre dans la cascade|
+|les 3 branches du mapper|{{aio}} {{androidApp/…/ajusto/dashboard/AjustoDashboardFragment.kt}}|le rendu actuel : titre, icône, teinte — c'est la référence visuelle, pas le Java|
+
+----
+
+h2. Pourquoi ces fichiers, et pas d'autres
+
+*Deux ports plutôt qu'un.* Les quatre signaux de l'OS et le booléen du SDK pourraient tenir dans un
+seul port. Ils sont séparés parce qu'ils n'ont ni la même durée de vie ni les mêmes contraintes :
+l'OS répond toujours, le SDK ne répond que si la personne est authentifiée. Les mélanger rendrait
+l'ensemble indisponible dès que le SDK l'est, et ferait descendre les trois messages d'appareil avec
+lui.
+
+*{{CmtTripSignalsDataSource}} ne porte qu'un booléen, volontairement.* R3 y ajoutera la liste des
+trajets récents. Le nommer au pluriel dès maintenant évite de renommer un port public au récit
+suivant ; ne lui donner qu'un membre évite d'écrire en R1 du code que seul R3 utilisera.
+
+*Le fabricant n'est pas un flux.* {{Build.MANUFACTURER}} ne change jamais en cours d'exécution. Le
+port l'expose donc comme une valeur simple, là où les trois autres signaux sont observables. Un flux
+qui n'émet qu'une fois coûterait un abonnement pour rien.
+
+*L'adaptateur descend en {{androidMain}}, le port reste en {{commonMain}}.* C'est la seule raison
+pour laquelle le domaine peut ignorer Android : le use case ne voit que quatre booléens.
+
+*Les trois règles restent dans le use case, pas dans {{rule/}}.* Chacune tient en une ligne. Une
+classe par ligne ajouterait trois fichiers, trois injections et trois tests pour une condition
+lisible sur place. {{rule/}} accueillera celles qui ne tiennent pas en une ligne, à partir de R3.
+
+*Le fichier d'activation est modifié, pas réécrit.* Trois lignes passent de {{false}} à {{true}} ;
+les cinq autres restent à {{false}}. C'est le geste le plus visible du récit — c'est lui, et lui
+seul, qui fait apparaître les messages à l'écran.
+
+----
+
+h2. Deux pièges hérités, à trancher dans ce récit
+
+*Les récepteurs ne sont enregistrés qu'en avant-plan.* Au retour d'arrière-plan, la valeur de
+batterie connue date du dernier passage au premier plan. Il faut provoquer une relecture au retour,
+sinon le message peut être faux quelques instants.
+
+*L'économie d'énergie n'a aucun signal de changement.* Android ne prévient pas quand le mode
+bascule ; côté Java, c'est l'observable de batterie qui sert de réveil. Quelqu'un qui active le
+mode économie sans que son niveau bouge ne verra donc jamais le message apparaître. Défaut
+d'origine — décider s'il est repris tel quel ou corrigé, et écrire la décision dans le ticket.
+
+----
+
+h2. Un point à trancher : où vit le port d'état d'appareil
+
+L'arborescence ci-dessus place {{DeviceStateDataSource}} sous {{feature/ajusto/domain}}. Un port du
+même nom existe déjà dans le dépôt sous {{modules/transverse/domain/…/device/}}, avec son
+implémentation Android à côté.
+
+Les deux emplacements se défendent : l'état du téléphone n'a rien de propre à Ajusto, ce qui plaide
+pour {{transverse}} ; mais seul Ajusto le consomme aujourd'hui, ce qui plaide pour le garder dans la
+feature tant qu'il n'a qu'un client. *Trancher avant d'écrire le code* — déplacer un port public
+après coup touche l'injection et tous ses appelants.
+
+----
+
+h2. Definition of Done
+
+* (/) Les deux ports, leurs implémentations Android et le branchement dans le repository sont livrés
+* (/) L'emplacement du port d'état d'appareil est tranché et écrit dans le ticket
+* (/) Les trois règles sont actives dans le use case
+* (/) Les trois lignes d'activation sont passées à {{true}}
+* (/) L'abonnement réel à l'observable du SDK est écrit et relu par quelqu'un qui connaît cette bibliothèque
+* (/) Les tests passent en intégration continue, test instrumenté du retour d'avant-plan compris
+
+----
+
+h2. Vérifier localement
+
+{code:bash}
+# compilation des modules touchés
+./gradlew :modules:feature:ajusto:domain:build :modules:feature:ajusto:data:build
+
+# tests unitaires
+./gradlew :modules:feature:ajusto:domain:allTests :modules:feature:ajusto:data:allTests
+
+# test instrumenté du retour d'avant-plan
+./gradlew :modules:feature:ajusto:data:connectedAndroidTest
+{code}
+
+----
+
+h2. Références
+
+* Dépôt {{ad-digital-mobile-core-lib}} : {{src/main/java/ca/dgag/ajusto/core/DeviceInfo.java}}, {{…/core/trip/AjustoContextualMessageHelper.java}}
+* Dépôt {{ad-digital-mobile-aio}} : {{androidApp/src/main/java/ca/dgag/ajusto/core/impl/legacy/DeviceInfoImpl.kt}}, {{androidApp/src/main/java/com/mirego/cmt/wrapper/trips/CMTTripManagerImpl.kt}}
