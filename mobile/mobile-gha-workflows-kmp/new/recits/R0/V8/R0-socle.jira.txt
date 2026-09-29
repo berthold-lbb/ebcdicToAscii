@@ -1,0 +1,81 @@
+h1. WRU-26599-R0 — Socle des messages contextuels
+
+h2. En une phrase
+
+Poser la base commune des messages contextuels de l'écran Ajusto. *Rien ne change à l'écran à la
+livraison de ce récit* — c'est le récit qui rend les suivants possibles.
+
+----
+
+h2. Pourquoi ce récit
+
+L'écran Ajusto affiche des messages selon la situation de la personne : batterie faible, appareil
+non compatible, nouvelle médaille à réclamer… Aujourd'hui, la décision d'afficher l'un ou l'autre
+est prise dans l'ancien socle partagé, et elle arrive à l'écran *déjà traduite*. Tant que c'est le
+cas, on ne peut ni changer un texte, ni ajouter un message, sans passer par l'ancien socle.
+
+Ce chantier sépare les deux : la décision d'un côté, les mots de l'autre. R0 pose le vocabulaire
+commun. Chacun des récits suivants rebranche ensuite *un seul* message.
+
+----
+
+h2. Les huit messages, et qui les rebranche
+
+||Message||Ce qu'il dit à la personne||Groupe||Récit||
+|Marque non compatible|son modèle de téléphone n'est pas supporté|Avis|R1|
+|Appareil non compatible|son appareil ne permet pas d'enregistrer ses trajets|Avis|R2|
+|Batterie faible|sa batterie est basse, les trajets risquent de ne pas être enregistrés|Avis|R1|
+|Mode économie d'énergie|le mode économie est actif et gêne l'enregistrement|Avis|R1|
+|Invitation à identifier un trajet|on lui propose de préciser si elle était conductrice ou passagère|Avis|R3|
+|Jours avant l'entrée en vigueur|son contrat n'est pas encore actif, il reste N jours|Avis|R4|
+|Nouvelle médaille à réclamer|elle a gagné une médaille et peut la réclamer|Médaille|R5|
+|Bon à savoir|un conseil du programme|Bon à savoir|R6|
+
+*Trois groupes d'affichage* : « Bon à savoir » en premier, les « Avis » ensuite, la médaille en
+dernier. C'est la maquette du Summary qui fixe cet ordre, pas l'ancien socle — le regroupement
+n'y existe pas.
+
+----
+
+h2. Ce que R0 livre concrètement
+
+* les huit messages sont *déclarés* d'un seul coup, même si aucun n'est encore alimenté ;
+* les trois groupes d'affichage et leur ordre sont posés ;
+* un interrupteur par message, tous *éteints* à la livraison — chaque récit suivant allume le sien ;
+* un mécanisme d'aperçu : dès qu'un message est déclaré, son aperçu est généré automatiquement,
+ce qui permet de le montrer à l'équipe avant même qu'il soit visible en production. Un troisième
+aperçu montre en permanence *ce que l'écran affiche réellement à ce stade du chantier* — vide à la
+livraison de R0, il se remplit tout seul à mesure que les récits suivants allument leurs messages.
+
+*Impact utilisateur à la livraison : aucun.* La zone de messages reste telle qu'elle est
+aujourd'hui.
+
+----
+
+h2. Deux décisions attendues de l'équipe
+
+# *Comment allume-t-on un message ?* La proposition demande une nouvelle version de l'application
+à chaque fois. Si l'équipe veut pouvoir allumer ou éteindre un message à distance, sans livraison,
+c'est un mécanisme différent — et le choix se fait maintenant, pas au cinquième récit.
+# *D'où vient le « Bon à savoir » ?* Ce message n'existe pas aujourd'hui. Sa source n'est pas
+tranchée et bloque le récit R6, pas celui-ci.
+
+----
+
+h2. Critères d'acceptation
+
+* (/) Les huit messages sont déclarés et les trois groupes posés
+* (/) Tous les interrupteurs sont éteints — l'écran est inchangé
+* (/) Un aperçu existe pour chacun des huit messages
+* (/) Ajouter un neuvième message à l'avenir *oblige* à lui donner un interrupteur et un aperçu
+* (/) Les tests passent en intégration continue
+
+----
+
+h2. Détail technique
+
+Arborescence proposée, fichiers à écrire, sources d'inspiration dans l'ancien socle et
+justification de chaque choix : voir la pièce jointe *README.md*, ainsi que le dossier
+{{code-attendu/}} qui contient le résultat attendu fichier par fichier.
+
+Schémas : !R0-architecture.png|thumbnail! !R0-signaux-vers-messages.png|thumbnail!
