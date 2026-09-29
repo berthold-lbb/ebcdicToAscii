@@ -1,0 +1,81 @@
+h1. WRU-26599-R1 — Les trois messages liés à l'état du téléphone
+
+h2. En une phrase
+
+Rebrancher les trois messages qui dépendent du téléphone lui-même — la marque, la batterie, le mode
+économie d'énergie. *Ce sont les trois premiers messages que le chantier rend visibles.*
+
+----
+
+h2. Ce que la personne verra
+
+||Message||Quand il s'affiche||
+|Marque non compatible|son modèle de téléphone fait partie des marques qui ne permettent pas d'enregistrer les trajets|
+|Batterie faible|sa batterie est à 20 % ou moins *et* le téléphone n'est pas branché|
+|Mode économie d'énergie|le mode économie est actif *et* aucun trajet n'est en cours d'enregistrement|
+
+*Une seule boîte à la fois.* Si deux situations sont vraies en même temps, c'est la première de ce
+tableau qui s'affiche, et elle seule. L'ordre est repris tel quel de l'écran actuel.
+
+Au récit R2, le message « Appareil non compatible » viendra se placer entre la marque et la
+batterie. Rien d'autre ne bouge.
+
+----
+
+h2. Pourquoi les trois ensemble
+
+Les trois lisent le même endroit : l'état du téléphone. Les séparer en trois récits ferait écrire
+trois fois le même branchement par trois personnes différentes, sans rien gagner. Les conditions
+elles-mêmes tiennent chacune en une ligne.
+
+Le mode économie d'énergie a besoin d'une information de plus, qui ne vient pas du téléphone mais du
+service d'enregistrement des trajets : savoir si un trajet est en cours. Ce récit va la chercher, et
+rien d'autre — la liste des trajets appartient au récit R3.
+
+----
+
+h2. Deux comportements hérités à trancher
+
+Ce sont deux défauts de l'écran actuel. Le récit les reprend tels quels *ou* les corrige — la
+décision se prend ici, et s'écrit dans le ticket.
+
+# *Au retour dans l'application, la valeur de batterie peut être périmée quelques instants.*
+L'application n'écoute la batterie que lorsqu'elle est au premier plan. Au retour, le message
+affiché est celui d'avant la mise en veille, jusqu'à la première mise à jour.
+# *Activer le mode économie d'énergie n'affiche pas le message tout de suite.* Le téléphone ne
+prévient pas quand ce mode bascule. Aujourd'hui, c'est un changement de niveau de batterie qui
+réveille l'affichage. Quelqu'un qui active le mode économie sans que sa batterie bouge ne verra donc
+jamais le message.
+
+----
+
+h2. Un point ouvert côté équipe technique
+
+L'information « un trajet est en cours d'enregistrement » vient du service télématique. Le
+branchement réel doit être relu par quelqu'un qui connaît cette bibliothèque *avant* la fusion.
+
+Tant que ce n'est pas fait, le message « Mode économie d'énergie » s'affichera même pendant un
+enregistrement — c'est un écart à corriger avant la livraison, pas après.
+
+----
+
+h2. Critères d'acceptation
+
+* (/) Les trois messages s'affichent dans les conditions décrites ci-dessus
+* (/) Deux situations simultanées ne produisent qu'une seule boîte, la première du tableau
+* (/) Une marque de téléphone inconnue est considérée comme compatible — aucun message
+* (/) Les deux comportements hérités sont tranchés et la décision est écrite dans le ticket
+* (/) Le message « Mode économie d'énergie » ne s'affiche pas pendant un enregistrement de trajet
+* (/) Un test couvre chacun des quatre cas limites : batterie basse en charge, cascade à deux
+situations, mode économie pendant un enregistrement, marque inconnue
+* (/) Les tests passent en intégration continue, y compris un test du retour dans l'application
+
+----
+
+h2. Détail technique
+
+Arborescence proposée, fichiers à écrire, sources d'inspiration dans l'ancien socle et
+justification de chaque choix : voir la pièce jointe *README.md*, ainsi que le dossier
+{{code-attendu/}} qui contient le résultat attendu fichier par fichier.
+
+Schéma : !R1-schema.png|thumbnail!

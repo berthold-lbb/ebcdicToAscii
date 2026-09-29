@@ -1,0 +1,51 @@
+flowchart LR
+
+  A1["État du téléphone<br/>⑦⑧⑨⑩"]
+  A2["SDK — trajets<br/>①②"]
+  A3["SDK — profil<br/>⑪"]
+  A4["HTTP médailles<br/>③"]
+  A5["HTTP compatibilité<br/>④"]
+  A6["Compte Ajusto<br/>⑤⑥⑬"]
+  A7["Stockage local du téléphone<br/>⑫ invitation écartée"]
+  A8["Bon à savoir<br/><i>source non tranchée</i>"]
+
+  AGG["<b>AjustoContextual<br/>MessageRepository</b><br/>assemble les<br/>13 signaux"]
+
+  G1["<b>groupe ADVICE</b><br/>libellé « Bon à savoir »<br/>──────────────<br/>Bon à savoir"]
+
+  G2["<b>groupe NOTICE</b> · libellé « Avis »<br/>─────────────────────────────<br/><b>appareil</b> — une seule s'affiche<br/>Marque non compatible<br/>Appareil non compatible<br/>Batterie faible<br/>Mode économie d'énergie<br/>─────────────────────────────<br/><b>engagement</b> — une seule s'affiche<br/>Invitation à identifier un trajet<br/>Jours avant l'entrée en vigueur"]
+
+  G3["<b>groupe BADGE</b><br/>sans libellé<br/>──────────────<br/>Nouvelle médaille à réclamer"]
+
+  TRI["<b>tri</b><br/>groupe, puis priorité<br/>0 à 4 messages"]
+
+  PRES["<b>Présentation</b><br/>filtre ce qui sort à l'écran,<br/>puis traduit et affiche<br/><i>tout ce qui est résolu<br/>n'est pas affiché</i>"]
+
+  A1 --> AGG
+  A2 --> AGG
+  A3 --> AGG
+  A4 --> AGG
+  A5 --> AGG
+  A6 --> AGG
+  A7 --> AGG
+  A8 -.-> AGG
+
+  AGG --> G1
+  AGG --> G2
+  AGG --> G3
+
+  G1 --> TRI
+  G2 --> TRI
+  G3 --> TRI
+
+  TRI --> PRES
+
+  classDef base fill:#f5f5f4,stroke:#a8a29e,color:#1c1917
+  classDef accent fill:#e6edf5,stroke:#2c5282,color:#1a365d,stroke-width:2px
+  classDef pending fill:#fafaf9,stroke:#a8a29e,color:#57534e,stroke-dasharray:5 4
+
+  class A1,A2,A3,A4,A5,A6,A7,AGG,G1,G3,TRI,PRES base
+  class G2 accent
+  class A8 pending
+
+  linkStyle 7 stroke:#a8a29e,stroke-dasharray:5 4
