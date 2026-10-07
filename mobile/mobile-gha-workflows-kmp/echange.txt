@@ -1,0 +1,131 @@
+Objet : Précisions sur l’ordre d’affichage des bannières du tableau de bord Ajusto
+
+Bonjour,
+
+Suite à la note fonctionnelle (ordre : 1. Batterie faible, 2. Mode économie d’énergie, 3. Avertissement, 4. Bon à savoir, 5. Nouvelle médaille), j’ai besoin de quelques précisions pour implémenter l’ordre sans toucher aux règles de déclenchement.
+
+Q1. Batterie faible et mode économie d’énergie en même temps
+Si le téléphone a à la fois une batterie faible et le mode économie d’énergie activé, doit-on afficher les deux bannières (batterie faible en premier, puis économie d’énergie), ou une seule ?
+Aujourd’hui, l’application n’affiche que la bannière « Batterie faible » dans ce cas.
+
+Q2. Nombre de bannières affichées
+Les cinq types de bannières peuvent-ils s’afficher tous en même temps ? Y a-t-il un nombre maximum de bannières visibles simultanément (par exemple 3) ? Si oui, lesquelles sont retirées en premier ?
+
+Q3. Bannières absentes de la liste des cinq
+Deux bannières existent aujourd’hui dans l’application mais ne figurent pas dans la liste de la note :
+
+l’invitation à identifier (étiqueter) un trajet ;
+le nombre de jours restants avant l’entrée en vigueur de la police.
+
+Pour chacune, laquelle de ces situations est la bonne ?
+
+(a) elle est toujours affichée : à quelle position dans l’ordre (entre quelles bannières) ?
+(b) elle fait partie de la catégorie « Avertissement » (le « etc. » de la note) ;
+(c) elle n’est plus affichée sur le tableau de bord.
+
+Q4. Avertissement : plusieurs cas simultanés
+La catégorie « Avertissement » contient aujourd’hui notamment :
+
+marque non compatible (fabricant du téléphone exclu) ;
+appareil non compatible (modèle hors liste autorisée ou capteurs manquants).
+
+Un même téléphone peut déclencher les deux. Doit-on afficher un seul avertissement (aujourd’hui, la marque passe en priorité), ou tous les avertissements applicables, chacun dans sa propre bannière ?
+
+Q5. Liste complète des avertissements
+La note cite « données erronées, appareil non compatible, etc. ». Pouvez-vous fournir la liste complète des cas couverts par « Avertissement » et préciser la condition de déclenchement de « données erronées » ? Je ne retrouve pas ce cas dans les règles actuelles.
+
+Q6. Seuil et exceptions de la batterie faible et de l’économie d’énergie
+
+La note dit « inférieur à 20 % », alors que le comportement actuel déclenche à 20 % ou moins. Confirmez-vous le comportement actuel ?
+Aujourd’hui, la bannière « Batterie faible » n’est pas affichée si le téléphone est en charge, et la bannière « Économie d’énergie » n’est pas affichée pendant l’enregistrement d’un trajet. Ces deux exceptions restent-elles en vigueur ?
+
+Merci d’avance.
+
+Pour t’aider à prioriser
+
+Q1, Q3 et Q4 bloquent le code : sans elles, je ne peux pas fixer la cascade ni les priorités.
+Q2, Q5 et Q6 sont de la confirmation, et je peux avancer avec l’hypothèse actuelle en attendant.
+La phrase de Q5 sur « données erronées » repose sur mes notes (les 7 règles du Core) et non sur une recherche exhaustive dans tout le code. Vérifie-la avant d’envoyer si tu veux être certain.
+
+Je peux aussi te le condenser en version courte pour Teams ou Slack.
+
+explique moi appareil non compatible (modèle hors liste autorisée ou capteurs manquants). car je nai pas vu ca dans le code et donne moi les references
+
+Untangling the device whitelist and compatibility rule.
+
+Je cherche les références exactes dans le code.
+
+Fichiers consultés
+Fichier	Ce qui y a été trouvé
+core-lib/.../trip/AjustoContextualMessageHelper.java	l. 57 : else if (!isDeviceCompatible) est la règle 2. Le booléen arrive déjà calculé
+core-lib/.../trip/TripServiceImpl.java	l. 708, 720, 734 : il est lu depuis ajustoDeviceCompatible…Observable() puis passé au Helper
+core-lib/.../ajusto/AjustoDeviceCompatibleImpl.java	Là où le calcul est fait (l. 112-115) : serveur ET matériel
+androidApp/.../core/impl/legacy/DeviceInfoImpl.kt	l. 190-192 : isHardwareCompatible(), avec les 4 vérifications aux l. 53-94
+modules/feature/ajusto/data/.../WRU-26599-DeviceCompatibilityDataSource.kt	Port Kotlin : seul le POST serveur reste en TODO (l. 26-29, 70-74)
+modules/feature/ajusto/domain/.../ResolveContextualMessagesUseCase.kt	l. 122 : !signals.isDeviceCompatible n’est qu’un test, le calcul n’est pas dans le domaine
+① D’où vient « appareil non compatible » ?
+
+Dans le use case Kotlin, rien n’est calculé : c’est pour ça que tu ne le voyais pas.
+
+ ┌───────────────────────────────────────────────────────────────┐
+ │ ① Serveur (POST isDeviceCompatible)  ──┐                      │
+ │                                        ├─ ET ─▶ signal ④      │
+ │ ② Matériel du téléphone (4 capteurs) ──┘        isDevice      │
+ │                                                  Compatible   │
+ │                                                      │        │
+ │                          règle 2 : !isDeviceCompatible        │
+ │                                  ▼                            │
+ │                          DeviceNotCompatible                  │
+ └───────────────────────────────────────────────────────────────┘
+java
+// AjustoDeviceCompatibleImpl.java
+112    private void updateIsDeviceCompatibleObservable(final Boolean isDeviceWhiteListed) {
+113        keyValueStorage.putInt(IS_DEVICE_COMPATIBLE_KEY, isDeviceWhiteListed ? 1 : 0);
+114        isDeviceCompatibleObservable.notifyEventIfChanged(isDeviceWhiteListed && deviceInfo.isHardwareCompatible());
+115    }
+kotlin
+// ResolveContextualMessagesUseCase.kt
+122            !signals.isDeviceCompatible -> DeviceNotCompatible(signals.drivingProgramName) // règle 2
+② Que contient le volet « serveur » ?
+ partnerKey ─┐
+ deviceModel ─┼─ POST ─▶ AuthenticationHttpService.isDeviceCompatible ─▶ true / false
+ deviceName ─┘                       │
+                                     └─ route INTROUVABLE dans le dépôt
+java
+// AjustoDeviceCompatibleImpl.java
+101        final DeviceCompatibilityPayload deviceCompatibilityPayload = DeviceCompatibilityPayloadImpl.builder()
+102                .partnerKey(networkConfiguration.getApiKey())
+103                .deviceModel(deviceService.getDeviceModel())
+104                .deviceName(networkConfiguration.getDeviceName())
+105                .build();
+106        final SCRATCHOperation<DeviceCompatibility> op =
+107                authenticationHttpService.isDeviceCompatible(deviceCompatibilityPayload);
+
+Le code envoie le modèle et le nom de l’appareil, et le serveur répond oui ou non. Le nom de la variable est isDeviceWhiteListed (l. 112). J’ai donc écrit « modèle hors liste autorisée », mais c’est une déduction à partir de ce nom. Le critère exact du serveur n’est pas dans le dépôt : le port Kotlin le dit lui-même (TODO bloquant, l. 26-29).
+
+③ Que contient le volet « matériel » ?
+ isHardwareCompatible() = GPS ET cellulaire ET gyroscope ET accéléromètre
+kotlin
+// DeviceInfoImpl.kt
+ 53    private val isGpsAvailable: Boolean
+ 54        get() = context.packageManager.hasSystemFeature(PackageManager.FEATURE_LOCATION_GPS)
+ 76    private val isCellularAvailable: Boolean
+ ..        // connectivityManager.getNetworkInfo(TYPE_MOBILE) != null
+ 90    private val isGyroscopeAvailable: Boolean
+ 91        get() = context.packageManager.hasSystemFeature(PackageManager.FEATURE_SENSOR_GYROSCOPE)
+ 93    private val isAccelerometerAvailable: Boolean
+ 94        get() = context.packageManager.hasSystemFeature(PackageManager.FEATURE_SENSOR_ACCELEROMETER)
+190    override fun isHardwareCompatible(): Boolean {
+191        return isGpsAvailable && isCellularAvailable && isGyroscopeAvailable && isAccelerometerAvailable
+192    }
+
+Ce sont des capacités matérielles du téléphone. Elles ne dépendent pas de la permission de localisation ni de l’état du GPS. Le volet cellulaire teste seulement que getNetworkInfo(TYPE_MOBILE) n’est pas null, ce qui ne prouve pas la présence d’une carte SIM.
+
+Points qui comptent pour la question à l’équipe Affaires
+Serveur injoignable : le Java retombe sur true à l’initialisation (l. 72). Le message n’apparaît donc pas à cause d’une panne réseau.
+Valeur initiale : l’observable naît à true (l. 26 : new SCRATCHObservableImpl<>(true)).
+Défaut D-A : l. 97-99, le cache n’est relu que s’il est absent et publie alors false. Le Kotlin a inversé cet ordre volontairement.
+
+Je suggère de reformuler la parenthèse de Q4 : « appareil non compatible (refusé par le serveur d’après son modèle, ou GPS, cellulaire, gyroscope ou accéléromètre absent) ».
+
+Résumé : « appareil non compatible » vaut !(réponse du serveur && 4 capteurs présents), calculé dans AjustoDeviceCompatibleImpl et non dans le use case, et le critère exact du serveur reste à retrouver côté backend.
