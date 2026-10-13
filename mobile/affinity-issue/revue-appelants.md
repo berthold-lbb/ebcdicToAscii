@@ -74,7 +74,6 @@ private fun logoutOperation() {
         val activity = activityReference.get()
         if (activity != null &&
             !activity.isFinishing &&
-            !activity.isDestroyed &&
             activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
         ) {
             inAppMessageProcessTrigger.setApplicationInForeground(true)
@@ -85,6 +84,8 @@ private fun logoutOperation() {
 ```
 
 Dans ce fichier, `inAppMessageProcessTrigger` est importé depuis `AjustoTutorialHelper` ; ce n’est pas un accès implicite à une propriété de l’activité. La lambda `operation` actuelle utilise `sessionController` via l’activité, mais le coordinateur l’évalue immédiatement et ne la conserve pas comme callback. Extraire `controller` rend cette intention explicite.
+
+Précision après lecture du retour en captures : `isDestroyed` peut être retiré de cette garde puisque le cycle de vie AndroidX est déjà contrôlé. En revanche, conserver `!isFinishing` : une demande `finish()` peut avoir été acceptée avant la réception de `ON_PAUSE`. L’activité peut alors encore être `RESUMED` tout en étant en cours de fermeture. Voir [la vérification dans les sources Android](./retour-captures.md).
 
 Deux points restent à confirmer dans le vrai parcours :
 

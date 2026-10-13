@@ -1,8 +1,8 @@
-// PROPOSITION D'ANALYSE — hors des sources compilées de l'application.
+// VERSION FINALE DE LA PROPOSITION — hors des sources compilées de l'application.
 // Même contrat public que la copie locale ; quatre champs au lieu de six.
 // À compiler et tester dans le dépôt complet avant intégration.
 // Limite conservée : sans résultat de didFinishEvent(), le verrou reste posé.
-// Voir README.md pour le traitement terminal SCRATCH à vérifier.
+// Voir PROPOSITION-FINALE.md pour l'intégration et la validation requise.
 package ca.dgag.ajusto.authentification.logout
 
 import android.app.Activity
@@ -25,7 +25,7 @@ class LogoutNavigationCoordinator(
     private enum class NavigationState {
         IDLE,    // Aucune navigation de déconnexion demandée.
         PENDING, // Navigation demandée, en attente de pouvoir partir.
-        HANDLED  // Demande consommée : ne plus lancer pour cette déconnexion.
+        HANDLED  // Demande consommée : prime sur tout nouveau signal de la même sortie.
     }
 
     private var foregroundActivity = WeakReference<Activity>(null)

@@ -2,11 +2,15 @@
 
 Analyse du 13 octobre 2026, à partir de la copie locale reconstituée.
 
-**La solution actuelle a le bon principe. Je recommande un allègement ciblé du coordinateur : quatre champs au lieu de six, avec la même navigation et le même ordre de nettoyage.** Il n’existe pas de remplacement par un simple flag qui couvre à lui seul les déclencheurs concurrents, la disparition du fragment et l’expiration en arrière-plan.
+**Version de référence : [PROPOSITION-FINALE.md](./PROPOSITION-FINALE.md)**, accompagnée du [coordinateur complet](./LogoutNavigationCoordinator.proposal.kt). Elle précise notamment que l’ancien couple `pending=true, handled=true` se ramène à `HANDLED`, puisque le marqueur « déjà traité » a priorité dans le code existant.
+
+**La solution actuelle a le bon principe. La variante à quatre champs améliore la lisibilité, avec la même navigation et le même ordre de nettoyage visés.** Au vu du retour fourni ensuite en captures, qui rapporte un correctif déjà validé sur appareil, je recommande de garder cette variante pour une modification de suivi et de terminer d’abord la stabilisation du correctif actuel. Il n’existe pas de remplacement par un simple flag qui couvre à lui seul les déclencheurs concurrents, la disparition du fragment et l’expiration en arrière-plan.
 
 Le fichier [LogoutNavigationCoordinator.proposal.kt](./LogoutNavigationCoordinator.proposal.kt) illustre ce changement. C’est une proposition à examiner dans le vrai dépôt, pas un correctif compilé. Les sources applicatives n’ont pas été modifiées. Le contrat de terminaison SCRATCH reste à vérifier avant toute intégration.
 
 Le complément [États expliqués et revue des deux écrans](./revue-appelants.md) détaille `IDLE`, `PENDING`, `HANDLED`, vérifie `ProfilePreferencesFragment` et `AuthTransitionActivity`, et propose une garde de visibilité pour le second.
+
+Le [retour sur les trois captures](./retour-captures.md) intègre les informations du dépôt réel rapportées par la revue, distingue celles-ci de la copie locale et précise les réserves sur `isFinishing` et l’affinité vide.
 
 ## Le correctif Android à conserver
 
@@ -42,10 +46,10 @@ Retirer seulement le verrou permettrait à l’observateur d’ouvrir l’accuei
 | --- | --- | --- |
 | `foregroundActivity` | `foregroundActivity` | Conserver une référence faible à l’activité reprise. |
 | `previousAuthenticated: Boolean?` | `wasAuthenticated: Boolean = false` | Le troisième état `null` n’apporte rien aux décisions actuelles : le premier `false` ne déclenche rien et le premier `true` arme une future déconnexion. |
-| `pendingNavigation` + `navigationHandled` | `navigationState: IDLE / PENDING / HANDLED` | Rendre les états de navigation mutuellement exclusifs. |
+| `pendingNavigation` + `navigationHandled` | `navigationState: IDLE / PENDING / HANDLED` | Exprimer directement les trois décisions de navigation ; `handled=true` prime sur `pending`. |
 | `manualRequestId` + `requestSequence` | `manualSubscriptions: SCRATCHSubscriptionManager?` | L’abonnement existe déjà : sa présence sert de verrou et son identité distingue l’opération courante d’un ancien callback. |
 
-**On supprime le compteur et les identifiants artificiels. On conserve les informations nécessaires au comportement.** Le gain est surtout la lisibilité et la suppression de combinaisons incohérentes de booléens ; ce n’est pas une réduction spectaculaire du nombre de lignes.
+**On supprime le compteur et les identifiants artificiels. On conserve les informations nécessaires au comportement.** Le gain est surtout la lisibilité et la suppression de représentations redondantes : `false,true` et `true,true` empêchent tous deux de naviguer dans le code actuel. Ce n’est pas une réduction spectaculaire du nombre de lignes.
 
 Le contrôle `manualSubscriptions !== subscriptions` rejette un ancien callback avant d’exécuter son nettoyage ou de libérer le verrou d’une opération plus récente. L’identité d’objet joue ici le rôle de l’ancien numéro de requête.
 
