@@ -34,8 +34,6 @@ import androidx.compose.material.ButtonDefaults
 import androidx.compose.material.Icon
 import androidx.compose.material.IconButton
 import androidx.compose.material.Scaffold
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,12 +43,12 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Alignment.Companion.CenterHorizontally
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -75,6 +73,7 @@ import androidx.compose.ui.unit.sp
 import ca.dgag.ajusto.R
 import ca.dgag.ajusto.R.color.dgag_radar_event_icon
 import ca.dgag.ajusto.R.drawable.dgag_icn_settings
+import ca.dgag.ajusto.R.drawable.ico_information_bubble
 import ca.dgag.ajusto.R.drawable.login_screen_bgnd
 import ca.dgag.ajusto.R.drawable.logo_with_blurb
 import ca.dgag.ajusto.action.ActionListener
@@ -200,7 +199,7 @@ private fun LoginContent(
                         .clip(RoundedCornerShape(topStart = medium, topEnd = medium))
                         .background(color = Color.White)
                         .padding(horizontal = medium)
-                        .padding(top = 24.dp, bottom = medium)
+                        .padding(top = cardTopPadding, bottom = medium)
                 ) {
                     with(state.loginButton) {
                         DsdButtonPrimary(
@@ -221,12 +220,20 @@ private fun LoginContent(
                     }
                 }
                 if (state.informationUrl != null) {
-                    InformationFloatingButton(
+                    // Zone qui va du haut de l'illustration jusqu'au haut du bouton « Se connecter » :
+                    // la boîte d'information y est ancrée en bas, à droite.
+                    Box(
                         modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(top = medium, end = medium),
-                        onClick = { actionListener.onClick(WelcomeAction.InformationLinkTapped) }
-                    )
+                            .align(Alignment.TopStart)
+                            .fillMaxWidth()
+                            .height(padding + cardTopPadding),
+                        contentAlignment = Alignment.BottomEnd
+                    ) {
+                        InformationFloatingButton(
+                            modifier = Modifier.padding(end = medium, bottom = medium),
+                            onClick = { actionListener.onClick(WelcomeAction.InformationLinkTapped) }
+                        )
+                    }
                 }
             }
         }
@@ -326,8 +333,8 @@ private fun AdjustedDsdSecondary(title: String, onClick: () -> Unit = {}) {
 
 @Composable
 private fun InformationFloatingButton(modifier: Modifier = Modifier, onClick: () -> Unit) {
-    var visible by rememberSaveable { mutableStateOf(false) }
-    var expanded by rememberSaveable { mutableStateOf(true) }
+    var visible by remember { mutableStateOf(false) }
+    var expanded by remember { mutableStateOf(true) }
 
     LaunchedEffect(Unit) {
         delay(INFO_SHOW_DELAY_MS)
@@ -337,25 +344,28 @@ private fun InformationFloatingButton(modifier: Modifier = Modifier, onClick: ()
     }
 
     val accessibilityHint = GiaLocalizedString.GIA_LOGIN_INFORMATION_ACCESSIBILITY_HINT.get()
+    val endMarginPx = with(LocalDensity.current) { medium.roundToPx() }
 
     AnimatedVisibility(
         visible = visible,
         modifier = modifier,
-        enter = slideInHorizontally(animationSpec = tween(INFO_ANIMATION_MS)) { fullWidth -> fullWidth } +
-            fadeIn(animationSpec = tween(INFO_ANIMATION_MS))
+        // Part complètement hors écran (largeur de la boîte + marge de droite) puis glisse vers sa place.
+        enter = slideInHorizontally(animationSpec = tween(INFO_ANIMATION_MS)) { fullWidth ->
+            fullWidth + endMarginPx
+        }
     ) {
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(percent = 50))
-                .background(colorResource(dsd_confirmation_4))
+                .shadow(elevation = informationElevation, shape = informationShape)
+                .background(Color.White, informationShape)
                 .clickable(role = Role.Button, onClick = onClick)
                 .semantics { contentDescription = accessibilityHint }
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
-                imageVector = Icons.Filled.Info, // PLACEHOLDER : remplacer par ico_learn_more
-                tint = Color.White,
+                imageVector = ImageVector.vectorResource(ico_information_bubble),
+                tint = colorResource(dsd_confirmation_4),
                 contentDescription = null,
                 modifier = Modifier.size(24.dp)
             )
@@ -366,7 +376,7 @@ private fun InformationFloatingButton(modifier: Modifier = Modifier, onClick: ()
                 exit = shrinkHorizontally(animationSpec = tween(INFO_ANIMATION_MS)) +
                     fadeOut(animationSpec = tween(INFO_ANIMATION_MS))
             ) {
-                Column(modifier = Modifier.padding(start = small)) {
+                Column(modifier = Modifier.padding(start = medium)) {
                     Text(
                         text = GiaLocalizedString.GIA_LOGIN_INFORMATION_TITLE.get(),
                         style = informationTitleTextStyle()
@@ -384,6 +394,9 @@ private fun InformationFloatingButton(modifier: Modifier = Modifier, onClick: ()
 private val small = 8.dp
 private val medium = 16.dp
 private val large = 32.dp
+private val cardTopPadding = 24.dp
+private val informationElevation = 4.dp
+private val informationShape = RoundedCornerShape(12.dp)
 private const val OVERLAP = 20
 private const val INFO_SHOW_DELAY_MS = 1_000L
 private const val INFO_COLLAPSE_DELAY_MS = 5_000L
@@ -400,7 +413,7 @@ private fun titleTextStyle() = TextStyle(
 
 @Composable
 private fun informationTitleTextStyle() = TextStyle(
-    color = Color.White,
+    color = colorResource(DsdR.color.dsd_graphite_7),
     fontFamily = regular,
     fontWeight = FontWeight(700),
     fontSize = 14.sp,
@@ -409,12 +422,11 @@ private fun informationTitleTextStyle() = TextStyle(
 
 @Composable
 private fun informationLearnMoreTextStyle() = TextStyle(
-    color = Color.White,
+    color = colorResource(DsdR.color.dsd_graphite_7),
     fontFamily = regular,
     fontWeight = FontWeight(400),
-    fontSize = 12.sp,
-    lineHeight = 16.sp,
-    textDecoration = TextDecoration.Underline
+    fontSize = 14.sp,
+    lineHeight = 20.sp
 )
 
 @Composable
