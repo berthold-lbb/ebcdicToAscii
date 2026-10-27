@@ -1,0 +1,29 @@
+%%{init: {"sequence": {"width": 190, "height": 80, "actorMargin": 30}}}%%
+sequenceDiagram
+    autonumber
+    participant FG as Android Foreground<br/>(app visible)
+    participant CO as Service Core<br/>DynamicMessageDragon<br/>ServiceImpl
+    participant KO as Service Kore<br/>DynamicMessageService
+    participant JT as Jeton + client HTTP Kore<br/>KoreAuthService<br/>TokenHttpClientProcessor
+    participant ME as Mémoire réseau<br/>NetworkStateImpl
+    participant SY as Système Android<br/>ConnectivityManager
+    participant EC as Écran et récepteur réseau<br/>Activity, onResume
+    participant A0 as Serveur Auth0
+
+    Note over FG,A0: Avec le correctif, on interroge le système au lieu de se fier à la mémoire
+    FG->>CO: L'app devient visible (ON_START)
+    FG->>KO: L'app devient visible (FOREGROUND)
+    CO->>JT: J'ai besoin d'un jeton valide
+    KO->>JT: J'appelle getdynamicmessages
+    JT->>ME: Y a-t-il du réseau ?
+    rect rgb(232, 238, 244)
+    ME->>SY: Quel est l'état réel du réseau maintenant ?
+    SY-->>ME: Wi-Fi ou mobile connecté
+    end
+    ME-->>JT: Oui
+    JT->>A0: POST /oauth/token
+    A0-->>JT: 200 OK
+    JT-->>CO: Jeton valide, l'appel part
+    JT-->>KO: L'appel part
+    Note over JT,ME: Si le téléphone est vraiment hors ligne, la réponse reste « non »
+    EC->>ME: onResume, puis 1er événement réseau (environ 114 ms plus tard, sans conséquence)

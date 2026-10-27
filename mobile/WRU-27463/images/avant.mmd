@@ -1,0 +1,29 @@
+%%{init: {"sequence": {"width": 190, "height": 80, "actorMargin": 30}}}%%
+sequenceDiagram
+    autonumber
+    participant FG as Android Foreground<br/>(app visible)
+    participant CO as Service Core<br/>DynamicMessageDragon<br/>ServiceImpl
+    participant KO as Service Kore<br/>DynamicMessageService
+    participant JT as Jeton + client HTTP Kore<br/>KoreAuthService<br/>TokenHttpClientProcessor
+    participant ME as Mémoire réseau<br/>NetworkStateImpl
+    participant EC as Écran et récepteur réseau<br/>Activity, onResume
+    participant A0 as Serveur Auth0
+
+    Note over FG,A0: Au démarrage, la mémoire réseau peut contenir « inconnu » ou « hors ligne »
+    FG->>CO: L'app devient visible (ON_START)
+    FG->>KO: L'app devient visible (FOREGROUND)
+    rect rgb(232, 238, 244)
+    CO->>JT: J'ai besoin d'un jeton valide
+    KO->>JT: J'appelle getdynamicmessages
+    JT->>ME: Y a-t-il du réseau ?
+    ME-->>JT: Non (valeur en mémoire, pas encore mise à jour)
+    JT-->>CO: Refus immédiat, aucune requête envoyée
+    JT-->>KO: Refus immédiat, aucune requête envoyée
+    end
+    EC->>ME: onResume, puis 1er événement réseau (environ 114 ms plus tard)
+    Note over ME: Mémoire à jour, mais les demandes sont déjà refusées
+    CO->>JT: Une demande plus tardive
+    JT->>ME: Y a-t-il du réseau ?
+    ME-->>JT: Oui
+    JT->>A0: POST /oauth/token
+    A0-->>JT: 200 OK
