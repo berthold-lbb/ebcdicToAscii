@@ -28,6 +28,7 @@ import com.desjardins.assurancedommages.mobile.transverse.domain.biometrics.Biom
 import com.desjardins.assurancedommages.mobile.transverse.domain.biometrics.BiometryProtectedStorage.BiometryError.USER_CANCELED
 import com.desjardins.assurancedommages.mobile.transverse.domain.biometrics.BiometryProtectedStorage.BiometryError.VERIFICATION_FAILED
 import io.github.aakira.napier.Napier
+import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.launch
 
@@ -62,10 +63,9 @@ class LoginHighPrivilegeViewModel internal constructor(
         }
     }
 
-    // WRU-26487 : vrai quand l'utilisateur a annule (USER_CANCELED) ou echoue (VERIFICATION_FAILED)
-    // l'invite biometrique de lecture. Le jeton stocke est alors intact : apres le login manuel on ne
-    // le reecrit pas, donc pas de 2e invite. Reste false pour INVALID_STORAGE / KEY_INVALIDATED.
-    private var biometricsDeclinedDuringThisLogin = false
+    // WRU-26487 : après une annulation ou un échec de vérification, conserver le jeton
+    // stocké sans nouvelle invite après la connexion manuelle. Les accès traversent des dispatchers.
+    private val biometricsDeclinedDuringThisLogin = atomic(false)
 
     init {
         observeRepositoryData()
@@ -203,6 +203,8 @@ class LoginHighPrivilegeViewModel internal constructor(
     }
 
     private fun handleWithBiometrics(action: GetRefreshTokenWithBiometrics) = viewModelScope.launch(dispatcher) {
+        // WRU-26487 : chaque tentative repart sans le refus de la tentative précédente.
+        biometricsDeclinedDuringThisLogin.value = false
         highPrivilegeTokenRepository
             .getRefreshTokenFromBiometrics(
                 action.contextType,
@@ -218,7 +220,7 @@ class LoginHighPrivilegeViewModel internal constructor(
                 onFailure = { exc ->
                     if (exc is BiometricsException && exc.error in MANUAL_LOGIN_RECOVERABLE_ERRORS) {
                         // WRU-26487 : memoriser le refus de l'utilisateur (voir le champ plus haut).
-                        biometricsDeclinedDuringThisLogin =
+                        biometricsDeclinedDuringThisLogin.value =
                             exc.error == USER_CANCELED || exc.error == VERIFICATION_FAILED
                         updateManualConnectionModal(true)
                     } else {
@@ -346,7 +348,7 @@ class LoginHighPrivilegeViewModel internal constructor(
                 // On reset le TTL seulement lorsqu'on ouvre un OCS et non lorsque la biométrie est en activation (HighPrivilegeWithoutOcs)
                 ttlManager.reset()
                 // WRU-26487 : pas de reecriture du jeton (donc pas de 2e invite) si l'utilisateur a refuse.
-                if (biometricsRepository.isBiometricsEnabledOnApp() && !biometricsDeclinedDuringThisLogin) {
+                if (biometricsRepository.isBiometricsEnabledOnApp() && !biometricsDeclinedDuringThisLogin.value) {
                     refreshTokenFetchedReaction(refreshToken = refreshToken, url = resolvedOcsUrl)
                 } else {
                     handleReaction(LoginReaction.OpenOcs(resolvedOcsUrl))
@@ -373,8 +375,8 @@ class LoginHighPrivilegeViewModel internal constructor(
         private const val SESSION_TX_TYPE =
             "urn:auth0:params:oauth:token-type:session_transfer_token"
 
-        // Erreurs biometriques rattrapables : on propose une connexion manuelle, qui resauvegardera
-        // le jeton en biometrie et regenerera au passage la cle si elle etait perimee.
+        // Erreurs récupérables par connexion manuelle. Le jeton est ensuite sauvegardé sauf
+        // après une annulation ou un échec de vérification de cette tentative.
         private val MANUAL_LOGIN_RECOVERABLE_ERRORS =
             setOf(USER_CANCELED, VERIFICATION_FAILED, INVALID_STORAGE, KEY_INVALIDATED)
     }

@@ -539,10 +539,13 @@ class LoginHighPrivilegeViewModelTest : BaseTest() {
                 )
             )
             advanceUntilIdle()
-            viewModel.handleAction(LoginAction.RedirectLoaded(loginRedirect(AUTH_CODE), OCS_URL))
-            advanceUntilIdle()
+            assertEquals(LoginUiStateError.ManualConnection(), viewModel.uiStateDataFlow.value.error)
 
-            assertEquals(LoginReaction.OpenOcs(OCS_URL), expectMostRecentItem())
+            viewModel.handleAction(LoginAction.RedirectLoaded(loginRedirect(AUTH_CODE), OCS_URL))
+
+            assertEquals(LoginReaction.OpenOcs(OCS_URL), awaitItem())
+            cancelAndIgnoreRemainingEvents()
+            viewModel.onDestroy()
         }
     }
 
@@ -561,10 +564,13 @@ class LoginHighPrivilegeViewModelTest : BaseTest() {
                 )
             )
             advanceUntilIdle()
-            viewModel.handleAction(LoginAction.RedirectLoaded(loginRedirect(AUTH_CODE), OCS_URL))
-            advanceUntilIdle()
+            assertEquals(LoginUiStateError.ManualConnection(), viewModel.uiStateDataFlow.value.error)
 
-            assertEquals(LoginReaction.OpenOcs(OCS_URL), expectMostRecentItem())
+            viewModel.handleAction(LoginAction.RedirectLoaded(loginRedirect(AUTH_CODE), OCS_URL))
+
+            assertEquals(LoginReaction.OpenOcs(OCS_URL), awaitItem())
+            cancelAndIgnoreRemainingEvents()
+            viewModel.onDestroy()
         }
     }
 
@@ -584,16 +590,19 @@ class LoginHighPrivilegeViewModelTest : BaseTest() {
                     )
                 )
                 advanceUntilIdle()
+                assertEquals(LoginUiStateError.ManualConnection(), viewModel.uiStateDataFlow.value.error)
+
                 viewModel.handleAction(LoginAction.RedirectLoaded(loginRedirect(AUTH_CODE), OCS_URL))
-                advanceUntilIdle()
 
                 assertEquals(
                     LoginReaction.RefreshTokenFetchedWithoutOcs(
                         refreshToken = REFRESH_TOKEN,
                         ocsUrlToOpen = OCS_URL
                     ),
-                    expectMostRecentItem()
+                    awaitItem()
                 )
+                cancelAndIgnoreRemainingEvents()
+                viewModel.onDestroy()
             }
         }
 
@@ -613,16 +622,77 @@ class LoginHighPrivilegeViewModelTest : BaseTest() {
                     )
                 )
                 advanceUntilIdle()
+                assertEquals(LoginUiStateError.ManualConnection(), viewModel.uiStateDataFlow.value.error)
+
                 viewModel.handleAction(LoginAction.RedirectLoaded(loginRedirect(AUTH_CODE), OCS_URL))
-                advanceUntilIdle()
 
                 assertEquals(
                     LoginReaction.RefreshTokenFetchedWithoutOcs(
                         refreshToken = REFRESH_TOKEN,
                         ocsUrlToOpen = OCS_URL
                     ),
-                    expectMostRecentItem()
+                    awaitItem()
                 )
+                cancelAndIgnoreRemainingEvents()
+                viewModel.onDestroy()
+            }
+        }
+
+    // WRU-26487 : un ancien refus ne doit pas empêcher de remplacer un jeton ensuite refusé par le serveur.
+    @Test
+    fun `save new token after canceled prompt then unauthorized biometric retry in same instance`() =
+        runTest(testDispatcher) {
+            stubBiometricsFailureThenValidLogin(BiometryProtectedStorage.BiometryError.USER_CANCELED)
+            val biometricsAction = LoginAction.GetRefreshTokenWithBiometrics(
+                url = OCS_URL,
+                contextType = BiometryPromptContextType.IOS,
+                contextReference = REF
+            )
+
+            viewModel.reactionStateFlow.test {
+                assertEquals(LoginReaction.Nothing, awaitItem())
+
+                // Première tentative : l'annulation mémorise le refus.
+                viewModel.handleAction(biometricsAction)
+                advanceUntilIdle()
+                assertEquals(LoginUiStateError.ManualConnection(), viewModel.uiStateDataFlow.value.error)
+                viewModel.handleAction(LoginAction.ManualLoginCancel)
+                assertEquals(null, viewModel.uiStateDataFlow.value.error)
+
+                // Même instance : la lecture réussit, mais le serveur refuse le jeton stocké.
+                coEvery {
+                    highPrivilegeTokenRepository.getRefreshTokenFromBiometrics(any(), any())
+                } returns Result.success(REFRESH_TOKEN)
+                coEvery {
+                    highPrivilegeTokenRepository.fetchTokens(
+                        authorizationCode = "",
+                        codeVerifier = "",
+                        isSessionTransferToken = true,
+                        refreshToken = REFRESH_TOKEN
+                    )
+                } returns Result.failure(HighPrivilegeTokenFetchException.Unauthorized())
+
+                viewModel.handleAction(biometricsAction)
+                advanceUntilIdle()
+                coVerify(exactly = 2) {
+                    highPrivilegeTokenRepository.getRefreshTokenFromBiometrics(any(), any())
+                }
+                coVerify(exactly = 1) {
+                    highPrivilegeTokenRepository.fetchTokens("", "", true, REFRESH_TOKEN)
+                }
+                assertEquals(LoginUiStateError.ManualConnection(), viewModel.uiStateDataFlow.value.error)
+
+                // La connexion manuelle doit demander la sauvegarde, et non ouvrir directement l'OCS.
+                viewModel.handleAction(LoginAction.RedirectLoaded(loginRedirect(AUTH_CODE), OCS_URL))
+                assertEquals(
+                    LoginReaction.RefreshTokenFetchedWithoutOcs(
+                        refreshToken = REFRESH_TOKEN,
+                        ocsUrlToOpen = OCS_URL
+                    ),
+                    awaitItem()
+                )
+                cancelAndIgnoreRemainingEvents()
+                viewModel.onDestroy()
             }
         }
 
