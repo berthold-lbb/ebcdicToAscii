@@ -68,6 +68,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.tooling.preview.PreviewParameter
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import ca.dgag.ajusto.R
@@ -230,6 +231,8 @@ private fun LoginContent(
                         contentAlignment = Alignment.BottomEnd
                     ) {
                         InformationFloatingButton(
+                            // Même marge à droite que la carte des boutons : bord droit aligné avec eux.
+                            endMargin = medium,
                             onClick = { actionListener.onClick(WelcomeAction.InformationLinkTapped) }
                         )
                     }
@@ -331,7 +334,7 @@ private fun AdjustedDsdSecondary(title: String, onClick: () -> Unit = {}) {
 }
 
 @Composable
-private fun InformationFloatingButton(modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun InformationFloatingButton(endMargin: Dp, modifier: Modifier = Modifier, onClick: () -> Unit) {
     var visible by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(true) }
 
@@ -343,17 +346,17 @@ private fun InformationFloatingButton(modifier: Modifier = Modifier, onClick: ()
     }
 
     val accessibilityHint = GiaLocalizedString.GIA_LOGIN_INFORMATION_ACCESSIBILITY_HINT.get()
-    // Même marge à droite et au-dessus du bouton « Se connecter » : la gouttière d'écran du DSD.
-    val gutter = dsd.dimensions.padding.small
-    val gutterPx = with(LocalDensity.current) { gutter.roundToPx() }
+    // Écart vertical entre la boîte et le bouton « Se connecter » (jeton DSD).
+    val bottomGap = dsd.dimensions.padding.small
+    val endMarginPx = with(LocalDensity.current) { endMargin.roundToPx() }
     val shape = RoundedCornerShape(dsd.dimensions.radius.small)
 
     AnimatedVisibility(
         visible = visible,
-        modifier = modifier.padding(end = gutter, bottom = gutter),
+        modifier = modifier.padding(end = endMargin, bottom = bottomGap),
         // Part complètement hors écran (largeur de la boîte + marge de droite) puis glisse vers sa place.
         enter = slideInHorizontally(animationSpec = tween(INFO_ANIMATION_MS)) { fullWidth ->
-            fullWidth + gutterPx
+            fullWidth + endMarginPx
         }
     ) {
         Row(
@@ -362,7 +365,7 @@ private fun InformationFloatingButton(modifier: Modifier = Modifier, onClick: ()
                 .background(dsd.colors.background.default, shape)
                 .clickable(role = Role.Button, onClick = onClick)
                 .semantics { contentDescription = accessibilityHint }
-                .padding(dsd.dimensions.padding.small),
+                .padding(dsd.dimensions.padding.xsmall),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -378,7 +381,7 @@ private fun InformationFloatingButton(modifier: Modifier = Modifier, onClick: ()
                 exit = shrinkHorizontally(animationSpec = tween(INFO_ANIMATION_MS)) +
                     fadeOut(animationSpec = tween(INFO_ANIMATION_MS))
             ) {
-                Column(modifier = Modifier.padding(start = dsd.dimensions.padding.xsmall)) {
+                Column(modifier = Modifier.padding(horizontal = dsd.dimensions.padding.xsmall)) {
                     Text(
                         text = GiaLocalizedString.GIA_LOGIN_INFORMATION_TITLE.get(),
                         style = dsd.typography.b40Bold,
