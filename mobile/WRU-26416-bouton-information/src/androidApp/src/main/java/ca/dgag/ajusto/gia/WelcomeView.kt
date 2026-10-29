@@ -2,10 +2,10 @@ package ca.dgag.ajusto.gia
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandIn
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
+import androidx.compose.animation.shrinkOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
@@ -82,6 +82,7 @@ import ca.dgag.ajusto.compose.ButtonParam
 import ca.dgag.ajusto.compose.dsd.DsdButton
 import ca.dgag.ajusto.compose.dsd.DsdButtonPrimary
 import ca.dgag.ajusto.compose.dsd.InsuranceDSDModal
+import ca.dgag.ajusto.compose.dsd.theme.InsuranceTheme
 import ca.dgag.ajusto.compose.dsd.theme.InsuranceTheme.dsd
 import ca.dgag.ajusto.compose.font.regular
 import ca.dgag.ajusto.compose.view.ContactAppBar
@@ -114,7 +115,13 @@ internal fun WelcomeView(viewModel: WelcomeViewModel, actionListener: ActionList
 
 @Preview
 @Composable
-internal fun WelcomeView(@PreviewParameter(WelcomeMock::class) state: WelcomeState) {
+private fun WelcomeViewPreview(@PreviewParameter(WelcomeMock::class) state: WelcomeState) {
+    // Les jetons `dsd` ne sont fournis que par InsuranceTheme : sans lui, la preview ne s'affiche pas.
+    InsuranceTheme { WelcomeView(state) }
+}
+
+@Composable
+internal fun WelcomeView(state: WelcomeState) {
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
@@ -345,11 +352,9 @@ private fun InformationFloatingButton(endMargin: Dp, modifier: Modifier = Modifi
         expanded = false
     }
 
-    val accessibilityHint = GiaLocalizedString.GIA_LOGIN_INFORMATION_ACCESSIBILITY_HINT.get()
     // Écart vertical entre la boîte et le bouton « Se connecter » (jeton DSD).
     val bottomGap = dsd.dimensions.padding.small
     val endMarginPx = with(LocalDensity.current) { endMargin.roundToPx() }
-    val shape = RoundedCornerShape(dsd.dimensions.radius.small)
 
     AnimatedVisibility(
         visible = visible,
@@ -359,41 +364,99 @@ private fun InformationFloatingButton(endMargin: Dp, modifier: Modifier = Modifi
             fullWidth + endMarginPx
         }
     ) {
-        Row(
-            modifier = Modifier
-                .shadow(elevation = informationElevation, shape = shape)
-                .background(dsd.colors.background.default, shape)
-                .clickable(role = Role.Button, onClick = onClick)
-                .semantics { contentDescription = accessibilityHint }
-                .padding(dsd.dimensions.padding.xsmall),
-            verticalAlignment = Alignment.CenterVertically
+        InformationFloatingButtonContent(expanded = expanded, onClick = onClick)
+    }
+}
+
+// Le rendu est indépendant des délais pour prévisualiser les deux états immédiatement.
+@Composable
+private fun InformationFloatingButtonContent(
+    expanded: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val accessibilityHint = GiaLocalizedString.GIA_LOGIN_INFORMATION_ACCESSIBILITY_HINT.get()
+    val shape = RoundedCornerShape(dsd.dimensions.radius.small)
+    Row(
+        modifier = modifier
+            .shadow(elevation = informationElevation, shape = shape)
+            .background(dsd.colors.background.default, shape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = accessibilityHint }
+            .padding(dsd.dimensions.padding.xsmall),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = ImageVector.vectorResource(ico_information_bubble),
+            tint = dsd.colors.icon.brand,
+            contentDescription = null,
+            modifier = Modifier.size(dimensionResource(dsd_icon_size))
+        )
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandIn(
+                animationSpec = tween(INFO_ANIMATION_MS),
+                expandFrom = Alignment.CenterStart
+            ) +
+                fadeIn(animationSpec = tween(INFO_ANIMATION_MS)),
+            // Anime les deux dimensions pour éviter un saut de hauteur en fin de réduction.
+            exit = shrinkOut(
+                animationSpec = tween(INFO_ANIMATION_MS),
+                shrinkTowards = Alignment.CenterStart
+            ) +
+                fadeOut(animationSpec = tween(INFO_ANIMATION_MS))
         ) {
-            Icon(
-                imageVector = ImageVector.vectorResource(ico_information_bubble),
-                tint = dsd.colors.icon.brand,
-                contentDescription = null,
-                modifier = Modifier.size(dimensionResource(dsd_icon_size))
-            )
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandHorizontally(animationSpec = tween(INFO_ANIMATION_MS)) +
-                    fadeIn(animationSpec = tween(INFO_ANIMATION_MS)),
-                exit = shrinkHorizontally(animationSpec = tween(INFO_ANIMATION_MS)) +
-                    fadeOut(animationSpec = tween(INFO_ANIMATION_MS))
-            ) {
-                Column(modifier = Modifier.padding(horizontal = dsd.dimensions.padding.xsmall)) {
-                    Text(
-                        text = GiaLocalizedString.GIA_LOGIN_INFORMATION_TITLE.get(),
-                        style = dsd.typography.b40Bold,
-                        color = dsd.colors.font.default
-                    )
-                    Text(
-                        text = GiaLocalizedString.GIA_LOGIN_INFORMATION_LEARN_MORE.get(),
-                        style = dsd.typography.b40,
-                        color = dsd.colors.font.default
-                    )
-                }
+            Column(modifier = Modifier.padding(horizontal = dsd.dimensions.padding.xsmall)) {
+                Text(
+                    text = GiaLocalizedString.GIA_LOGIN_INFORMATION_TITLE.get(),
+                    style = dsd.typography.b40Bold,
+                    color = dsd.colors.font.default
+                )
+                Text(
+                    text = GiaLocalizedString.GIA_LOGIN_INFORMATION_LEARN_MORE.get(),
+                    style = dsd.typography.b40,
+                    color = dsd.colors.font.default
+                )
             }
+        }
+    }
+}
+
+@Preview(name = "Desjardins FR — déployé", locale = "fr", showBackground = true)
+@Preview(name = "Desjardins EN — déployé", locale = "en", showBackground = true)
+@Preview(name = "Desjardins FR — grande police", locale = "fr", fontScale = 2f, showBackground = true)
+@Composable
+private fun InformationFloatingButtonExpandedPreview() {
+    InformationFloatingButtonPreview(expanded = true, isDgag = true)
+}
+
+@Preview(name = "Desjardins FR — réduit", locale = "fr", showBackground = true)
+@Preview(name = "Desjardins EN — réduit", locale = "en", showBackground = true)
+@Composable
+private fun InformationFloatingButtonCollapsedPreview() {
+    InformationFloatingButtonPreview(expanded = false, isDgag = true)
+}
+
+@Preview(name = "La Personnelle FR — déployé", locale = "fr", showBackground = true)
+@Preview(name = "La Personnelle EN — déployé", locale = "en", showBackground = true)
+@Preview(name = "La Personnelle FR — grande police", locale = "fr", fontScale = 2f, showBackground = true)
+@Composable
+private fun TpicInformationFloatingButtonExpandedPreview() {
+    InformationFloatingButtonPreview(expanded = true, isDgag = false)
+}
+
+@Preview(name = "La Personnelle FR — réduit", locale = "fr", showBackground = true)
+@Preview(name = "La Personnelle EN — réduit", locale = "en", showBackground = true)
+@Composable
+private fun TpicInformationFloatingButtonCollapsedPreview() {
+    InformationFloatingButtonPreview(expanded = false, isDgag = false)
+}
+
+@Composable
+private fun InformationFloatingButtonPreview(expanded: Boolean, isDgag: Boolean) {
+    InsuranceTheme(isDarkTheme = false, isDgag = isDgag) {
+        Box(modifier = Modifier.padding(dsd.dimensions.padding.small)) {
+            InformationFloatingButtonContent(expanded = expanded, onClick = {})
         }
     }
 }

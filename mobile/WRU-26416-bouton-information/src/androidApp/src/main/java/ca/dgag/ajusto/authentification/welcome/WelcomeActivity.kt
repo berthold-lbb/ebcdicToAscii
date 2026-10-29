@@ -25,7 +25,7 @@ import ca.dgag.ajusto.home.MainActivity
 import ca.dgag.ajusto.kore.activity.BaseKoreActivity
 import ca.dgag.ajusto.onetrust.OneTrustWrapperImpl
 import ca.dgag.ajusto.utils.AppUtil
-import ca.dgag.ajusto.views.model.ShowExternalDSDDialog
+import ca.dgag.ajusto.views.modal.ShowExternalDSDDialog
 import com.desjardins.assurancedommages.mobile.feature.authenticate.domain.Screen
 import com.desjardins.assurancedommages.mobile.feature.authenticate.presentation.welcome.WelcomeAction
 import com.desjardins.assurancedommages.mobile.feature.authenticate.presentation.welcome.WelcomeReaction
