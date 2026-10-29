@@ -230,7 +230,6 @@ private fun LoginContent(
                         contentAlignment = Alignment.BottomEnd
                     ) {
                         InformationFloatingButton(
-                            modifier = Modifier.padding(end = medium, bottom = medium),
                             onClick = { actionListener.onClick(WelcomeAction.InformationLinkTapped) }
                         )
                     }
@@ -344,30 +343,33 @@ private fun InformationFloatingButton(modifier: Modifier = Modifier, onClick: ()
     }
 
     val accessibilityHint = GiaLocalizedString.GIA_LOGIN_INFORMATION_ACCESSIBILITY_HINT.get()
-    val endMarginPx = with(LocalDensity.current) { medium.roundToPx() }
+    // Même marge à droite et au-dessus du bouton « Se connecter » : la gouttière d'écran du DSD.
+    val gutter = dsd.dimensions.padding.small
+    val gutterPx = with(LocalDensity.current) { gutter.roundToPx() }
+    val shape = RoundedCornerShape(dsd.dimensions.radius.small)
 
     AnimatedVisibility(
         visible = visible,
-        modifier = modifier,
+        modifier = modifier.padding(end = gutter, bottom = gutter),
         // Part complètement hors écran (largeur de la boîte + marge de droite) puis glisse vers sa place.
         enter = slideInHorizontally(animationSpec = tween(INFO_ANIMATION_MS)) { fullWidth ->
-            fullWidth + endMarginPx
+            fullWidth + gutterPx
         }
     ) {
         Row(
             modifier = Modifier
-                .shadow(elevation = informationElevation, shape = informationShape)
-                .background(Color.White, informationShape)
+                .shadow(elevation = informationElevation, shape = shape)
+                .background(dsd.colors.background.default, shape)
                 .clickable(role = Role.Button, onClick = onClick)
                 .semantics { contentDescription = accessibilityHint }
-                .padding(12.dp),
+                .padding(dsd.dimensions.padding.small),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 imageVector = ImageVector.vectorResource(ico_information_bubble),
-                tint = colorResource(dsd_confirmation_4),
+                tint = dsd.colors.icon.brand,
                 contentDescription = null,
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(dimensionResource(dsd_icon_size))
             )
             AnimatedVisibility(
                 visible = expanded,
@@ -376,14 +378,16 @@ private fun InformationFloatingButton(modifier: Modifier = Modifier, onClick: ()
                 exit = shrinkHorizontally(animationSpec = tween(INFO_ANIMATION_MS)) +
                     fadeOut(animationSpec = tween(INFO_ANIMATION_MS))
             ) {
-                Column(modifier = Modifier.padding(start = medium)) {
+                Column(modifier = Modifier.padding(start = dsd.dimensions.padding.xsmall)) {
                     Text(
                         text = GiaLocalizedString.GIA_LOGIN_INFORMATION_TITLE.get(),
-                        style = informationTitleTextStyle()
+                        style = dsd.typography.b40Bold,
+                        color = dsd.colors.font.default
                     )
                     Text(
                         text = GiaLocalizedString.GIA_LOGIN_INFORMATION_LEARN_MORE.get(),
-                        style = informationLearnMoreTextStyle()
+                        style = dsd.typography.b40,
+                        color = dsd.colors.font.default
                     )
                 }
             }
@@ -395,8 +399,7 @@ private val small = 8.dp
 private val medium = 16.dp
 private val large = 32.dp
 private val cardTopPadding = 24.dp
-private val informationElevation = 4.dp
-private val informationShape = RoundedCornerShape(12.dp)
+private val informationElevation = 4.dp // pas de jeton d'élévation DSD connu ; même valeur que EmailSectionComposable
 private const val OVERLAP = 20
 private const val INFO_SHOW_DELAY_MS = 1_000L
 private const val INFO_COLLAPSE_DELAY_MS = 5_000L
@@ -409,24 +412,6 @@ private fun titleTextStyle() = TextStyle(
     fontWeight = FontWeight(400),
     fontSize = 16.sp,
     lineHeight = 24.sp
-)
-
-@Composable
-private fun informationTitleTextStyle() = TextStyle(
-    color = colorResource(DsdR.color.dsd_graphite_7),
-    fontFamily = regular,
-    fontWeight = FontWeight(700),
-    fontSize = 14.sp,
-    lineHeight = 20.sp
-)
-
-@Composable
-private fun informationLearnMoreTextStyle() = TextStyle(
-    color = colorResource(DsdR.color.dsd_graphite_7),
-    fontFamily = regular,
-    fontWeight = FontWeight(400),
-    fontSize = 14.sp,
-    lineHeight = 20.sp
 )
 
 @Composable
